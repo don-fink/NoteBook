@@ -6,8 +6,8 @@
    <rect>
     <x>0</x>
     <y>0</y>
-    <width>882</width>
-    <height>701</height>
+    <width>1249</width>
+    <height>737</height>
    </rect>
   </property>
   <property name="windowTitle">
@@ -17,12 +17,18 @@
    <string notr="true">background-color: rgb(202, 202, 202);</string>
   </property>
   <widget class="QWidget" name="centralwidget">
-   <layout class="QHBoxLayout" name="horizontalLayout">
+   <layout class="QHBoxLayout" name="horizontalLayout" stretch="0,2,0">
     <item>
      <widget class="QTreeWidget" name="notebookName">
+      <property name="minimumSize">
+       <size>
+        <width>150</width>
+        <height>0</height>
+       </size>
+      </property>
       <property name="maximumSize">
        <size>
-        <width>250</width>
+        <width>16777215</width>
         <height>16777215</height>
        </size>
       </property>
@@ -81,6 +87,13 @@
       </layout>
      </widget>
     </item>
+    <item>
+     <widget class="QTreeView" name="sectionPages">
+      <property name="headerHidden">
+       <bool>true</bool>
+      </property>
+     </widget>
+    </item>
    </layout>
   </widget>
   <widget class="QMenuBar" name="menubar">
@@ -88,7 +101,7 @@
     <rect>
      <x>0</x>
      <y>0</y>
-     <width>882</width>
+     <width>1249</width>
      <height>22</height>
     </rect>
    </property>
@@ -99,9 +112,44 @@
     <addaction name="actionOpen"/>
     <addaction name="actionSave"/>
     <addaction name="actionSave_As"/>
+    <addaction name="actionNew_Database"/>
+    <addaction name="separator"/>
+    <addaction name="actionExport_Database"/>
+    <addaction name="separator"/>
     <addaction name="actionExit"/>
    </widget>
+     <widget class="QMenu" name="menuWorkbook">
+    <property name="title">
+         <string>Binder</string>
+    </property>
+    <addaction name="actionAdd_WorkBook"/>
+    <addaction name="actionDelete_Workbook"/>
+    <addaction name="actionRename_WorkBook"/>
+   </widget>
+    <widget class="QMenu" name="menuInsert">
+    <property name="title">
+     <string>Insert</string>
+    </property>
+    <addaction name="actionAdd_Workbook"/>
+    <addaction name="actionAdd_Scction"/>
+    <addaction name="actionAdd_Page"/>
+   </widget>
+   <widget class="QMenu" name="menuView">
+    <property name="title">
+     <string>View</string>
+    </property>
+    <addaction name="actionRich_Text_Tools"/>
+   </widget>
+   <widget class="QMenu" name="menuHelp">
+    <property name="title">
+     <string>Help</string>
+    </property>
+   </widget>
    <addaction name="menuFile"/>
+   <addaction name="menuWorkbook"/>
+   <addaction name="menuInsert"/>
+   <addaction name="menuView"/>
+   <addaction name="menuHelp"/>
   </widget>
   <widget class="QStatusBar" name="statusbar"/>
   <action name="actionOpen">
@@ -122,6 +170,51 @@
   <action name="actionExit">
    <property name="text">
     <string>Exit</string>
+   </property>
+  </action>
+  <action name="actionNew_Database">
+   <property name="text">
+    <string>New Database</string>
+   </property>
+  </action>
+  <action name="actionExport_Database">
+   <property name="text">
+    <string>Export Database</string>
+   </property>
+  </action>
+    <action name="actionAdd_WorkBook">
+   <property name="text">
+        <string>Add Binder</string>
+   </property>
+  </action>
+  <action name="actionDelete_Workbook">
+   <property name="text">
+        <string>Delete Binder</string>
+   </property>
+  </action>
+  <action name="actionRename_WorkBook">
+   <property name="text">
+        <string>Rename Binder</string>
+   </property>
+  </action>
+  <action name="actionAdd_Workbook">
+   <property name="text">
+        <string>Add Binder</string>
+   </property>
+  </action>
+  <action name="actionAdd_Scction">
+   <property name="text">
+    <string>Add Section</string>
+   </property>
+  </action>
+  <action name="actionAdd_Page">
+   <property name="text">
+    <string>Add Page</string>
+   </property>
+  </action>
+  <action name="actionRich_Text_Tools">
+   <property name="text">
+    <string>Rich Text Tools</string>
    </property>
   </action>
  </widget>

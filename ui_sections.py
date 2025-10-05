@@ -6,6 +6,7 @@ Handles logic for displaying sections and pages in the UI, including populating 
 from PyQt5 import QtWidgets
 from db_sections import get_sections_by_notebook_id
 from db_pages import get_pages_by_section_id
+from ui_tabs import select_tab_for_section, load_first_page_for_current_tab
 
 def add_sections_as_children(tree_widget, notebook_id, parent_item, db_path):
     sections = get_sections_by_notebook_id(notebook_id, db_path)
@@ -38,16 +39,6 @@ def on_section_clicked(item, column, db_path):
         return
     section_id = item.data(0, 1000)
     window = item.treeWidget().window()
-    tab_widget = window.findChild(QtWidgets.QTabWidget, 'tabPages')
-    tab_widget.clear()
     if section_id is not None:
-        pages = get_pages_by_section_id(section_id, db_path)
-        for page in pages:
-            # page[2] = title, page[3] = content_html
-            tab = QtWidgets.QWidget()
-            layout = QtWidgets.QVBoxLayout(tab)
-            text_edit = QtWidgets.QTextEdit(tab)
-            text_edit.setObjectName('textEdit')
-            text_edit.setHtml(page[3])
-            layout.addWidget(text_edit)
-            tab_widget.addTab(tab, page[2])
+        select_tab_for_section(window, section_id)
+        load_first_page_for_current_tab(window)

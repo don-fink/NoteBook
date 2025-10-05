@@ -12,6 +12,7 @@ CREATE TABLE sections (
   id            INTEGER PRIMARY KEY AUTOINCREMENT,
   notebook_id   INTEGER NOT NULL,
   title         TEXT    NOT NULL,
+  color_hex     TEXT,
   created_at    TEXT    NOT NULL DEFAULT (datetime('now')),
   modified_at   TEXT    NOT NULL DEFAULT (datetime('now')),
   order_index   INTEGER NOT NULL DEFAULT 0,

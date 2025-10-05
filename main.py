@@ -3,100 +3,402 @@ main.py
 Entry point for the NoteBook application. Handles main window setup, menu actions, database creation/opening, and application startup.
 """
 import sys
+import warnings
 from PyQt5 import QtWidgets
+from PyQt5.QtCore import QProcess
 from ui_loader import load_main_window
 from ui_logic import populate_notebook_names
-from settings_manager import get_last_db, set_last_db
+from ui_tabs import setup_tab_sync, restore_last_position, refresh_for_notebook, ensure_left_tree_sections
+from settings_manager import set_last_state
+from settings_manager import (
+    get_last_db,
+    set_last_db,
+    get_window_geometry,
+    set_window_geometry,
+    get_window_maximized,
+    set_window_maximized,
+    clear_last_state,
+)
+from db_access import create_notebook as db_create_notebook, rename_notebook as db_rename_notebook, delete_notebook as db_delete_notebook
+from db_sections import create_section as db_create_section, get_sections_by_notebook_id as db_get_sections_by_notebook_id
+from db_pages import create_page as db_create_page
 
 def create_new_database(window):
     options = QtWidgets.QFileDialog.Options()
     file_name, _ = QtWidgets.QFileDialog.getSaveFileName(window, "Create New Database", "", "SQLite DB Files (*.db);;All Files (*)", options=options)
-    if file_name:
-        import sqlite3
-        conn = sqlite3.connect(file_name)
-        cursor = conn.cursor()
-        cursor.executescript('''
-            CREATE TABLE IF NOT EXISTS notebooks (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                title TEXT NOT NULL,
-                created_at TEXT NOT NULL DEFAULT (datetime('now')),
-                modified_at TEXT NOT NULL DEFAULT (datetime('now')),
-                order_index INTEGER NOT NULL DEFAULT 0
-            );
-            CREATE TABLE IF NOT EXISTS sections (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                notebook_id INTEGER NOT NULL,
-                title TEXT NOT NULL,
-                created_at TEXT NOT NULL DEFAULT (datetime('now')),
-                modified_at TEXT NOT NULL DEFAULT (datetime('now')),
-                order_index INTEGER NOT NULL DEFAULT 0,
-                FOREIGN KEY (notebook_id) REFERENCES notebooks(id)
-            );
-            CREATE TABLE IF NOT EXISTS pages (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                section_id INTEGER NOT NULL,
-                title TEXT NOT NULL,
-                content_html TEXT,
-                created_at TEXT NOT NULL DEFAULT (datetime('now')),
-                modified_at TEXT NOT NULL DEFAULT (datetime('now')),
-                order_index INTEGER NOT NULL DEFAULT 0,
-                FOREIGN KEY (section_id) REFERENCES sections(id)
-            );
-        ''')
-        conn.commit()
-        # Set version to 1
-        cursor.execute('PRAGMA user_version = 1')
-        conn.commit()
-        conn.close()
-        set_last_db(file_name)
-        # Clear widgets
-        tree_widget = window.findChild(QtWidgets.QTreeWidget, 'notebookName')
-        if tree_widget:
-            tree_widget.clear()
+    if not file_name:
+        return
+    import sqlite3
+    conn = sqlite3.connect(file_name)
+    cursor = conn.cursor()
+    cursor.executescript('''
+        PRAGMA foreign_keys = ON;
+        CREATE TABLE IF NOT EXISTS notebooks (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            title TEXT NOT NULL,
+            created_at TEXT NOT NULL DEFAULT (datetime('now')),
+            modified_at TEXT NOT NULL DEFAULT (datetime('now')),
+            order_index INTEGER NOT NULL DEFAULT 0
+        );
+        CREATE TABLE IF NOT EXISTS sections (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            notebook_id INTEGER NOT NULL,
+            title TEXT NOT NULL,
+            color_hex TEXT,
+            created_at TEXT NOT NULL DEFAULT (datetime('now')),
+            modified_at TEXT NOT NULL DEFAULT (datetime('now')),
+            order_index INTEGER NOT NULL DEFAULT 0,
+            FOREIGN KEY (notebook_id) REFERENCES notebooks(id) ON DELETE CASCADE
+        );
+        CREATE TABLE IF NOT EXISTS pages (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            section_id INTEGER NOT NULL,
+            title TEXT NOT NULL,
+            content_html TEXT,
+            created_at TEXT NOT NULL DEFAULT (datetime('now')),
+            modified_at TEXT NOT NULL DEFAULT (datetime('now')),
+            order_index INTEGER NOT NULL DEFAULT 0,
+            FOREIGN KEY (section_id) REFERENCES sections(id) ON DELETE CASCADE
+        );
+    ''')
+    conn.commit()
+    # Set version to 2 (includes sections.color_hex)
+    cursor.execute('PRAGMA user_version = 2')
+    conn.commit()
+    conn.close()
+    set_last_db(file_name)
+    clear_last_state()
+    # Force a clean restart so UI initializes with the new database
+    restart_application()
+
+def _select_left_tree_notebook(window, notebook_id: int):
+    tree_widget = window.findChild(QtWidgets.QTreeWidget, 'notebookName')
+    if not tree_widget:
+        return
+    for i in range(tree_widget.topLevelItemCount()):
+        top = tree_widget.topLevelItem(i)
+        if top.data(0, 1000) == notebook_id:
+            tree_widget.setCurrentItem(top)
+            break
+
+def add_binder(window):
+    title, ok = QtWidgets.QInputDialog.getText(window, "Add Binder", "Binder title:", text="Untitled Binder")
+    if not ok:
+        return
+    title = (title or "").strip() or "Untitled Binder"
+    db_path = getattr(window, '_db_path', None) or get_last_db() or 'notes.db'
+    # Create notebook and refresh UI
+    nid = db_create_notebook(title, db_path)
+    set_last_state(notebook_id=nid, section_id=None, page_id=None)
+    populate_notebook_names(window, db_path)
+    # Select and build UI for this binder immediately, without emitting synthetic clicks
+    _select_left_tree_notebook(window, nid)
+    try:
+        from ui_tabs import ensure_left_tree_sections
+        ensure_left_tree_sections(window, nid)
+    except Exception:
+        pass
+    refresh_for_notebook(window, nid)
+
+def rename_binder(window):
+    tree_widget = window.findChild(QtWidgets.QTreeWidget, 'notebookName')
+    if not tree_widget:
+        return
+    item = tree_widget.currentItem()
+    if item is None or item.parent() is not None:
+        # fallback to first notebook
+        item = tree_widget.topLevelItem(0) if tree_widget.topLevelItemCount() > 0 else None
+    if item is None:
+        QtWidgets.QMessageBox.information(window, "Rename Binder", "No binder selected.")
+        return
+    nid = item.data(0, 1000)
+    current = item.text(0) or ""
+    new_title, ok = QtWidgets.QInputDialog.getText(window, "Rename Binder", "New title:", text=current)
+    if not ok or not new_title.strip():
+        return
+    db_path = getattr(window, '_db_path', None) or get_last_db() or 'notes.db'
+    db_rename_notebook(int(nid), new_title.strip(), db_path)
+    populate_notebook_names(window, db_path)
+    _select_left_tree_notebook(window, int(nid))
+    restore_last_position(window)
+
+def delete_binder(window):
+    tree_widget = window.findChild(QtWidgets.QTreeWidget, 'notebookName')
+    if not tree_widget:
+        return
+    item = tree_widget.currentItem()
+    if item is None or item.parent() is not None:
+        # If a section is selected, delete its parent binder; otherwise fallback to first binder
+        if item is not None and item.parent() is not None:
+            item = item.parent()
+        else:
+            item = tree_widget.topLevelItem(0) if tree_widget.topLevelItemCount() > 0 else None
+    if item is None:
+        QtWidgets.QMessageBox.information(window, "Delete Binder", "No binder selected.")
+        return
+    # Capture index of the binder being deleted to select an adjacent one afterwards
+    try:
+        deleted_index = tree_widget.indexOfTopLevelItem(item)
+        if deleted_index is None or deleted_index < 0:
+            deleted_index = 0
+    except Exception:
+        deleted_index = 0
+    nid = int(item.data(0, 1000))
+    confirm = QtWidgets.QMessageBox.question(
+        window,
+        "Delete Binder",
+        "Are you sure you want to delete this binder and all its sections and pages?",
+        QtWidgets.QMessageBox.Yes | QtWidgets.QMessageBox.No,
+    )
+    if confirm != QtWidgets.QMessageBox.Yes:
+        return
+    db_path = getattr(window, '_db_path', None) or get_last_db() or 'notes.db'
+    db_delete_notebook(nid, db_path)
+    # Clear any remembered state that points to this notebook
+    clear_last_state()
+    # Refresh UI: repopulate binders (selection will change shortly)
+    populate_notebook_names(window, db_path)
+    # Attempt to select an adjacent remaining binder (same index if possible, else previous)
+    remaining = tree_widget.topLevelItemCount()
+    if remaining > 0:
+        target_index = deleted_index if deleted_index < remaining else remaining - 1
+        target_item = tree_widget.topLevelItem(target_index)
+        if target_item is not None:
+            nb_id = int(target_item.data(0, 1000))
+            # Persist and set current notebook context eagerly
+            set_last_state(notebook_id=nb_id)
+            try:
+                window._current_notebook_id = nb_id
+            except Exception:
+                pass
+            _select_left_tree_notebook(window, nb_id)
+            # Ensure left tree shows sections for the selected binder
+            try:
+                from ui_tabs import ensure_left_tree_sections
+                ensure_left_tree_sections(window, nb_id)
+            except Exception:
+                pass
+            # Single unified refresh
+            refresh_for_notebook(window, nb_id)
+            # Fallback: if binder has sections but tabs are empty, force full UI refresh once
+            try:
+                tab_widget = window.findChild(QtWidgets.QTabWidget, 'tabPages')
+                sections = db_get_sections_by_notebook_id(nb_id, db_path)
+                if sections and (not tab_widget or tab_widget.count() == 0):
+                    _full_ui_refresh(window)
+                    refresh_for_notebook(window, nb_id)
+            except Exception:
+                pass
+    else:
+        # No binders left: clear tabs and right pane explicitly
         tab_widget = window.findChild(QtWidgets.QTabWidget, 'tabPages')
         if tab_widget:
             tab_widget.clear()
-        populate_notebook_names(window, file_name)
+        right_tw = window.findChild(QtWidgets.QTreeWidget, 'sectionPages')
+        if right_tw:
+            right_tw.clear()
+        right_tv = window.findChild(QtWidgets.QTreeView, 'sectionPages')
+        if right_tv and right_tv.model() is not None:
+            right_tv.setModel(None)
+
+def add_section(window):
+    # Determine target notebook: current selection in left tree
+    tree_widget = window.findChild(QtWidgets.QTreeWidget, 'notebookName')
+    if not tree_widget or tree_widget.topLevelItemCount() == 0:
+        QtWidgets.QMessageBox.information(window, "Add Section", "Please add a binder first.")
+        return
+    item = tree_widget.currentItem() or tree_widget.topLevelItem(0)
+    # If a section is selected, use its parent notebook
+    if item and item.parent() is not None:
+        item = item.parent()
+    nb_id = item.data(0, 1000) if item else None
+    if nb_id is None:
+        QtWidgets.QMessageBox.information(window, "Add Section", "Please select a binder.")
+        return
+    title, ok = QtWidgets.QInputDialog.getText(window, "Add Section", "Section title:", text="Untitled Section")
+    if not ok:
+        return
+    title = (title or "").strip() or "Untitled Section"
+    db_path = getattr(window, '_db_path', None) or get_last_db() or 'notes.db'
+    sid = db_create_section(int(nb_id), title, db_path)
+    # Refresh UI and select the new section so a tab appears immediately
+    populate_notebook_names(window, db_path)
+    set_last_state(notebook_id=int(nb_id), section_id=sid, page_id=None)
+    _select_left_tree_notebook(window, int(nb_id))
+    refresh_for_notebook(window, int(nb_id), select_section_id=sid)
+    # Fallback: if tabs still didn't render, force a full UI refresh
+    tab_widget = window.findChild(QtWidgets.QTabWidget, 'tabPages')
+    if not tab_widget or tab_widget.count() == 0:
+        _full_ui_refresh(window)
+        refresh_for_notebook(window, int(nb_id), select_section_id=sid)
+
+def _full_ui_refresh(window):
+    """Clear and rebuild the entire UI from current db_path and last state."""
+    db_path = getattr(window, '_db_path', None) or get_last_db() or 'notes.db'
+    # Clear widgets
+    tree_widget = window.findChild(QtWidgets.QTreeWidget, 'notebookName')
+    if tree_widget:
+        tree_widget.clear()
+    tab_widget = window.findChild(QtWidgets.QTabWidget, 'tabPages')
+    if tab_widget:
+        tab_widget.clear()
+    right_tw = window.findChild(QtWidgets.QTreeWidget, 'sectionPages')
+    if right_tw:
+        right_tw.clear()
+    right_tv = window.findChild(QtWidgets.QTreeView, 'sectionPages')
+    if right_tv and right_tv.model() is not None:
+        right_tv.setModel(None)
+    populate_notebook_names(window, db_path)
+    setup_tab_sync(window)
+    restore_last_position(window)
+
+def add_page(window):
+    # Determine active section from the current tab or right pane selection
+    tab_widget = window.findChild(QtWidgets.QTabWidget, 'tabPages')
+    tab_bar = tab_widget.tabBar() if tab_widget else None
+    section_id = None
+    if tab_widget and tab_widget.count() > 0 and tab_bar is not None:
+        idx = tab_widget.currentIndex()
+        section_id = tab_bar.tabData(idx)
+    if section_id is None:
+        # Try right pane selection (QTreeWidget)
+        right_tw = window.findChild(QtWidgets.QTreeWidget, 'sectionPages')
+        if right_tw and right_tw.currentItem() is not None:
+            cur = right_tw.currentItem()
+            kind = cur.data(0, 1001)
+            if kind == 'section':
+                section_id = cur.data(0, 1000)
+            elif kind == 'page':
+                section_id = cur.data(0, 1002)
+        # Try model view
+        if section_id is None:
+            right_tv = window.findChild(QtWidgets.QTreeView, 'sectionPages')
+            if right_tv and right_tv.currentIndex().isValid():
+                idx = right_tv.currentIndex()
+                kind = idx.data(1001)
+                if kind == 'section':
+                    section_id = idx.data(1000)
+                elif kind == 'page':
+                    section_id = idx.data(1002)
+    if section_id is None:
+        QtWidgets.QMessageBox.information(window, "Add Page", "Please select or create a section first.")
+        return
+    db_path = getattr(window, '_db_path', None) or get_last_db() or 'notes.db'
+    pid = db_create_page(int(section_id), "Untitled Page", db_path)
+    # Ensure the UI reflects the new page; selecting the section will populate and load it
+    set_last_state(section_id=int(section_id), page_id=pid)
+    restore_last_position(window)
 
 def migrate_database_if_needed(db_path):
     from db_version import get_db_version, set_db_version
     current_version = get_db_version(db_path)
-    target_version = 1  # Update as needed for future migrations
-    if current_version < target_version:
-        # Placeholder for migration logic
-        # Example: if current_version == 0: ...
-        set_db_version(target_version, db_path)
+    target_version = 2  # Update as needed for future migrations
+    import sqlite3
+    if current_version < 1:
+        # baseline
+        set_db_version(1, db_path)
+        current_version = 1
+    if current_version < 2:
+        # Add color_hex to sections
+        try:
+            conn = sqlite3.connect(db_path)
+            cur = conn.cursor()
+            cur.execute("ALTER TABLE sections ADD COLUMN color_hex TEXT")
+            conn.commit()
+        except sqlite3.OperationalError:
+            # Column may already exist; ignore
+            pass
+        finally:
+            try:
+                conn.close()
+            except Exception:
+                pass
+        set_db_version(2, db_path)
 
 def open_database(window):
     options = QtWidgets.QFileDialog.Options()
     file_name, _ = QtWidgets.QFileDialog.getOpenFileName(window, "Open Database", "", "SQLite DB Files (*.db);;All Files (*)", options=options)
-    if file_name:
-        migrate_database_if_needed(file_name)
-        set_last_db(file_name)
-        # Clear widgets
-        tree_widget = window.findChild(QtWidgets.QTreeWidget, 'notebookName')
-        if tree_widget:
-            tree_widget.clear()
-        tab_widget = window.findChild(QtWidgets.QTabWidget, 'tabPages')
-        if tab_widget:
-            tab_widget.clear()
-        populate_notebook_names(window, file_name)
+    if not file_name:
+        return
+    migrate_database_if_needed(file_name)
+    set_last_db(file_name)
+    clear_last_state()
+    # Force a clean restart so UI initializes with the opened database
+    restart_application()
+
+def restart_application():
+    """Restart the application process with the same interpreter and script."""
+    import os
+    python = sys.executable
+    script = os.path.abspath(__file__)
+    # Start a new detached process and quit current app
+    QProcess.startDetached(python, [script])
+    QtWidgets.QApplication.quit()
 
 def main():
+    # Suppress noisy SIP deprecation warning from PyQt5 about sipPyTypeDict
+    warnings.filterwarnings("ignore", category=DeprecationWarning, message=".*sipPyTypeDict.*")
     app = QtWidgets.QApplication(sys.argv)
     window = load_main_window()
+    # Restore window geometry and maximized state
+    geom = get_window_geometry()
+    if geom and all(k in geom for k in ('x','y','w','h')):
+        window.setGeometry(int(geom['x']), int(geom['y']), int(geom['w']), int(geom['h']))
+    if get_window_maximized():
+        window.showMaximized()
     db_path = get_last_db() or 'notes.db'
+    # Ensure database is migrated before any queries
+    try:
+        migrate_database_if_needed(db_path)
+    except Exception:
+        pass
+    window._db_path = db_path
     populate_notebook_names(window, db_path)
+    setup_tab_sync(window)
+    restore_last_position(window)
 
     # Connect menu actions
-    action_newdb = window.findChild(QtWidgets.QAction, 'actionNewDB')
+    # Updated QAction name from UI: actionNew_Database
+    action_newdb = window.findChild(QtWidgets.QAction, 'actionNew_Database')
     if action_newdb:
         action_newdb.triggered.connect(lambda: create_new_database(window))
+    # Binder (notebook) actions
+    act_add_wb_variants = [
+        window.findChild(QtWidgets.QAction, 'actionAdd_WorkBook'),
+        window.findChild(QtWidgets.QAction, 'actionAdd_Workbook'),
+    ]
+    for act in act_add_wb_variants:
+        if act:
+            act.triggered.connect(lambda: add_binder(window))
+    act_rename_wb = window.findChild(QtWidgets.QAction, 'actionRename_WorkBook')
+    if act_rename_wb:
+        act_rename_wb.triggered.connect(lambda: rename_binder(window))
+    act_delete_wb = window.findChild(QtWidgets.QAction, 'actionDelete_Workbook')
+    if act_delete_wb:
+        act_delete_wb.triggered.connect(lambda: delete_binder(window))
     action_open = window.findChild(QtWidgets.QAction, 'actionOpen')
     if action_open:
         action_open.triggered.connect(lambda: open_database(window))
+    # Insert menu wiring for quick content creation
+    act_add_section = window.findChild(QtWidgets.QAction, 'actionAdd_Scction')
+    if act_add_section:
+        act_add_section.triggered.connect(lambda: add_section(window))
+    act_add_page = window.findChild(QtWidgets.QAction, 'actionAdd_Page')
+    if act_add_page:
+        act_add_page.triggered.connect(lambda: add_page(window))
+    action_exit = window.findChild(QtWidgets.QAction, 'actionExit')
+    if action_exit:
+        action_exit.triggered.connect(window.close)
 
     window.show()
+
+    # Save geometry on close
+    def save_geometry():
+        g = window.geometry()
+        set_window_geometry(g.x(), g.y(), g.width(), g.height())
+        set_window_maximized(window.isMaximized())
+
+    app.aboutToQuit.connect(save_geometry)
     sys.exit(app.exec_())
 
 if __name__ == "__main__":
