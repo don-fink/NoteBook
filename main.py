@@ -5,7 +5,7 @@ Entry point for the NoteBook application. Handles main window setup, menu action
 import sys
 import warnings
 from PyQt5 import QtWidgets
-from PyQt5.QtCore import QProcess
+from PyQt5.QtCore import QProcess, QTimer
 from ui_loader import load_main_window
 from ui_logic import populate_notebook_names
 from ui_tabs import setup_tab_sync, restore_last_position, refresh_for_notebook, ensure_left_tree_sections
@@ -87,17 +87,49 @@ def add_binder(window):
         return
     title = (title or "").strip() or "Untitled Binder"
     db_path = getattr(window, '_db_path', None) or get_last_db() or 'notes.db'
+    # Capture current expanded state of top-level binders and persist before refresh
+    try:
+        tree_widget = window.findChild(QtWidgets.QTreeWidget, 'notebookName')
+        expanded_ids = set()
+        if tree_widget is not None:
+            for i in range(tree_widget.topLevelItemCount()):
+                top = tree_widget.topLevelItem(i)
+                try:
+                    if top.isExpanded():
+                        tid = top.data(0, 1000)
+                        if tid is not None:
+                            expanded_ids.add(int(tid))
+                except Exception:
+                    pass
+        from settings_manager import set_expanded_notebooks
+        set_expanded_notebooks(expanded_ids)
+    except Exception:
+        pass
+
     # Create notebook and refresh UI
     nid = db_create_notebook(title, db_path)
     set_last_state(notebook_id=nid, section_id=None, page_id=None)
     populate_notebook_names(window, db_path)
-    # Select and build UI for this binder immediately, without emitting synthetic clicks
-    _select_left_tree_notebook(window, nid)
+    # Restore previously expanded binders (do not auto-expand the new one)
     try:
         from ui_tabs import ensure_left_tree_sections
-        ensure_left_tree_sections(window, nid)
+        from settings_manager import get_expanded_notebooks
+        persisted_ids = get_expanded_notebooks()
+        tree_widget = window.findChild(QtWidgets.QTreeWidget, 'notebookName')
+        if tree_widget is not None and persisted_ids:
+            for i in range(tree_widget.topLevelItemCount()):
+                top = tree_widget.topLevelItem(i)
+                tid = top.data(0, 1000)
+                try:
+                    tid_int = int(tid)
+                except Exception:
+                    tid_int = None
+                if tid_int is not None and tid_int in persisted_ids:
+                    ensure_left_tree_sections(window, tid_int)
     except Exception:
         pass
+    # Select the new binder but keep it collapsed to preserve current tree state
+    _select_left_tree_notebook(window, nid)
     refresh_for_notebook(window, nid)
 
 def rename_binder(window):
@@ -116,9 +148,41 @@ def rename_binder(window):
     new_title, ok = QtWidgets.QInputDialog.getText(window, "Rename Binder", "New title:", text=current)
     if not ok or not new_title.strip():
         return
+    # Capture and persist expanded state before renaming
+    try:
+        expanded_ids = set()
+        for i in range(tree_widget.topLevelItemCount()):
+            top = tree_widget.topLevelItem(i)
+            try:
+                if top.isExpanded():
+                    tid = top.data(0, 1000)
+                    if tid is not None:
+                        expanded_ids.add(int(tid))
+            except Exception:
+                pass
+        from settings_manager import set_expanded_notebooks
+        set_expanded_notebooks(expanded_ids)
+    except Exception:
+        pass
     db_path = getattr(window, '_db_path', None) or get_last_db() or 'notes.db'
     db_rename_notebook(int(nid), new_title.strip(), db_path)
     populate_notebook_names(window, db_path)
+    # Restore expansion from persisted state
+    try:
+        from ui_tabs import ensure_left_tree_sections
+        from settings_manager import get_expanded_notebooks
+        persisted_ids = get_expanded_notebooks()
+        for i in range(tree_widget.topLevelItemCount()):
+            top = tree_widget.topLevelItem(i)
+            tid = top.data(0, 1000)
+            try:
+                tid_int = int(tid)
+            except Exception:
+                tid_int = None
+            if tid_int is not None and tid_int in persisted_ids:
+                ensure_left_tree_sections(window, tid_int)
+    except Exception:
+        pass
     _select_left_tree_notebook(window, int(nid))
     restore_last_position(window)
 
@@ -152,12 +216,50 @@ def delete_binder(window):
     )
     if confirm != QtWidgets.QMessageBox.Yes:
         return
+    # Capture current expanded state of top-level binders to restore after refresh and persist across restarts
+    expanded_ids = set()
+    try:
+        for i in range(tree_widget.topLevelItemCount()):
+            top = tree_widget.topLevelItem(i)
+            try:
+                if top.isExpanded():
+                    tid = top.data(0, 1000)
+                    if tid is not None:
+                        expanded_ids.add(int(tid))
+            except Exception:
+                pass
+        # Persist expanded set excluding the one being deleted
+        try:
+            from settings_manager import set_expanded_notebooks
+            persisted = {eid for eid in expanded_ids if eid != int(nid)}
+            set_expanded_notebooks(persisted)
+        except Exception:
+            pass
+    except Exception:
+        expanded_ids = set()
     db_path = getattr(window, '_db_path', None) or get_last_db() or 'notes.db'
     db_delete_notebook(nid, db_path)
     # Clear any remembered state that points to this notebook
     clear_last_state()
     # Refresh UI: repopulate binders (selection will change shortly)
     populate_notebook_names(window, db_path)
+    # Restore previously expanded binders (excluding the one we just deleted), based on persisted state
+    try:
+        from ui_tabs import ensure_left_tree_sections
+        from settings_manager import get_expanded_notebooks
+        persisted_ids = get_expanded_notebooks()
+        if persisted_ids:
+            for i in range(tree_widget.topLevelItemCount()):
+                top = tree_widget.topLevelItem(i)
+                tid = top.data(0, 1000)
+                try:
+                    tid_int = int(tid)
+                except Exception:
+                    tid_int = None
+                if tid_int is not None and tid_int in persisted_ids and tid_int != nid:
+                    ensure_left_tree_sections(window, tid_int)
+    except Exception:
+        pass
     # Attempt to select an adjacent remaining binder (same index if possible, else previous)
     remaining = tree_widget.topLevelItemCount()
     if remaining > 0:
@@ -172,10 +274,12 @@ def delete_binder(window):
             except Exception:
                 pass
             _select_left_tree_notebook(window, nb_id)
-            # Ensure left tree shows sections for the selected binder
+            # Only expand/populate the selected binder if it was previously expanded (persisted)
             try:
-                from ui_tabs import ensure_left_tree_sections
-                ensure_left_tree_sections(window, nb_id)
+                from settings_manager import get_expanded_notebooks
+                if nb_id in get_expanded_notebooks():
+                    from ui_tabs import ensure_left_tree_sections
+                    ensure_left_tree_sections(window, nb_id)
             except Exception:
                 pass
             # Single unified refresh
@@ -221,15 +325,17 @@ def add_section(window):
     title = (title or "").strip() or "Untitled Section"
     db_path = getattr(window, '_db_path', None) or get_last_db() or 'notes.db'
     sid = db_create_section(int(nb_id), title, db_path)
-    # Refresh UI and select the new section so a tab appears immediately
-    populate_notebook_names(window, db_path)
-    set_last_state(notebook_id=int(nb_id), section_id=sid, page_id=None)
-    _select_left_tree_notebook(window, int(nb_id))
-    refresh_for_notebook(window, int(nb_id), select_section_id=sid)
-    # Fallback: if tabs still didn't render, force a full UI refresh
-    tab_widget = window.findChild(QtWidgets.QTabWidget, 'tabPages')
-    if not tab_widget or tab_widget.count() == 0:
-        _full_ui_refresh(window)
+    # Preserve left-tree state: avoid full repopulate; refresh only the target binder children
+    try:
+        from ui_tabs import refresh_for_notebook, ensure_left_tree_sections
+        set_last_state(notebook_id=int(nb_id), section_id=sid, page_id=None)
+        # Keep current selection but ensure the binder’s children reflect the new section
+        ensure_left_tree_sections(window, int(nb_id), select_section_id=sid)
+        refresh_for_notebook(window, int(nb_id), select_section_id=sid)
+    except Exception:
+        # Fallback minimal refresh if helper not available
+        set_last_state(notebook_id=int(nb_id), section_id=sid, page_id=None)
+        _select_left_tree_notebook(window, int(nb_id))
         refresh_for_notebook(window, int(nb_id), select_section_id=sid)
 
 def _full_ui_refresh(window):
@@ -251,6 +357,18 @@ def _full_ui_refresh(window):
     populate_notebook_names(window, db_path)
     setup_tab_sync(window)
     restore_last_position(window)
+    # Prepare splitter stretch factors (favor center panel); apply sizes after show
+    try:
+        splitter = window.findChild(QtWidgets.QSplitter, 'mainSplitter')
+        if splitter is not None:
+            try:
+                splitter.setStretchFactor(0, 0)  # left
+                splitter.setStretchFactor(1, 2)  # center
+                splitter.setStretchFactor(2, 0)  # right
+            except Exception:
+                pass
+    except Exception:
+        pass
 
 def add_page(window):
     # Determine active section from the current tab or right pane selection
@@ -356,6 +474,24 @@ def main():
     populate_notebook_names(window, db_path)
     setup_tab_sync(window)
     restore_last_position(window)
+    # Restore left-panel expanded binders from settings after initial build
+    try:
+        tree_widget = window.findChild(QtWidgets.QTreeWidget, 'notebookName')
+        from settings_manager import get_expanded_notebooks
+        from ui_tabs import ensure_left_tree_sections
+        expanded_ids = get_expanded_notebooks()
+        if tree_widget is not None and expanded_ids:
+            for i in range(tree_widget.topLevelItemCount()):
+                top = tree_widget.topLevelItem(i)
+                tid = top.data(0, 1000)
+                try:
+                    tid_int = int(tid)
+                except Exception:
+                    tid_int = None
+                if tid_int is not None and tid_int in expanded_ids:
+                    ensure_left_tree_sections(window, tid_int)
+    except Exception:
+        pass
 
     # Connect menu actions
     # Updated QAction name from UI: actionNew_Database
@@ -392,11 +528,46 @@ def main():
 
     window.show()
 
+    # Restore splitter sizes after the window is shown to ensure geometry exists
+    def _apply_saved_splitter_sizes():
+        try:
+            splitter = window.findChild(QtWidgets.QSplitter, 'mainSplitter')
+            if splitter is None:
+                return
+            from settings_manager import get_splitter_sizes, set_splitter_sizes
+            sizes = get_splitter_sizes()
+            if sizes:
+                # Fit the sizes list to current pane count
+                count = splitter.count()
+                if len(sizes) > count:
+                    sizes = sizes[:count]
+                elif len(sizes) < count:
+                    sizes = sizes + [max(120, 300)] * (count - len(sizes))
+                safe = [max(80, int(x)) for x in sizes]
+                splitter.setSizes(safe)
+            # Save on every move (lightweight) so crashes don’t lose user resize
+            try:
+                splitter.splitterMoved.connect(lambda pos, index: set_splitter_sizes(splitter.sizes()))
+            except Exception:
+                pass
+        except Exception:
+            pass
+
+    QTimer.singleShot(0, _apply_saved_splitter_sizes)
+
     # Save geometry on close
     def save_geometry():
         g = window.geometry()
         set_window_geometry(g.x(), g.y(), g.width(), g.height())
         set_window_maximized(window.isMaximized())
+        # Persist splitter sizes
+        try:
+            splitter = window.findChild(QtWidgets.QSplitter, 'mainSplitter')
+            if splitter is not None:
+                from settings_manager import set_splitter_sizes
+                set_splitter_sizes(splitter.sizes())
+        except Exception:
+            pass
 
     app.aboutToQuit.connect(save_geometry)
     sys.exit(app.exec_())

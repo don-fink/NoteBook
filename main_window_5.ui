@@ -17,84 +17,106 @@
    <string notr="true">background-color: rgb(202, 202, 202);</string>
   </property>
   <widget class="QWidget" name="centralwidget">
-   <layout class="QHBoxLayout" name="horizontalLayout" stretch="0,2,0">
-    <item>
-     <widget class="QTreeWidget" name="notebookName">
-      <property name="minimumSize">
-       <size>
-        <width>150</width>
-        <height>0</height>
-       </size>
-      </property>
-      <property name="maximumSize">
-       <size>
-        <width>16777215</width>
-        <height>16777215</height>
-       </size>
-      </property>
-      <property name="headerHidden">
-       <bool>true</bool>
-      </property>
-      <attribute name="headerVisible">
-       <bool>false</bool>
-      </attribute>
-      <column>
-       <property name="text">
-        <string notr="true">1</string>
-       </property>
-      </column>
-     </widget>
-    </item>
-    <item>
-     <widget class="QFrame" name="frame_3">
-      <property name="frameShape">
-       <enum>QFrame::Box</enum>
-      </property>
-      <property name="frameShadow">
-       <enum>QFrame::Raised</enum>
-      </property>
-      <layout class="QVBoxLayout" name="verticalLayout">
-       <item>
-        <widget class="QTabWidget" name="tabPages">
-         <property name="styleSheet">
-          <string notr="true">background-color: rgb(229, 229, 229);</string>
-         </property>
-         <property name="currentIndex">
-          <number>1</number>
-         </property>
-         <widget class="QWidget" name="tab">
-          <attribute name="title">
-           <string/>
-          </attribute>
-          <layout class="QVBoxLayout" name="verticalLayout_3">
-           <item>
-            <widget class="QTextEdit" name="textEdit"/>
-           </item>
-          </layout>
-         </widget>
-         <widget class="QWidget" name="tab_2">
-          <attribute name="title">
-           <string/>
-          </attribute>
-          <layout class="QVBoxLayout" name="verticalLayout_4">
-           <item>
-            <widget class="QTextEdit" name="textEdit_2"/>
-           </item>
-          </layout>
-         </widget>
-        </widget>
-       </item>
-      </layout>
-     </widget>
-    </item>
-    <item>
-     <widget class="QTreeView" name="sectionPages">
-      <property name="headerHidden">
-       <bool>true</bool>
-      </property>
-     </widget>
-    </item>
-   </layout>
+     <layout class="QHBoxLayout" name="horizontalLayout">
+      <item>
+       <widget class="QSplitter" name="mainSplitter">
+          <property name="orientation">
+           <enum>Qt::Horizontal</enum>
+          </property>
+          <property name="opaqueResize">
+           <bool>true</bool>
+          </property>
+          <property name="childrenCollapsible">
+           <bool>true</bool>
+          </property>
+          <property name="handleWidth">
+           <number>6</number>
+          </property>
+          <widget class="QTreeWidget" name="notebookName">
+           <property name="minimumSize">
+            <size>
+               <width>150</width>
+               <height>0</height>
+            </size>
+           </property>
+           <property name="maximumSize">
+            <size>
+               <width>16777215</width>
+               <height>16777215</height>
+            </size>
+           </property>
+           <property name="headerHidden">
+            <bool>true</bool>
+           </property>
+           <attribute name="headerVisible">
+            <bool>false</bool>
+           </attribute>
+           <column>
+            <property name="text">
+               <string notr="true">1</string>
+            </property>
+           </column>
+          </widget>
+          <widget class="QFrame" name="frame_3">
+           <property name="sizePolicy">
+            <sizepolicy hsizetype="Expanding" vsizetype="Preferred">
+               <horstretch>0</horstretch>
+               <verstretch>0</verstretch>
+            </sizepolicy>
+           </property>
+           <property name="frameShape">
+            <enum>QFrame::Box</enum>
+           </property>
+           <property name="frameShadow">
+            <enum>QFrame::Raised</enum>
+           </property>
+           <layout class="QVBoxLayout" name="verticalLayout">
+            <item>
+               <widget class="QTabWidget" name="tabPages">
+                <property name="styleSheet">
+                 <string notr="true">background-color: rgb(229, 229, 229);</string>
+                </property>
+                <property name="currentIndex">
+                 <number>1</number>
+                </property>
+                <widget class="QWidget" name="tab">
+                 <attribute name="title">
+                    <string/>
+                 </attribute>
+                 <layout class="QVBoxLayout" name="verticalLayout_3">
+                    <item>
+                     <widget class="QTextEdit" name="textEdit"/>
+                    </item>
+                 </layout>
+                </widget>
+                <widget class="QWidget" name="tab_2">
+                 <attribute name="title">
+                    <string/>
+                 </attribute>
+                 <layout class="QVBoxLayout" name="verticalLayout_4">
+                    <item>
+                     <widget class="QTextEdit" name="textEdit_2"/>
+                    </item>
+                 </layout>
+                </widget>
+               </widget>
+            </item>
+           </layout>
+          </widget>
+          <widget class="QTreeView" name="sectionPages">
+           <property name="minimumSize">
+            <size>
+               <width>150</width>
+               <height>0</height>
+            </size>
+           </property>
+           <property name="headerHidden">
+            <bool>true</bool>
+           </property>
+          </widget>
+       </widget>
+      </item>
+     </layout>
   </widget>
   <widget class="QMenuBar" name="menubar">
    <property name="geometry">

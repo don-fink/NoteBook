@@ -13,6 +13,11 @@ def populate_notebook_names(window, db_path):
         # notebook[0] = id, notebook[1] = name
         item = QtWidgets.QTreeWidgetItem([str(notebook[1])])
         item.setData(0, 1000, notebook[0])  # Store notebook_id in UserRole
+        # Always show an expander so users know it can be expanded to sections
+        try:
+            item.setChildIndicatorPolicy(QtWidgets.QTreeWidgetItem.ShowIndicator)
+        except Exception:
+            pass
         tree_widget.addTopLevelItem(item)
     # Do not connect click handlers here; ui_tabs.setup_tab_sync manages clicks/expansion
 

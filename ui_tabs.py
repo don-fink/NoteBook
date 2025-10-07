@@ -37,6 +37,7 @@ from PyQt5.QtGui import QIcon, QPixmap, QPainter, QColor, QKeySequence
 from PyQt5 import uic
 import os
 from ui_richtext import add_rich_text_toolbar
+import sqlite3
 
 # Roles for storing ids/kinds in tree items and models
 USER_ROLE_ID = 1000  # same role used to store ids on tree items
@@ -48,6 +49,15 @@ ADD_SECTION_SENTINEL = "__ADD_SECTION__"
 
 def _is_add_section_sentinel(value) -> bool:
     return isinstance(value, str) and value == ADD_SECTION_SENTINEL
+
+# Lightweight debug toggle and helper for this module
+DEBUG_UI_TABS = False
+def _dbg_print(*args, **kwargs):
+    if DEBUG_UI_TABS:
+        try:
+            print(*args, **kwargs)
+        except Exception:
+            pass
 
 def _ensure_attrs(window):
     if not hasattr(window, "_tabs_setup_done"):
@@ -64,6 +74,12 @@ def _ensure_attrs(window):
         window._last_tab_index = -1
     if not hasattr(window, "_refresh_generation"):
         window._refresh_generation = 0
+    # One-shot guard to skip left-tree section selection (used when user clicks a Binder)
+    if not hasattr(window, "_skip_left_tree_selection_once"):
+        window._skip_left_tree_selection_once = False
+    # One-shot guard to keep right-tree selection on the section when that section was clicked
+    if not hasattr(window, "_keep_right_tree_section_selected_once"):
+        window._keep_right_tree_section_selected_once = False
 
 def _prompt_new_section(window):
     try:
@@ -141,6 +157,24 @@ def setup_tab_sync(window):
         tree_widget.customContextMenuRequested.connect(lambda pos: _on_left_tree_context_menu(window, tree_widget, pos))
     except Exception:
         pass
+    # Persist expand/collapse state of binders for future sessions
+    try:
+        def _on_item_expanded(item):
+            if item is not None and item.parent() is None:
+                from settings_manager import add_expanded_notebook
+                nid = item.data(0, USER_ROLE_ID)
+                if nid is not None:
+                    add_expanded_notebook(int(nid))
+        def _on_item_collapsed(item):
+            if item is not None and item.parent() is None:
+                from settings_manager import remove_expanded_notebook
+                nid = item.data(0, USER_ROLE_ID)
+                if nid is not None:
+                    remove_expanded_notebook(int(nid))
+        tree_widget.itemExpanded.connect(_on_item_expanded)
+        tree_widget.itemCollapsed.connect(_on_item_collapsed)
+    except Exception:
+        pass
 
     # Enable context menu on tab bar for setting colors
     tab_bar = tab_widget.tabBar()
@@ -195,6 +229,10 @@ def setup_tab_sync(window):
                 pass
             # Unified, deferred refresh to avoid reentrancy and ensure selection.
             # Keep the left tree focused on the binder (don't immediately jump selection to a section).
+            try:
+                window._skip_left_tree_selection_once = True
+            except Exception:
+                pass
             refresh_for_notebook(window, notebook_id, keep_left_tree_selection=True)
         else:
             # Section item: select matching tab and load first page
@@ -226,7 +264,7 @@ def setup_tab_sync(window):
             tw = window.findChild(QtWidgets.QTabWidget, 'tabPages')
             tb = tw.tabBar() if tw else None
             sid_dbg = tb.tabData(index) if tb is not None else None
-            print(f"[ui_tabs] on_tab_changed idx={index}, sid={sid_dbg}")
+            # print(f"[ui_tabs] on_tab_changed idx={index}, sid={sid_dbg}")
             if tw is not None:
                 tw.setEnabled(True)
                 if tb is not None:
@@ -257,8 +295,17 @@ def setup_tab_sync(window):
         if tab_bar is not None:
             section_id = tab_bar.tabData(index)
             if section_id is not None and not _is_add_section_sentinel(section_id):
-                _select_tree_section(window, section_id)
-                set_last_state(section_id=section_id)
+                # Respect one-shot guard: when switching binders, keep binder selected in left tree
+                if not getattr(window, "_skip_left_tree_selection_once", False):
+                    _select_tree_section(window, section_id)
+                try:
+                    nb_id = getattr(window, '_current_notebook_id', None)
+                    if nb_id is not None:
+                        set_last_state(notebook_id=nb_id, section_id=section_id)
+                    else:
+                        set_last_state(section_id=section_id)
+                except Exception:
+                    pass
                 _select_right_tree_section(window, section_id)
         window._last_tab_index = index
     def on_right_tree_clicked(item, column):
@@ -277,8 +324,27 @@ def setup_tab_sync(window):
             window._suppress_sync = True
             _select_tab_for_section(tab_widget, section_id)
             window._suppress_sync = False
+            # Keep the right tree's selection on the section for this user action
+            try:
+                window._keep_right_tree_section_selected_once = True
+            except Exception:
+                pass
             _load_first_page_for_current_tab(window)
-            set_last_state(section_id=section_id)
+            # Explicitly reselect the section in the right tree to ensure it stays highlighted
+            try:
+                _select_right_tree_section(window, section_id)
+                # Also sync the left panel to the same section
+                _select_tree_section(window, section_id)
+            except Exception:
+                pass
+            try:
+                nb_id = getattr(window, '_current_notebook_id', None)
+                if nb_id is not None:
+                    set_last_state(notebook_id=nb_id, section_id=section_id)
+                else:
+                    set_last_state(section_id=section_id)
+            except Exception:
+                pass
         elif kind == 'page':
             page_id = item.data(0, USER_ROLE_ID)
             parent_section_id = item.data(0, USER_ROLE_PARENT_SECTION)
@@ -289,7 +355,19 @@ def setup_tab_sync(window):
             _select_tab_for_section(tab_widget, parent_section_id)
             window._suppress_sync = False
             _load_page_for_current_tab(window, page_id)
-            set_last_state(section_id=parent_section_id, page_id=page_id)
+            # Sync left panel to the parent section of the selected page
+            try:
+                _select_tree_section(window, parent_section_id)
+            except Exception:
+                pass
+            try:
+                nb_id = getattr(window, '_current_notebook_id', None)
+                if nb_id is not None:
+                    set_last_state(notebook_id=nb_id, section_id=parent_section_id, page_id=page_id)
+                else:
+                    set_last_state(section_id=parent_section_id, page_id=page_id)
+            except Exception:
+                pass
 
     tree_widget.itemClicked.connect(on_tree_item_clicked)
     tab_widget.currentChanged.connect(on_tab_changed)
@@ -390,6 +468,13 @@ def refresh_for_notebook(window, notebook_id: int, select_section_id: int = None
     except Exception:
         window._refresh_generation = 1
     generation = window._refresh_generation
+    # If we want to keep the binder highlighted in the left tree (when user clicked a Binder),
+    # set a one-shot guard so tabChanged handlers won't override the left selection.
+    if keep_left_tree_selection:
+        try:
+            window._skip_left_tree_selection_once = True
+        except Exception:
+            pass
     _populate_tabs_for_notebook(window, notebook_id)
     _build_right_tree_for_notebook(window, notebook_id)
     tab_widget = window.findChild(QtWidgets.QTabWidget, 'tabPages')
@@ -469,7 +554,7 @@ def refresh_for_notebook(window, notebook_id: int, select_section_id: int = None
             sid = tb.tabData(cur) if (tb is not None and cur >= 0) else None
             vis = tab_widget.isVisible()
             geo = tab_widget.geometry()
-            print(f"[ui_tabs] finalize nb={notebook_id}, tabs={tb_cnt}, cur={cur}, sid={sid}, visible={vis}, h={geo.height()}")
+            # print(f"[ui_tabs] finalize nb={notebook_id}, tabs={tb_cnt}, cur={cur}, sid={sid}, visible={vis}, h={geo.height()}")
         except Exception:
             pass
         # If somehow collapsed, try to enforce a minimal size and relayout
@@ -485,6 +570,11 @@ def refresh_for_notebook(window, notebook_id: int, select_section_id: int = None
         except Exception:
             pass
         tab_widget.update()
+        # Clear any one-shot left-tree skip to avoid affecting future user-driven tab changes
+        try:
+            window._skip_left_tree_selection_once = False
+        except Exception:
+            pass
 
     # Defer finalize to the next event loop cycle
     QTimer.singleShot(0, _finalize)
@@ -496,12 +586,12 @@ def _populate_tabs_for_notebook(window, notebook_id):
     tab_widget = window.findChild(QtWidgets.QTabWidget, 'tabPages')
     if not tab_widget:
         return
-    print(f"[ui_tabs] clear tabs nb={notebook_id}")
+    # print(f"[ui_tabs] clear tabs nb={notebook_id}")
     tab_widget.clear()
     tab_widget.setVisible(True)
 
     sections = get_sections_by_notebook_id(notebook_id, window._db_path)
-    print(f"[ui_tabs] populate tabs for nb={notebook_id}, sections={len(sections)}")
+    # print(f"[ui_tabs] populate tabs for nb={notebook_id}, sections={len(sections)}")
     created_tabs = 0
     for section in sections:
         # section: (id, notebook_id, title, ...)
@@ -531,10 +621,7 @@ def _populate_tabs_for_notebook(window, notebook_id):
             layout.addWidget(text_edit)
         index = tab_widget.addTab(tab, section_title)
         # Debug
-        try:
-            print(f"[ui_tabs] add tab sid={section_id}, title='{section_title}', idx={index}")
-        except Exception:
-            pass
+        _dbg_print(f"[ui_tabs] add tab sid={section_id}, title='{section_title}', idx={index}")
         # Store section_id in the QTabBar's tab data
         tab_bar = tab_widget.tabBar()
         if tab_bar is not None:
@@ -626,7 +713,14 @@ def _load_first_page_for_current_tab(window):
         first = pages_sorted[0]
         html = first[3] or ""
         # Persist last page id and track current page per section
-        set_last_state(section_id=section_id, page_id=first[0])
+        try:
+            nb_id = getattr(window, '_current_notebook_id', None)
+            if nb_id is not None:
+                set_last_state(notebook_id=nb_id, section_id=section_id, page_id=first[0])
+            else:
+                set_last_state(section_id=section_id, page_id=first[0])
+        except Exception:
+            pass
         try:
             window._current_page_by_section[section_id] = first[0]
         except Exception:
@@ -656,9 +750,15 @@ def _load_first_page_for_current_tab(window):
         else:
             title_edit.setEnabled(False)
             title_edit.setText("")
-    # Reflect in right tree selection if there is a page
+    # Reflect in right tree selection if there is a page, unless the user explicitly clicked a section
     if pages:
-        _select_right_tree_page(window, section_id, first[0])
+        if getattr(window, "_keep_right_tree_section_selected_once", False):
+            try:
+                window._keep_right_tree_section_selected_once = False
+            except Exception:
+                pass
+        else:
+            _select_right_tree_page(window, section_id, first[0])
 
 
 def _load_page_for_current_tab(window, page_id):
@@ -708,7 +808,14 @@ def _load_page_for_current_tab(window, page_id):
             title_edit.setEnabled(False)
             title_edit.setText("")
     if page:
-        set_last_state(page_id=page[0])
+        try:
+            nb_id = getattr(window, '_current_notebook_id', None)
+            if nb_id is not None:
+                set_last_state(notebook_id=nb_id, section_id=section_id, page_id=page[0])
+            else:
+                set_last_state(page_id=page[0])
+        except Exception:
+            pass
         try:
             window._current_page_by_section[section_id] = page[0]
         except Exception:
@@ -754,8 +861,6 @@ def _select_tree_section(window, section_id):
     # Search all top-level notebook items
     for i in range(tree_widget.topLevelItemCount()):
         top = tree_widget.topLevelItem(i)
-        # Expand to ensure children are visible
-        top.setExpanded(True)
         # Ensure sections are present under this notebook item
         if top.childCount() == 0:
             try:
@@ -770,6 +875,12 @@ def _select_tree_section(window, section_id):
             if child.data(0, USER_ROLE_ID) == section_id:
                 window._suppress_sync = True
                 tree_widget.setCurrentItem(child)
+                # Expand only the matching binder so the selection is visible
+                try:
+                    if not top.isExpanded():
+                        top.setExpanded(True)
+                except Exception:
+                    pass
                 window._suppress_sync = False
                 return
 
@@ -781,6 +892,13 @@ def _build_right_tree_for_notebook(window, notebook_id):
         right_tree.clear()
         sections = get_sections_by_notebook_id(notebook_id, window._db_path)
         color_map = get_section_color_map(notebook_id, window._db_path)
+        # Restore expanded sections from settings
+        try:
+            from settings_manager import get_expanded_sections_by_notebook
+            expanded_map = get_expanded_sections_by_notebook()
+            expanded_for_nb = expanded_map.get(str(int(notebook_id)), set())
+        except Exception:
+            expanded_for_nb = set()
         for section in sections:
             section_id = section[0]
             section_title = str(section[2])
@@ -817,6 +935,35 @@ def _build_right_tree_for_notebook(window, notebook_id):
                 placeholder = QtWidgets.QTreeWidgetItem(["No pages"])
                 placeholder.setDisabled(True)
                 sec_item.addChild(placeholder)
+            # Restore expanded state for this section
+            try:
+                if int(section_id) in expanded_for_nb:
+                    sec_item.setExpanded(True)
+            except Exception:
+                pass
+        # Hook expand/collapse to persist state
+        try:
+            def _on_sec_expanded(item):
+                if item is not None and item.parent() is None and item.data(0, USER_ROLE_KIND) == 'section':
+                    from settings_manager import add_expanded_section
+                    add_expanded_section(int(notebook_id), int(item.data(0, USER_ROLE_ID)))
+            def _on_sec_collapsed(item):
+                if item is not None and item.parent() is None and item.data(0, USER_ROLE_KIND) == 'section':
+                    from settings_manager import remove_expanded_section
+                    remove_expanded_section(int(notebook_id), int(item.data(0, USER_ROLE_ID)))
+            # Avoid duplicate connections
+            try:
+                right_tree.itemExpanded.disconnect()
+            except Exception:
+                pass
+            try:
+                right_tree.itemCollapsed.disconnect()
+            except Exception:
+                pass
+            right_tree.itemExpanded.connect(_on_sec_expanded)
+            right_tree.itemCollapsed.connect(_on_sec_collapsed)
+        except Exception:
+            pass
         return
 
     # QTreeView path (model-based)
@@ -865,8 +1012,41 @@ def _build_right_tree_for_notebook(window, notebook_id):
 
             model.appendRow(sec_item)
         right_view.setModel(model)
-        # Expand all sections by default for quicker navigation
-        right_view.expandAll()
+        # Restore expanded sections for model view
+        try:
+            from settings_manager import get_expanded_sections_by_notebook
+            expanded_map = get_expanded_sections_by_notebook()
+            expanded_for_nb = expanded_map.get(str(int(notebook_id)), set())
+            for row in range(model.rowCount()):
+                idx = model.index(row, 0)
+                sid = idx.data(USER_ROLE_ID)
+                if sid is not None and int(sid) in expanded_for_nb:
+                    right_view.expand(idx)
+        except Exception:
+            pass
+        # Hook expand/collapse to persist state in model view
+        try:
+            def _on_view_expanded(idx: QModelIndex):
+                if idx.isValid() and idx.data(USER_ROLE_KIND) == 'section':
+                    from settings_manager import add_expanded_section
+                    add_expanded_section(int(notebook_id), int(idx.data(USER_ROLE_ID)))
+            def _on_view_collapsed(idx: QModelIndex):
+                if idx.isValid() and idx.data(USER_ROLE_KIND) == 'section':
+                    from settings_manager import remove_expanded_section
+                    remove_expanded_section(int(notebook_id), int(idx.data(USER_ROLE_ID)))
+            # Avoid duplicate connections
+            try:
+                right_view.expanded.disconnect()
+            except Exception:
+                pass
+            try:
+                right_view.collapsed.disconnect()
+            except Exception:
+                pass
+            right_view.expanded.connect(_on_view_expanded)
+            right_view.collapsed.connect(_on_view_collapsed)
+        except Exception:
+            pass
         return
 
 
@@ -1009,6 +1189,10 @@ def _persist_tab_order(window):
         nb_id = getattr(window, '_current_notebook_id', None)
         if nb_id is None:
             return
+        # Debounce: avoid overlapping refreshes when tabMoved emits multiple times
+        if getattr(window, '_persisting_tab_order', False):
+            return
+        window._persisting_tab_order = True
         ordered_ids = []
         for i in range(tab_widget.count()):
             sid = tab_bar.tabData(i)
@@ -1028,6 +1212,11 @@ def _persist_tab_order(window):
                 _select_right_tree_section(window, current_sid)
     except Exception:
         pass
+    finally:
+        try:
+            window._persisting_tab_order = False
+        except Exception:
+            pass
 
 
 class _RightTreeDnDFilter(QObject):
@@ -1362,20 +1551,25 @@ def _refresh_left_tree_children(window, notebook_id: int, select_section_id: int
     tree_widget = window.findChild(QtWidgets.QTreeWidget, 'notebookName')
     if not tree_widget:
         return
-    # Clear children for all notebooks to avoid stale states after deletes
-    try:
-        for i in range(tree_widget.topLevelItemCount()):
-            tree_widget.topLevelItem(i).takeChildren()
-    except Exception:
-        pass
+    # Only rebuild the target notebook's children; keep others intact
     # Find top-level notebook item
     for i in range(tree_widget.topLevelItemCount()):
         top = tree_widget.topLevelItem(i)
         if top.data(0, USER_ROLE_ID) == notebook_id:
             # Clear existing children and rebuild
             try:
+                # Remove any existing children to avoid duplicates on repeated refreshes
+                top.takeChildren()
                 from ui_sections import add_sections_as_children
                 add_sections_as_children(tree_widget, notebook_id, top, window._db_path)
+            except Exception:
+                pass
+            # If no sections, add a disabled placeholder so the expander arrow appears
+            try:
+                if top.childCount() == 0:
+                    ph = QtWidgets.QTreeWidgetItem(["No sections"])
+                    ph.setDisabled(True)
+                    top.addChild(ph)
             except Exception:
                 pass
             if select_section_id is not None:
@@ -1739,7 +1933,19 @@ def _on_right_view_clicked(window, index: QModelIndex):
         window._suppress_sync = True
         _select_tab_for_section(tab_widget, section_id)
         window._suppress_sync = False
+        # Keep the right tree's selection on the section for this user action
+        try:
+            window._keep_right_tree_section_selected_once = True
+        except Exception:
+            pass
         _load_first_page_for_current_tab(window)
+        # Explicitly reselect the section in the right view to ensure it stays highlighted
+        try:
+            _select_right_tree_section(window, section_id)
+            # Also sync the left panel to the same section
+            _select_tree_section(window, section_id)
+        except Exception:
+            pass
         set_last_state(section_id=section_id)
     elif kind == 'page':
         page_id = index.data(USER_ROLE_ID)
@@ -1751,6 +1957,11 @@ def _on_right_view_clicked(window, index: QModelIndex):
         _select_tab_for_section(tab_widget, parent_section_id)
         window._suppress_sync = False
         _load_page_for_current_tab(window, page_id)
+        # Sync left panel to the parent section of the selected page
+        try:
+            _select_tree_section(window, parent_section_id)
+        except Exception:
+            pass
         set_last_state(section_id=parent_section_id, page_id=page_id)
 
 
@@ -1947,6 +2158,15 @@ def restore_last_position(window):
     notebook_id = last.get('last_notebook_id')
     section_id = last.get('last_section_id')
     page_id = last.get('last_page_id')
+    # If a section is stored, ensure notebook_id matches that section's notebook
+    try:
+        if section_id is not None:
+            sec_nb = _get_section_notebook_id(window, section_id)
+            if sec_nb is not None and sec_nb != notebook_id:
+                notebook_id = sec_nb
+                set_last_state(notebook_id=notebook_id)
+    except Exception:
+        pass
     if not notebook_id:
         # Fallback: select the first notebook in the left tree to ensure tabs are shown
         tree_widget = window.findChild(QtWidgets.QTreeWidget, 'notebookName')
@@ -1995,6 +2215,10 @@ def restore_last_position(window):
         return
     # Populate tabs for notebook
     _populate_tabs_for_notebook(window, notebook_id)
+    try:
+        window._current_notebook_id = notebook_id
+    except Exception:
+        pass
     tab_widget = window.findChild(QtWidgets.QTabWidget, 'tabPages')
     if not tab_widget:
         return
@@ -2021,4 +2245,34 @@ def restore_last_position(window):
         active_section_id = active_tab_bar.tabData(idx)
         if active_section_id is not None:
             _build_right_tree_for_notebook(window, notebook_id)
-            _select_right_tree_section(window, active_section_id)
+            # If a page is selected for this section, highlight it; else pick first page
+            try:
+                current_page_id = getattr(window, '_current_page_by_section', {}).get(active_section_id)
+                if current_page_id is None:
+                    pages = get_pages_by_section_id(active_section_id, window._db_path)
+                    if pages:
+                        try:
+                            pages_sorted = sorted(pages, key=lambda p: (p[6], p[0]))
+                        except Exception:
+                            pages_sorted = pages
+                        current_page_id = pages_sorted[0][0]
+                        window._current_page_by_section[active_section_id] = current_page_id
+                if current_page_id is not None:
+                    _select_right_tree_page(window, active_section_id, current_page_id)
+                else:
+                    _select_right_tree_section(window, active_section_id)
+            except Exception:
+                _select_right_tree_section(window, active_section_id)
+
+def _get_section_notebook_id(window, section_id: int):
+    try:
+        db_path = getattr(window, '_db_path', 'notes.db')
+        con = sqlite3.connect(db_path)
+        cur = con.cursor()
+        cur.execute("SELECT notebook_id FROM sections WHERE id = ?", (int(section_id),))
+        row = cur.fetchone()
+        cur.close()
+        con.close()
+        return int(row[0]) if row else None
+    except Exception:
+        return None

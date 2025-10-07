@@ -75,6 +75,31 @@ def set_window_maximized(is_maximized: bool):
     s['window_maximized'] = bool(is_maximized)
     save_settings(s)
 
+# --- Splitter sizes (main horizontal splitter) ---
+def get_splitter_sizes():
+    """Return a list of ints representing QSplitter sizes, or None if not set."""
+    s = load_settings()
+    sizes = s.get('splitter_sizes')
+    if isinstance(sizes, list) and all(isinstance(x, (int, float)) for x in sizes):
+        # Coerce to ints
+        return [int(x) for x in sizes]
+    return None
+
+def set_splitter_sizes(sizes):
+    """Persist splitter sizes list (ints)."""
+    try:
+        cleaned = [int(x) for x in (sizes or [])]
+    except Exception:
+        cleaned = None
+    s = load_settings()
+    if cleaned:
+        s['splitter_sizes'] = cleaned
+    else:
+        # Remove if invalid/empty
+        if 'splitter_sizes' in s:
+            del s['splitter_sizes']
+    save_settings(s)
+
 
 # --- Optional: per-section color mapping (for colored tabs and right-pane icons) ---
 def get_section_colors():
@@ -89,3 +114,68 @@ def set_section_color(section_id: int, color_hex: str):
     colors[str(int(section_id))] = str(color_hex)
     s['section_colors'] = colors
     save_settings(s)
+
+# --- Left tree expanded state ---
+def get_expanded_notebooks():
+    """Return a set of notebook IDs that should be expanded in the left tree."""
+    s = load_settings()
+    vals = s.get('expanded_notebooks', [])
+    try:
+        return set(int(v) for v in vals)
+    except Exception:
+        return set()
+
+def set_expanded_notebooks(ids):
+    """Persist the full set of expanded notebook IDs."""
+    s = load_settings()
+    s['expanded_notebooks'] = [int(v) for v in ids]
+    save_settings(s)
+
+def add_expanded_notebook(notebook_id: int):
+    ids = get_expanded_notebooks()
+    ids.add(int(notebook_id))
+    set_expanded_notebooks(ids)
+
+def remove_expanded_notebook(notebook_id: int):
+    ids = get_expanded_notebooks()
+    if int(notebook_id) in ids:
+        ids.remove(int(notebook_id))
+    set_expanded_notebooks(ids)
+
+# --- Right tree expanded sections (per notebook) ---
+def get_expanded_sections_by_notebook():
+    """Return a dict mapping notebook_id (str) -> set of expanded section IDs (ints)."""
+    s = load_settings()
+    raw = s.get('expanded_sections_by_notebook', {})
+    out = {}
+    try:
+        for k, vals in raw.items():
+            try:
+                out[str(int(k))] = set(int(v) for v in vals)
+            except Exception:
+                out[str(k)] = set()
+    except Exception:
+        pass
+    return out
+
+def set_expanded_sections_for_notebook(notebook_id: int, section_ids):
+    s = load_settings()
+    raw = s.get('expanded_sections_by_notebook', {})
+    raw[str(int(notebook_id))] = [int(v) for v in section_ids]
+    s['expanded_sections_by_notebook'] = raw
+    save_settings(s)
+
+def add_expanded_section(notebook_id: int, section_id: int):
+    m = get_expanded_sections_by_notebook()
+    key = str(int(notebook_id))
+    cur = m.get(key, set())
+    cur.add(int(section_id))
+    set_expanded_sections_for_notebook(int(notebook_id), cur)
+
+def remove_expanded_section(notebook_id: int, section_id: int):
+    m = get_expanded_sections_by_notebook()
+    key = str(int(notebook_id))
+    cur = m.get(key, set())
+    if int(section_id) in cur:
+        cur.remove(int(section_id))
+    set_expanded_sections_for_notebook(int(notebook_id), cur)
