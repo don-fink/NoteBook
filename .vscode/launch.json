@@ -1,0 +1,18 @@
+{
+  // Launch configurations for debugging the PyQt app
+  "version": "0.2.0",
+  "configurations": [
+    {
+      "name": "Python: Run NoteBook",
+      "type": "debugpy",
+      "request": "launch",
+      "program": "${workspaceFolder}/main.py",
+      "console": "integratedTerminal",
+      "python": "${workspaceFolder}/.venv/Scripts/python.exe",
+      "justMyCode": true,
+      "env": {
+        "QT_AUTO_SCREEN_SCALE_FACTOR": "1"
+      }
+    }
+  ]
+}

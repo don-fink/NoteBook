@@ -21,6 +21,15 @@ python -m pip install -r requirements-dev.txt
 & .\.venv\Scripts\python.exe .\main.py
 ```
 
+## VS Code
+
+- Open this folder in VS Code.
+- Accept the recommended extensions when prompted.
+- Run the task "Setup dev env (.venv + requirements-dev)" once from Terminal > Run Task.
+- To run the app:
+	- Use Run and Debug panel and select "Python: Run NoteBook", or
+	- Run the task "Run NoteBook".
+
 ### Notes
 - Qt Designer binaries and tools come from `pyqt5-tools` and related packages.
 - If you only need runtime deps, use `requirements.txt` instead.
