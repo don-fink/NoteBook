@@ -2,6 +2,38 @@
 
 A PyQt5 desktop notebook app with binders, sections, and pages.
 
+## Features
+
+- Resizable split panes with saved layout
+- Rich text editing with:
+	- Bold/Italic/Underline/Strike, font family and size
+	- Bulleted and numbered lists with nested levels
+	- Classic outline numbering (I, A, 1, a, i, …) or Decimal
+	- Tab/Shift+Tab or Ctrl+]/Ctrl+[ to indent/outdent lists
+	- Insert horizontal rule and images
+	- Paste modes: Rich, Text-only, Match Style, Clean
+	- Single-click links open in your browser
+- Default paste mode and list schemes are persisted
+- Media storage and “Clean Unused Media” tool
+
+### Paste modes
+- Rich (default): standard paste.
+- Text-only (Ctrl+Shift+V): inserts plain text, no formatting.
+- Match Style: keeps structure but normalizes to current font and size.
+- Clean: drops most inline styles/classes; keeps links, images, lists.
+
+You can set the default paste mode from the Edit menu.
+
+### Lists and indenting
+- Use the toolbar buttons or keyboard:
+	- Indent: Tab or Ctrl+]
+	- Outdent: Shift+Tab or Ctrl+[
+- Switch list scheme (Classic/Decimal) from the Format menu.
+
+### Links
+- Paste a URL in Match Style or Clean to auto-link it (e.g., https://example.com).
+- Click a link to open it in your default browser.
+
 ## Dev setup
 
 - Create and activate a virtual environment (recommended)
