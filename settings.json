@@ -1,40 +1,56 @@
 {
   "last_db": "C:/Python Projects/NoteBook/notes.db",
   "window_geometry": {
-    "x": 428,
-    "y": 169,
-    "w": 1997,
-    "h": 1324
+    "x": 202,
+    "y": 138,
+    "w": 2188,
+    "h": 1550
   },
   "window_maximized": false,
   "expanded_notebooks": [
     34,
-    36,
-    37,
-    51,
-    52
+    52,
+    38,
+    36
   ],
-  "last_notebook_id": 52,
-  "last_section_id": 80,
-  "last_page_id": 41,
+  "last_notebook_id": 38,
+  "last_section_id": 82,
+  "last_page_id": 63,
   "expanded_sections_by_notebook": {
     "51": [
+      64,
       73,
       74,
       75,
       79,
-      80
+      80,
+      51,
+      52,
+      58,
+      59
     ],
     "36": [
+      64,
+      81,
+      82,
+      51,
+      52,
+      55,
+      58,
+      59,
       60,
-      55
+      61
     ],
     "52": [
       73,
       74,
       75,
       79,
-      80
+      80,
+      55,
+      58,
+      59,
+      60
     ],
     "34": [
       64,
@@ -44,19 +60,37 @@
       79,
       80,
       51,
-      52
-    ],
-    "37": [
-      64,
-      51,
       52,
       58,
       59
+    ],
+    "37": [
+      64,
+      73,
+      74,
+      75,
+      79,
+      80,
+      51,
+      52,
+      55,
+      58,
+      59,
+      60
+    ],
+    "38": [
+      81,
+      82,
+      55,
+      60,
+      61
     ]
   },
   "splitter_sizes": [
-    300,
-    1358,
-    297
-  ]
+    303,
+    1507,
+    336
+  ],
+  "list_scheme_ordered": "decimal",
+  "default_paste_mode": "match-style"
 }
