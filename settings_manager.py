@@ -179,3 +179,39 @@ def remove_expanded_section(notebook_id: int, section_id: int):
     if int(section_id) in cur:
         cur.remove(int(section_id))
     set_expanded_sections_for_notebook(int(notebook_id), cur)
+
+
+# --- List schemes (ordered/unordered) persistence ---
+def get_list_schemes_settings():
+    """Return (ordered_scheme, unordered_scheme) strings.
+    ordered_scheme in {'classic','decimal'}; unordered_scheme in {'disc-circle-square','disc-only'}.
+    """
+    s = load_settings()
+    ordered = s.get('list_scheme_ordered', 'classic')
+    unordered = s.get('list_scheme_unordered', 'disc-circle-square')
+    return ordered, unordered
+
+def set_list_schemes_settings(ordered: str = None, unordered: str = None):
+    s = load_settings()
+    if ordered in ('classic', 'decimal'):
+        s['list_scheme_ordered'] = ordered
+    if unordered in ('disc-circle-square', 'disc-only'):
+        s['list_scheme_unordered'] = unordered
+    save_settings(s)
+
+# --- Default paste mode ---
+def get_default_paste_mode():
+    """Return default paste mode string in {'rich','text-only','match-style','clean'}; default 'rich'."""
+    s = load_settings()
+    mode = s.get('default_paste_mode', 'rich')
+    if mode in ('rich','text-only','match-style','clean'):
+        return mode
+    return 'rich'
+
+def set_default_paste_mode(mode: str):
+    """Persist default paste mode if valid."""
+    if mode not in ('rich','text-only','match-style','clean'):
+        return
+    s = load_settings()
+    s['default_paste_mode'] = mode
+    save_settings(s)

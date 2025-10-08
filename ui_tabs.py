@@ -37,6 +37,7 @@ from PyQt5.QtGui import QIcon, QPixmap, QPainter, QColor, QKeySequence
 from PyQt5 import uic
 import os
 from ui_richtext import add_rich_text_toolbar
+from ui_richtext import sanitize_html_for_storage
 import sqlite3
 
 # Roles for storing ids/kinds in tree items and models
@@ -642,7 +643,51 @@ def _populate_tabs_for_notebook(window, notebook_id):
         # Hook text change to show modified indicator
         text_edit = tab.findChild(QtWidgets.QTextEdit, 'textEdit')
         if text_edit is not None:
-            def _on_text_changed(te_tab=tab):
+            def _on_text_changed(te_tab=tab, sid=section_id):
+                try:
+                    # If user starts editing in a section with no pages yet, auto-create a page
+                    current_pid = getattr(window, "_current_page_by_section", {}).get(sid)
+                    if not current_pid:
+                        te_local = te_tab.findChild(QtWidgets.QTextEdit, 'textEdit')
+                        if te_local is not None:
+                            plain = (te_local.toPlainText() or "").strip()
+                            placeholder = "No pages in this section yet."
+                            # Create a new page when there is user content beyond the placeholder
+                            if plain and plain != placeholder:
+                                new_pid = create_page(sid, "Untitled Page", window._db_path)
+                                try:
+                                    window._current_page_by_section[sid] = new_pid
+                                except Exception:
+                                    pass
+                                # Enable title edit and set default title
+                                try:
+                                    title_edit = te_tab.findChild(QtWidgets.QLineEdit, 'pageTitleEdit')
+                                    if title_edit is not None:
+                                        title_edit.setEnabled(True)
+                                        title_edit.setText("Untitled Page")
+                                except Exception:
+                                    pass
+                                # If placeholder text is present, remove it while preserving user input
+                                try:
+                                    full_plain = te_local.toPlainText()
+                                    if placeholder in full_plain:
+                                        cleaned = full_plain.replace(placeholder, "", 1).lstrip("\n\r ")
+                                        te_local.blockSignals(True)
+                                        te_local.setPlainText(cleaned)
+                                        te_local.blockSignals(False)
+                                except Exception:
+                                    pass
+                                # Reflect in right pane and selection
+                                try:
+                                    nb_id = getattr(window, '_current_notebook_id', None)
+                                    if nb_id is not None:
+                                        _build_right_tree_for_notebook(window, nb_id)
+                                    _select_right_tree_page(window, sid, new_pid)
+                                    set_last_state(section_id=sid, page_id=new_pid)
+                                except Exception:
+                                    pass
+                except Exception:
+                    pass
                 _set_modified_indicator_for_tab(te_tab, True)
             text_edit.textChanged.connect(_on_text_changed)
             # Attach a compact rich text toolbar at the top of the tab
@@ -735,11 +780,30 @@ def _load_first_page_for_current_tab(window):
     if text_edit:
         try:
             text_edit.blockSignals(True)
+            # Normalize HTML by injecting default font family/size into root style to avoid Qt fallback to 8pt
+            try:
+                from ui_richtext import DEFAULT_FONT_FAMILY, DEFAULT_FONT_SIZE_PT
+                if isinstance(html, str) and '<html' in html.lower():
+                    # Inject a style into the head/body if none exists
+                    if '<body' in html.lower():
+                        html = html.replace('<body', f'<body style="font-family: {DEFAULT_FONT_FAMILY}; font-size: {int(DEFAULT_FONT_SIZE_PT)}pt"', 1)
+                    else:
+                        # simple prepend
+                        html = f'<div style="font-family: {DEFAULT_FONT_FAMILY}; font-size: {int(DEFAULT_FONT_SIZE_PT)}pt">{html}</div>'
+            except Exception:
+                pass
             text_edit.setHtml(html)
         finally:
             text_edit.blockSignals(False)
         # Reset modified indicator after programmatic load
         _set_modified_indicator_for_tab(tab, False)
+        # Also set document default font to ensure consistent fallback
+        try:
+            from PyQt5.QtGui import QFont
+            from ui_richtext import DEFAULT_FONT_FAMILY, DEFAULT_FONT_SIZE_PT
+            text_edit.document().setDefaultFont(QFont(DEFAULT_FONT_FAMILY, int(DEFAULT_FONT_SIZE_PT)))
+        except Exception:
+            pass
     if title_edit:
         if pages:
             try:
@@ -797,6 +861,13 @@ def _load_page_for_current_tab(window, page_id):
             text_edit.blockSignals(False)
         # Reset modified indicator after programmatic load
         _set_modified_indicator_for_tab(tab, False)
+        # Ensure document default font is set for consistent fallback
+        try:
+            from PyQt5.QtGui import QFont
+            from ui_richtext import DEFAULT_FONT_FAMILY, DEFAULT_FONT_SIZE_PT
+            text_edit.document().setDefaultFont(QFont(DEFAULT_FONT_FAMILY, int(DEFAULT_FONT_SIZE_PT)))
+        except Exception:
+            pass
     if title_edit:
         if page:
             title_edit.setEnabled(True)
@@ -1823,6 +1894,10 @@ def _save_page_for_tab_index(window, index: int):
         if text_edit is None:
             return
         html = text_edit.toHtml()
+        try:
+            html = sanitize_html_for_storage(html)
+        except Exception:
+            pass
         update_page_content(page_id, html, window._db_path)
         _set_modified_indicator_for_tab(tab, False)
     except Exception:

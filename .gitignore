@@ -1,0 +1,36 @@
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+*.so
+
+# Virtual environments
+.venv/
+venv/
+ENV/
+
+# OS junk
+.DS_Store
+Thumbs.db
+
+# Local app data
+settings.json
+*.log
+
+# SQLite databases & journals
+*.db
+*.db-shm
+*.db-wal
+
+# Per-DB media folders (e.g., notes.db.media)
+*.db.media/
+
+# Saved backups/exports
+Saved DataBases/
+exports/
+backups/
+
+# Misc
+.idea/
+*.cache/

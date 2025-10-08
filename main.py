@@ -22,6 +22,7 @@ from settings_manager import (
 from db_access import create_notebook as db_create_notebook, rename_notebook as db_rename_notebook, delete_notebook as db_delete_notebook
 from db_sections import create_section as db_create_section, get_sections_by_notebook_id as db_get_sections_by_notebook_id
 from db_pages import create_page as db_create_page
+from db_pages import update_page_title as db_update_page_title
 
 def create_new_database(window):
     options = QtWidgets.QFileDialog.Options()
@@ -407,10 +408,44 @@ def add_page(window):
     set_last_state(section_id=int(section_id), page_id=pid)
     restore_last_position(window)
 
+def _current_page_context(window):
+    """Return (section_id, page_id) for the current tab/page if available."""
+    tab_widget = window.findChild(QtWidgets.QTabWidget, 'tabPages')
+    if not tab_widget or tab_widget.count() == 0:
+        return None, None
+    tab_bar = tab_widget.tabBar()
+    if tab_bar is None:
+        return None, None
+    section_id = tab_bar.tabData(tab_widget.currentIndex())
+    if section_id is None:
+        return None, None
+    # See if a page is currently tracked for this section
+    page_id = getattr(window, "_current_page_by_section", {}).get(section_id)
+    return section_id, page_id
+
+def insert_attachment(window):
+    """Prompt for a file and attach it to the current page via media store; no inline HTML yet."""
+    section_id, page_id = _current_page_context(window)
+    if page_id is None:
+        QtWidgets.QMessageBox.information(window, "Insert Attachment", "Please open or create a page first.")
+        return
+    db_path = getattr(window, '_db_path', None) or get_last_db() or 'notes.db'
+    options = QtWidgets.QFileDialog.Options()
+    file_path, _ = QtWidgets.QFileDialog.getOpenFileName(window, "Select Attachment", "", "All Files (*);;Images (*.png *.jpg *.jpeg *.gif *.bmp);;PDF (*.pdf)", options=options)
+    if not file_path:
+        return
+    try:
+        from media_store import save_file_into_store, add_media_ref
+        media_id, rel_path = save_file_into_store(db_path, file_path)
+        add_media_ref(db_path, media_id, page_id=page_id, role='attachment')
+        QtWidgets.QMessageBox.information(window, "Insert Attachment", f"Attached file saved to media store.\n{rel_path}")
+    except Exception as e:
+        QtWidgets.QMessageBox.warning(window, "Insert Attachment", f"Failed to attach file: {e}")
+
 def migrate_database_if_needed(db_path):
     from db_version import get_db_version, set_db_version
     current_version = get_db_version(db_path)
-    target_version = 2  # Update as needed for future migrations
+    target_version = 3  # Update as needed for future migrations
     import sqlite3
     if current_version < 1:
         # baseline
@@ -432,6 +467,59 @@ def migrate_database_if_needed(db_path):
             except Exception:
                 pass
         set_db_version(2, db_path)
+    if current_version < 3:
+        # Add media storage tables and a database metadata table (uuid)
+        import uuid
+        conn = sqlite3.connect(db_path)
+        try:
+            cur = conn.cursor()
+            cur.executescript(
+                """
+                CREATE TABLE IF NOT EXISTS db_metadata (
+                    id INTEGER PRIMARY KEY CHECK (id = 1),
+                    uuid TEXT NOT NULL
+                );
+                
+                CREATE TABLE IF NOT EXISTS media (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    sha256 TEXT NOT NULL UNIQUE,
+                    mime_type TEXT NOT NULL,
+                    ext TEXT NOT NULL,
+                    original_filename TEXT,
+                    size_bytes INTEGER,
+                    created_at TEXT NOT NULL DEFAULT (datetime('now'))
+                );
+                
+                CREATE TABLE IF NOT EXISTS media_refs (
+                    media_id INTEGER NOT NULL REFERENCES media(id) ON DELETE CASCADE,
+                    page_id INTEGER REFERENCES pages(id) ON DELETE CASCADE,
+                    section_id INTEGER REFERENCES sections(id) ON DELETE CASCADE,
+                    notebook_id INTEGER REFERENCES notebooks(id) ON DELETE CASCADE,
+                    role TEXT NOT NULL,
+                    CHECK (
+                        (page_id IS NOT NULL AND section_id IS NULL AND notebook_id IS NULL) OR
+                        (page_id IS NULL AND section_id IS NOT NULL AND notebook_id IS NULL) OR
+                        (page_id IS NULL AND section_id IS NULL AND notebook_id IS NOT NULL)
+                    )
+                );
+                CREATE INDEX IF NOT EXISTS idx_media_refs_media ON media_refs(media_id);
+                CREATE INDEX IF NOT EXISTS idx_media_refs_page ON media_refs(page_id);
+                CREATE INDEX IF NOT EXISTS idx_media_refs_section ON media_refs(section_id);
+                CREATE INDEX IF NOT EXISTS idx_media_refs_notebook ON media_refs(notebook_id);
+                """
+            )
+            # Initialize db_metadata uuid if missing
+            cur.execute("SELECT uuid FROM db_metadata WHERE id=1")
+            row = cur.fetchone()
+            if not row or not row[0]:
+                cur.execute("INSERT OR REPLACE INTO db_metadata(id, uuid) VALUES (1, ?)", (str(uuid.uuid4()),))
+            conn.commit()
+        finally:
+            try:
+                conn.close()
+            except Exception:
+                pass
+        set_db_version(3, db_path)
 
 def open_database(window):
     options = QtWidgets.QFileDialog.Options()
@@ -471,9 +559,30 @@ def main():
     except Exception:
         pass
     window._db_path = db_path
+    # Prepare media root path for this database (not yet used by UI)
+    try:
+        from media_store import media_root_for_db, ensure_dir
+        window._media_root = media_root_for_db(db_path)
+        ensure_dir(window._media_root)
+    except Exception:
+        window._media_root = None
     populate_notebook_names(window, db_path)
     setup_tab_sync(window)
     restore_last_position(window)
+    # Apply saved list scheme (ordered/unordered) to rich text
+    try:
+        from settings_manager import get_list_schemes_settings
+        from ui_richtext import set_list_schemes
+        ord_s, unord_s = get_list_schemes_settings()
+        set_list_schemes(ordered=ord_s, unordered=unord_s)
+    except Exception:
+        pass
+    # Apply default paste mode to override Ctrl+V behavior
+    try:
+        from settings_manager import get_default_paste_mode
+        window._default_paste_mode = get_default_paste_mode()
+    except Exception:
+        window._default_paste_mode = 'rich'
     # Restore left-panel expanded binders from settings after initial build
     try:
         tree_widget = window.findChild(QtWidgets.QTreeWidget, 'notebookName')
@@ -522,9 +631,167 @@ def main():
     act_add_page = window.findChild(QtWidgets.QAction, 'actionAdd_Page')
     if act_add_page:
         act_add_page.triggered.connect(lambda: add_page(window))
+    act_insert_attachment = window.findChild(QtWidgets.QAction, 'actionInsert_Attachment')
+    if act_insert_attachment:
+        act_insert_attachment.triggered.connect(lambda: insert_attachment(window))
     action_exit = window.findChild(QtWidgets.QAction, 'actionExit')
     if action_exit:
         action_exit.triggered.connect(window.close)
+
+    # Edit: Paste actions
+    try:
+        act_paste_plain = window.findChild(QtWidgets.QAction, 'actionPaste_Text_Only')
+        if act_paste_plain:
+            def _paste_plain():
+                try:
+                    tab_widget = window.findChild(QtWidgets.QTabWidget, 'tabPages')
+                    if not tab_widget:
+                        return
+                    page = tab_widget.currentWidget()
+                    if not page:
+                        return
+                    te = page.findChild(QtWidgets.QTextEdit)
+                    if not te:
+                        return
+                    from ui_richtext import paste_text_only
+                    paste_text_only(te)
+                    # Persist immediately so closing the app doesn't lose the paste
+                    try:
+                        from ui_tabs import save_current_page
+                        save_current_page(window)
+                    except Exception:
+                        pass
+                except Exception:
+                    pass
+            act_paste_plain.triggered.connect(_paste_plain)
+        act_paste_match = window.findChild(QtWidgets.QAction, 'actionPaste_and_Match_Style')
+        if act_paste_match:
+            def _paste_match():
+                try:
+                    tab_widget = window.findChild(QtWidgets.QTabWidget, 'tabPages')
+                    if not tab_widget:
+                        return
+                    page = tab_widget.currentWidget()
+                    if not page:
+                        return
+                    te = page.findChild(QtWidgets.QTextEdit)
+                    if not te:
+                        return
+                    from ui_richtext import paste_match_style
+                    paste_match_style(te)
+                    try:
+                        from ui_tabs import save_current_page
+                        save_current_page(window)
+                    except Exception:
+                        pass
+                except Exception:
+                    pass
+            act_paste_match.triggered.connect(_paste_match)
+        act_paste_clean = window.findChild(QtWidgets.QAction, 'actionPaste_Clean_Formatting')
+        if act_paste_clean:
+            def _paste_clean():
+                try:
+                    tab_widget = window.findChild(QtWidgets.QTabWidget, 'tabPages')
+                    if not tab_widget:
+                        return
+                    page = tab_widget.currentWidget()
+                    if not page:
+                        return
+                    te = page.findChild(QtWidgets.QTextEdit)
+                    if not te:
+                        return
+                    from ui_richtext import paste_clean_formatting
+                    paste_clean_formatting(te)
+                    try:
+                        from ui_tabs import save_current_page
+                        save_current_page(window)
+                    except Exception:
+                        pass
+                except Exception:
+                    pass
+            act_paste_clean.triggered.connect(_paste_clean)
+    except Exception:
+        pass
+
+    # Default Paste Mode submenu wiring
+    try:
+        # Actions
+        am_rich = window.findChild(QtWidgets.QAction, 'actionPasteMode_Rich')
+        am_text = window.findChild(QtWidgets.QAction, 'actionPasteMode_Text_Only')
+        am_match = window.findChild(QtWidgets.QAction, 'actionPasteMode_Match_Style')
+        am_clean = window.findChild(QtWidgets.QAction, 'actionPasteMode_Clean')
+        group = None
+        if am_rich and am_text and am_match and am_clean:
+            group = QtWidgets.QActionGroup(window)
+            group.setExclusive(True)
+            for a in (am_rich, am_text, am_match, am_clean):
+                a.setCheckable(True)
+                group.addAction(a)
+            # Reflect current mode
+            mode = getattr(window, '_default_paste_mode', 'rich')
+            if mode == 'rich':
+                am_rich.setChecked(True)
+            elif mode == 'text-only':
+                am_text.setChecked(True)
+            elif mode == 'match-style':
+                am_match.setChecked(True)
+            elif mode == 'clean':
+                am_clean.setChecked(True)
+            # Persist on change
+            def _set_mode(m):
+                try:
+                    window._default_paste_mode = m
+                    from settings_manager import set_default_paste_mode
+                    set_default_paste_mode(m)
+                except Exception:
+                    pass
+            am_rich.triggered.connect(lambda: _set_mode('rich'))
+            am_text.triggered.connect(lambda: _set_mode('text-only'))
+            am_match.triggered.connect(lambda: _set_mode('match-style'))
+            am_clean.triggered.connect(lambda: _set_mode('clean'))
+    except Exception:
+        pass
+
+    # Tools: Clean Unused Media
+    try:
+        act_clean_media = window.findChild(QtWidgets.QAction, 'actionClean_Unused_Media')
+        if act_clean_media:
+            def _do_clean_media():
+                try:
+                    from media_store import garbage_collect_unused_media
+                    dbp = getattr(window, '_db_path', None) or get_last_db() or 'notes.db'
+                    removed = garbage_collect_unused_media(dbp)
+                    QtWidgets.QMessageBox.information(window, "Clean Unused Media", f"Removed {removed} unreferenced media file(s).")
+                except Exception as e:
+                    QtWidgets.QMessageBox.warning(window, "Clean Unused Media", f"Failed to clean media: {e}")
+            act_clean_media.triggered.connect(_do_clean_media)
+    except Exception:
+        pass
+
+    # Format > List Scheme (wired to actions defined in main_window_5.ui)
+    try:
+        def _apply_list_schemes(ordered=None, unordered=None):
+            try:
+                from ui_richtext import set_list_schemes
+                from settings_manager import set_list_schemes_settings
+                set_list_schemes(ordered=ordered, unordered=unordered)
+                set_list_schemes_settings(ordered=ordered, unordered=unordered)
+            except Exception:
+                return
+        act_ord_classic = window.findChild(QtWidgets.QAction, 'actionOrdered_Classic')
+        if act_ord_classic:
+            act_ord_classic.triggered.connect(lambda: _apply_list_schemes(ordered='classic'))
+        act_ord_decimal = window.findChild(QtWidgets.QAction, 'actionOrdered_Decimal')
+        if act_ord_decimal:
+            act_ord_decimal.triggered.connect(lambda: _apply_list_schemes(ordered='decimal'))
+        act_un_disc_cs = window.findChild(QtWidgets.QAction, 'actionUnordered_Disc_Circle_Square')
+        if act_un_disc_cs:
+            act_un_disc_cs.triggered.connect(lambda: _apply_list_schemes(unordered='disc-circle-square'))
+        act_un_disc_only = window.findChild(QtWidgets.QAction, 'actionUnordered_Disc_Only')
+        if act_un_disc_only:
+            act_un_disc_only.triggered.connect(lambda: _apply_list_schemes(unordered='disc-only'))
+    except Exception:
+        pass
 
     window.show()
 
@@ -557,6 +824,12 @@ def main():
 
     # Save geometry on close
     def save_geometry():
+        # Save current page content first to avoid losing last-minute edits
+        try:
+            from ui_tabs import save_current_page
+            save_current_page(window)
+        except Exception:
+            pass
         g = window.geometry()
         set_window_geometry(g.x(), g.y(), g.width(), g.height())
         set_window_maximized(window.isMaximized())
@@ -570,6 +843,45 @@ def main():
             pass
 
     app.aboutToQuit.connect(save_geometry)
+
+    # Override Ctrl+V to use the selected default paste mode in the current editor
+    try:
+        paste_shortcut = QtWidgets.QShortcut(QtWidgets.QKeySequence.Paste, window)
+        def _on_default_paste():
+            try:
+                tab_widget = window.findChild(QtWidgets.QTabWidget, 'tabPages')
+                if not tab_widget:
+                    return
+                page = tab_widget.currentWidget()
+                if not page:
+                    return
+                te = page.findChild(QtWidgets.QTextEdit)
+                if not te:
+                    return
+                mode = getattr(window, '_default_paste_mode', 'rich')
+                if mode == 'text-only':
+                    from ui_richtext import paste_text_only
+                    paste_text_only(te)
+                elif mode == 'match-style':
+                    from ui_richtext import paste_match_style
+                    paste_match_style(te)
+                elif mode == 'clean':
+                    from ui_richtext import paste_clean_formatting
+                    paste_clean_formatting(te)
+                else:
+                    # default rich paste: let QTextEdit handle as usual
+                    te.paste()
+                # Save after paste
+                try:
+                    from ui_tabs import save_current_page
+                    save_current_page(window)
+                except Exception:
+                    pass
+            except Exception:
+                pass
+        paste_shortcut.activated.connect(_on_default_paste)
+    except Exception:
+        pass
     sys.exit(app.exec_())
 
 if __name__ == "__main__":
