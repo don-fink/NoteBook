@@ -118,11 +118,14 @@ def setup_tab_sync(window):
         tab_widget.setTabBarAutoHide(False)
     except Exception:
         pass
-    # Take ownership of left tree signals by disconnecting existing connections if any
+    # Ensure left tree shows expand/collapse decorators
     try:
-        tree_widget.itemClicked.disconnect()
+        tree_widget.setRootIsDecorated(True)
     except Exception:
         pass
+    # Avoid duplicate signal connections by tracking a flag on the tree widget
+    if not hasattr(tree_widget, '_nb_left_signals_connected'):
+        setattr(tree_widget, '_nb_left_signals_connected', False)
     # Ensure right/left clicks select the item under cursor to avoid flaky selection
     try:
         class _LeftTreeSelectFilter(QObject):
@@ -152,16 +155,42 @@ def setup_tab_sync(window):
                 tree_widget.viewport().installEventFilter(window._left_tree_select_filter)
     except Exception:
         pass
-    # Left tree context menu for section CRUD
-    try:
-        tree_widget.setContextMenuPolicy(Qt.CustomContextMenu)
-        tree_widget.customContextMenuRequested.connect(lambda pos: _on_left_tree_context_menu(window, tree_widget, pos))
-    except Exception:
-        pass
+    # Left tree context menu and click handler for section CRUD
+    if not tree_widget._nb_left_signals_connected:
+        try:
+            tree_widget.setContextMenuPolicy(Qt.CustomContextMenu)
+            tree_widget.customContextMenuRequested.connect(lambda pos: _on_left_tree_context_menu(window, tree_widget, pos))
+        except Exception:
+            pass
+        # Enable drag/drop reorder for top-level binders only
+        try:
+            tree_widget.setSelectionMode(QtWidgets.QAbstractItemView.SingleSelection)
+            tree_widget.setDragDropMode(QAbstractItemView.InternalMove)
+            tree_widget.setDefaultDropAction(Qt.MoveAction)
+            tree_widget.setAcceptDrops(True)
+            tree_widget.setDragEnabled(True)
+            tree_widget.setDropIndicatorShown(True)
+            if hasattr(tree_widget, 'viewport') and tree_widget.viewport() is not None:
+                tree_widget.viewport().setAcceptDrops(True)
+            # Install a DnD filter to constrain to top-level moves and persist order
+            if not hasattr(window, '_left_tree_dnd_filter'):
+                window._left_tree_dnd_filter = _LeftTreeDnDFilter(window)
+                tree_widget.installEventFilter(window._left_tree_dnd_filter)
+                if hasattr(tree_widget, 'viewport') and tree_widget.viewport() is not None:
+                    tree_widget.viewport().installEventFilter(window._left_tree_dnd_filter)
+        except Exception:
+            pass
     # Persist expand/collapse state of binders for future sessions
     try:
         def _on_item_expanded(item):
             if item is not None and item.parent() is None:
+                # Ensure sections are populated when user expands via the expander indicator
+                try:
+                    nb_id = item.data(0, USER_ROLE_ID)
+                    if nb_id is not None:
+                        ensure_left_tree_sections(window, int(nb_id))
+                except Exception:
+                    pass
                 from settings_manager import add_expanded_notebook
                 nid = item.data(0, USER_ROLE_ID)
                 if nid is not None:
@@ -212,6 +241,11 @@ def setup_tab_sync(window):
     def on_tree_item_clicked(item, column):
         if getattr(window, "_suppress_sync", False):
             return
+        # Make sure the clicked item is the current selection
+        try:
+            tree_widget.setCurrentItem(item)
+        except Exception:
+            pass
         # Save current page before switching context
         save_current_page(window)
         # Notebook item
@@ -222,37 +256,47 @@ def setup_tab_sync(window):
             # Persist notebook and rebuild UI explicitly
             set_last_state(notebook_id=notebook_id)
             window._current_notebook_id = notebook_id
-            # Ensure this binder's sections are visible under the clicked item
+            # Ensure this binder's sections are visible and expanded
             try:
-                _refresh_left_tree_children(window, notebook_id)
-                item.setExpanded(True)
+                ensure_left_tree_sections(window, int(notebook_id))
+            except Exception:
+                try:
+                    # Fallback: expand the item at least
+                    item.setExpanded(True)
+                except Exception:
+                    pass
+            # One-shot latch: after refresh, force the left tree to keep this binder selected
+            try:
+                window._force_left_binder_selection_id = int(notebook_id)
             except Exception:
                 pass
-            # Unified, deferred refresh to avoid reentrancy and ensure selection.
-            # Keep the left tree focused on the binder (don't immediately jump selection to a section).
-            try:
-                window._skip_left_tree_selection_once = True
-            except Exception:
-                pass
-            refresh_for_notebook(window, notebook_id, keep_left_tree_selection=True)
+            # Single, centralized refresh; keep binder highlighted in the left tree
+            refresh_for_notebook(window, int(notebook_id), keep_left_tree_selection=True)
         else:
             # Section item: select matching tab and load first page
             section_id = item.data(0, USER_ROLE_ID)
             if section_id is None:
                 return
             # If the clicked section belongs to a different notebook than the current tabs,
-            # switch notebooks first and then select the section's tab.
+            # switch notebooks using the centralized refresh helper and select this section.
             parent_item = item.parent()
             parent_notebook_id = parent_item.data(0, USER_ROLE_ID) if parent_item is not None else None
             if parent_notebook_id is not None and parent_notebook_id != getattr(window, "_current_notebook_id", None):
-                set_last_state(notebook_id=parent_notebook_id)
-                _populate_tabs_for_notebook(window, parent_notebook_id)
-                _build_right_tree_for_notebook(window, parent_notebook_id)
+                try:
+                    set_last_state(notebook_id=int(parent_notebook_id), section_id=int(section_id))
+                except Exception:
+                    pass
+                try:
+                    window._current_notebook_id = int(parent_notebook_id)
+                except Exception:
+                    pass
+                refresh_for_notebook(window, int(parent_notebook_id), select_section_id=int(section_id))
+                return
+            # Same-notebook section click: switch tab directly and load first page
             window._suppress_sync = True
             _select_tab_for_section(tab_widget, section_id)
             window._suppress_sync = False
             _load_first_page_for_current_tab(window)
-            _select_right_tree_section(window, section_id)
 
     def on_tab_changed(index):
         if getattr(window, "_suppress_sync", False):
@@ -296,8 +340,9 @@ def setup_tab_sync(window):
         if tab_bar is not None:
             section_id = tab_bar.tabData(index)
             if section_id is not None and not _is_add_section_sentinel(section_id):
-                # Respect one-shot guard: when switching binders, keep binder selected in left tree
-                if not getattr(window, "_skip_left_tree_selection_once", False):
+                # Respect one-shot guard and binder latch: when switching binders, keep binder selected in left tree
+                binder_latch = getattr(window, "_force_left_binder_selection_id", None)
+                if not getattr(window, "_skip_left_tree_selection_once", False) and not binder_latch:
                     _select_tree_section(window, section_id)
                 try:
                     nb_id = getattr(window, '_current_notebook_id', None)
@@ -370,7 +415,9 @@ def setup_tab_sync(window):
             except Exception:
                 pass
 
-    tree_widget.itemClicked.connect(on_tree_item_clicked)
+    if not tree_widget._nb_left_signals_connected:
+        tree_widget.itemClicked.connect(on_tree_item_clicked)
+        tree_widget._nb_left_signals_connected = True
     tab_widget.currentChanged.connect(on_tab_changed)
     if right_tree is not None:
         right_tree.itemClicked.connect(on_right_tree_clicked)
@@ -500,12 +547,18 @@ def refresh_for_notebook(window, notebook_id: int, select_section_id: int = None
         if sections and tab_widget.count() == 0:
             # Try repopulating once more if tabs are still empty
             _populate_tabs_for_notebook(window, notebook_id)
+        # If a binder latch is set, keep binder selected in the left tree after refresh
+        try:
+            binder_latch = getattr(window, '_force_left_binder_selection_id', None)
+        except Exception:
+            binder_latch = None
         # Perform selection
         if select_section_id is not None:
             window._suppress_sync = True
             _select_tab_for_section(tab_widget, select_section_id)
             window._suppress_sync = False
-            _select_tree_section(window, select_section_id)
+            if not binder_latch:
+                _select_tree_section(window, select_section_id)
             _select_right_tree_section(window, select_section_id)
             _load_first_page_for_current_tab(window)
         else:
@@ -532,11 +585,17 @@ def refresh_for_notebook(window, notebook_id: int, select_section_id: int = None
                     sid = tb.tabData(first_idx) if tb is not None else None
                     if sid is not None and not _is_add_section_sentinel(sid):
                         # Only change left tree selection if not instructed to keep binder selection
-                        if not keep_left_tree_selection:
+                        if not keep_left_tree_selection and not getattr(window, '_skip_left_tree_selection_once', False) and not binder_latch:
                             _select_tree_section(window, sid)
                         _select_right_tree_section(window, sid)
                 except Exception:
                     pass
+        # If we had a binder latch, explicitly reselect that binder to ensure it sticks
+        try:
+            if binder_latch is not None:
+                _select_left_binder(window, int(binder_latch))
+        except Exception:
+            pass
         # Ensure visibility and raise the tab widget
         try:
             tab_widget.setTabBarAutoHide(False)
@@ -571,9 +630,14 @@ def refresh_for_notebook(window, notebook_id: int, select_section_id: int = None
         except Exception:
             pass
         tab_widget.update()
-        # Clear any one-shot left-tree skip to avoid affecting future user-driven tab changes
+        # Clear any one-shot left-tree skip and binder latch
         try:
             window._skip_left_tree_selection_once = False
+        except Exception:
+            pass
+        try:
+            if hasattr(window, '_force_left_binder_selection_id'):
+                delattr(window, '_force_left_binder_selection_id')
         except Exception:
             pass
 
@@ -955,6 +1019,27 @@ def _select_tree_section(window, section_id):
                 window._suppress_sync = False
                 return
 
+def _select_left_binder(window, notebook_id: int):
+    """Select the top-level binder item in the left tree by notebook_id."""
+    try:
+        tree_widget = window.findChild(QtWidgets.QTreeWidget, 'notebookName')
+        if not tree_widget:
+            return
+        for i in range(tree_widget.topLevelItemCount()):
+            top = tree_widget.topLevelItem(i)
+            if top.data(0, USER_ROLE_ID) == notebook_id:
+                window._suppress_sync = True
+                tree_widget.setCurrentItem(top)
+                try:
+                    if not top.isExpanded():
+                        top.setExpanded(True)
+                except Exception:
+                    pass
+                window._suppress_sync = False
+                return
+    except Exception:
+        pass
+
 def _build_right_tree_for_notebook(window, notebook_id):
     """Build the right-side QTreeWidget listing sections and their pages for the active notebook."""
     # QTreeWidget path
@@ -1205,13 +1290,14 @@ def _on_tab_bar_context_menu(window, pos):
             if nb_id is not None:
                 _build_right_tree_for_notebook(window, nb_id)
                 _refresh_left_tree_children(window, nb_id, select_section_id=section_id)
-    elif action == act_delete_section:
-        confirm = QtWidgets.QMessageBox.question(
-            tab_bar,
-            "Delete Section",
-            "Are you sure you want to delete this section and all its pages?",
-            QtWidgets.QMessageBox.Yes | QtWidgets.QMessageBox.No,
-        )
+        elif action == act_delete_section:
+            sec_name = tab_bar.tabText(index) or "(untitled)"
+            confirm = QtWidgets.QMessageBox.question(
+                tab_bar,
+                "Delete Section",
+                f"Are you sure you want to delete the section \"{sec_name}\" and all its pages?",
+                QtWidgets.QMessageBox.Yes | QtWidgets.QMessageBox.No,
+            )
         if confirm == QtWidgets.QMessageBox.Yes:
             # Save edits before deletion
             try:
@@ -1409,6 +1495,143 @@ class _RightTreeDnDFilter(QObject):
         return False  # continue default handling
 
 
+class _LeftTreeDnDFilter(QObject):
+    """Event filter to constrain drag/drop to top-level binder reordering and persist order."""
+    def __init__(self, window):
+        super().__init__()
+        self._window = window
+
+    def _top_level_item_at(self, tree: QtWidgets.QTreeWidget, pos_vp):
+        item = tree.itemAt(pos_vp)
+        if item is None:
+            return None
+        # If a child (section) is under mouse, treat target as its top-level parent
+        return item if item.parent() is None else item.parent()
+
+    def eventFilter(self, obj, event):
+        try:
+            # Resolve tree and viewport consistently
+            if isinstance(obj, QtWidgets.QTreeWidget):
+                tree = obj
+                viewport = tree.viewport()
+                pos_vp = viewport.mapFrom(tree, event.pos())
+            elif isinstance(obj, QtWidgets.QWidget) and isinstance(obj.parent(), QtWidgets.QTreeWidget):
+                tree = obj.parent()
+                viewport = obj
+                pos_vp = event.pos()
+            else:
+                return False
+
+            if event.type() in (QEvent.DragEnter, QEvent.DragMove):
+                # Only allow the indicator between top-level items; treat children as their parent
+                tl = self._top_level_item_at(tree, pos_vp)
+                if tl is None and tree.topLevelItemCount() > 0:
+                    # In whitespace: still allow so you can drop at start/end; let default paint
+                    return False
+                # Ensure default paints horizontal indicator at top-level
+                return False
+            if event.type() == QEvent.Drop:
+                # If dropping over a child row, redirect to its top-level parent position
+                tl = self._top_level_item_at(tree, pos_vp)
+                if tl is None and tree.topLevelItemCount() == 0:
+                    return True
+                # Allow default move to occur (Qt will handle insert position between top-level rows)
+                QTimer.singleShot(0, lambda: self._persist_binder_order(tree))
+                return False
+        except Exception:
+            pass
+        return False
+
+    def _persist_binder_order(self, tree: QtWidgets.QTreeWidget):
+        try:
+            ordered_ids = []
+            for i in range(tree.topLevelItemCount()):
+                top = tree.topLevelItem(i)
+                nid = top.data(0, USER_ROLE_ID)
+                if nid is not None:
+                    ordered_ids.append(int(nid))
+            if not ordered_ids:
+                return
+            db_path = getattr(self._window, '_db_path', 'notes.db')
+            try:
+                from db_access import set_notebooks_order
+                set_notebooks_order(ordered_ids, db_path)
+            except Exception:
+                return
+            # Refresh left tree to ensure consistency, keeping current binder selection
+            try:
+                current = tree.currentItem()
+                cur_id = current.data(0, USER_ROLE_ID) if current is not None else None
+            except Exception:
+                cur_id = None
+            try:
+                from ui_logic import populate_notebook_names
+                populate_notebook_names(self._window, db_path)
+                # Reapply expander indicator and flags on all binders (defensive)
+                try:
+                    from PyQt5.QtCore import Qt
+                except Exception:
+                    Qt = None
+                for i in range(tree.topLevelItemCount()):
+                    top = tree.topLevelItem(i)
+                    try:
+                        top.setChildIndicatorPolicy(QtWidgets.QTreeWidgetItem.ShowIndicator)
+                    except Exception:
+                        pass
+                    try:
+                        if Qt is not None:
+                            flags = top.flags()
+                            flags = (flags | Qt.ItemIsEnabled | Qt.ItemIsSelectable | Qt.ItemIsDragEnabled) & ~Qt.ItemIsDropEnabled
+                            top.setFlags(flags)
+                    except Exception:
+                        pass
+                    # Ensure a hidden placeholder exists to force the indicator without spacing
+                    try:
+                        if top.childCount() == 0:
+                            ph = QtWidgets.QTreeWidgetItem([""])
+                            ph.setDisabled(True)
+                            ph.setHidden(True)
+                            top.addChild(ph)
+                    except Exception:
+                        pass
+                # Restore expanded binders from settings if any
+                from settings_manager import get_expanded_notebooks
+                expanded_ids = get_expanded_notebooks()
+                if expanded_ids:
+                    for i in range(tree.topLevelItemCount()):
+                        top = tree.topLevelItem(i)
+                        tid = top.data(0, USER_ROLE_ID)
+                        try:
+                            tid_int = int(tid)
+                        except Exception:
+                            tid_int = None
+                        if tid_int is not None and tid_int in expanded_ids:
+                            # Do not expand during DnD persistence; leave collapsed state as-is
+                            pass
+            except Exception:
+                pass
+            # Reselect the previously selected binder, or keep first
+            try:
+                if cur_id is not None:
+                    for i in range(tree.topLevelItemCount()):
+                        top = tree.topLevelItem(i)
+                        if top.data(0, USER_ROLE_ID) == cur_id:
+                            tree.setCurrentItem(top)
+                            break
+            except Exception:
+                pass
+            # Update current notebook context and refresh UI to reflect any side-effects
+            try:
+                if cur_id is not None:
+                    self._window._current_notebook_id = int(cur_id)
+                    set_last_state(notebook_id=int(cur_id))
+                    refresh_for_notebook(self._window, int(cur_id), keep_left_tree_selection=True)
+            except Exception:
+                pass
+        except Exception:
+            pass
+
+
 def _persist_right_tree_page_orders(window):
     """Persist page order per section from the right QTreeWidget after a drop."""
     try:
@@ -1583,10 +1806,11 @@ def _on_left_tree_context_menu(window, tree_widget: QtWidgets.QTreeWidget, pos):
                 if nb_id is not None:
                     _build_right_tree_for_notebook(window, nb_id)
         elif action == act_delete:
+            sec_name = item.text(0) or "(untitled)"
             confirm = QtWidgets.QMessageBox.question(
                 tree_widget,
                 "Delete Section",
-                "Are you sure you want to delete this section and all its pages?",
+                f"Are you sure you want to delete the section \"{sec_name}\" and all its pages?",
                 QtWidgets.QMessageBox.Yes | QtWidgets.QMessageBox.No,
             )
             if confirm == QtWidgets.QMessageBox.Yes:
@@ -1635,11 +1859,12 @@ def _refresh_left_tree_children(window, notebook_id: int, select_section_id: int
                 add_sections_as_children(tree_widget, notebook_id, top, window._db_path)
             except Exception:
                 pass
-            # If no sections, add a disabled placeholder so the expander arrow appears
+            # If no sections, add a hidden disabled placeholder so the expander arrow appears without spacing
             try:
                 if top.childCount() == 0:
-                    ph = QtWidgets.QTreeWidgetItem(["No sections"])
+                    ph = QtWidgets.QTreeWidgetItem([""])
                     ph.setDisabled(True)
+                    ph.setHidden(True)
                     top.addChild(ph)
             except Exception:
                 pass
@@ -1714,10 +1939,11 @@ def _on_right_tree_context_menu(window, right_tree, pos):
                     _refresh_left_tree_children(window, nb_id, select_section_id=section_id)
                 _select_right_tree_section(window, section_id)
         elif action == act_delete_section:
+            sec_name = item.text(0) or "(untitled)"
             confirm = QtWidgets.QMessageBox.question(
                 right_tree,
                 "Delete Section",
-                "Are you sure you want to delete this section and all its pages?",
+                f"Are you sure you want to delete the section \"{sec_name}\" and all its pages?",
                 QtWidgets.QMessageBox.Yes | QtWidgets.QMessageBox.No,
             )
             if confirm == QtWidgets.QMessageBox.Yes:

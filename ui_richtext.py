@@ -288,6 +288,13 @@ def add_rich_text_toolbar(parent_tab: QtWidgets.QWidget, text_edit: QtWidgets.QT
     btn_bg.clicked.connect(lambda: _pick_color_and_apply(text_edit, foreground=False))
     toolbar.addWidget(btn_bg)
 
+    # Clear only background highlight (keep bold/italic/etc.)
+    btn_bg_clear = QtWidgets.QToolButton(toolbar)
+    btn_bg_clear.setText("NoBg")
+    btn_bg_clear.setToolTip("Remove highlight (background)")
+    btn_bg_clear.clicked.connect(lambda: _clear_background(text_edit))
+    toolbar.addWidget(btn_bg_clear)
+
     toolbar.addSeparator()
 
     # Alignment
@@ -327,6 +334,10 @@ def add_rich_text_toolbar(parent_tab: QtWidgets.QWidget, text_edit: QtWidgets.QT
 
     # Enable Tab/Shift+Tab to control list levels
     _install_list_tab_handler(text_edit)
+    # Enable table cell Tab navigation
+    _install_table_tab_handler(text_edit)
+    # Enable plain paragraph indent/outdent with Tab/Shift+Tab when not in lists/tables
+    _install_plain_indent_tab_handler(text_edit)
 
     toolbar.addSeparator()
 
@@ -342,12 +353,13 @@ def add_rich_text_toolbar(parent_tab: QtWidgets.QWidget, text_edit: QtWidgets.QT
     act_paste_plain = toolbar.addAction(_make_icon('color'), "", lambda: paste_text_only(text_edit))
     act_paste_plain.setToolTip("Paste Text Only (Ctrl+Shift+V)")
 
-    # Placeholder: Table (to be implemented with insert/edit actions)
+    # Table: insert or edit if caret is inside a table
     toolbar.addSeparator()
     btn_table = QtWidgets.QToolButton(toolbar)
     btn_table.setIcon(_make_icon('table'))
-    btn_table.setToolTip("Insert/edit table (coming soon)")
-    btn_table.setEnabled(False)
+    btn_table.setToolTip("Insert/edit table")
+    btn_table.setEnabled(True)
+    btn_table.clicked.connect(lambda: _table_insert_or_edit(text_edit))
     toolbar.addWidget(btn_table)
 
     # Place toolbar in layout
@@ -380,6 +392,13 @@ def add_rich_text_toolbar(parent_tab: QtWidgets.QWidget, text_edit: QtWidgets.QT
     _install_default_paste_override(text_edit)
     # Enable Ctrl+Click to open links in the system browser
     _install_link_click_handler(text_edit)
+    # Enable right-click table context menu
+    _install_table_context_menu(text_edit)
+    # Ensure default context menu events propagate so our filter can handle them
+    try:
+        text_edit.setContextMenuPolicy(Qt.DefaultContextMenu)
+    except Exception:
+        pass
 
     # Improve selection visibility: use a clearer highlight and text color
     try:
@@ -592,14 +611,14 @@ def sanitize_html_for_storage(raw_html: str) -> str:
                     continue
                 if lk == 'style':
                     # Keep only Qt list-related declarations to preserve indent/numbering across reloads
-                    # Applies to list containers and list paragraphs
+                    # Also keep paragraph left margin to support Tab/Shift+Tab indent for plain text
                     if tag_l in ('ol','ul','li','p'):
                         try:
                             decls = [d.strip() for d in str(v).split(';') if d.strip()]
                             kept = []
                             for d in decls:
                                 key = d.split(':',1)[0].strip().lower()
-                                if key.startswith('-qt-list-') or key == '-qt-paragraph-type':
+                                if key.startswith('-qt-list-') or key == '-qt-paragraph-type' or (tag_l == 'p' and key in ('margin-left',)):
                                     kept.append(d)
                             if kept:
                                 buffered_style = '; '.join(kept)
@@ -645,14 +664,13 @@ def sanitize_html_for_storage(raw_html: str) -> str:
                 if lk in ('class', 'bgcolor', 'color', 'face', 'size'):
                     continue
                 if lk == 'style':
-                    tag_l = tag_l
                     if tag_l in ('ol','ul','li','p'):
                         try:
                             decls = [d.strip() for d in str(v).split(';') if d.strip()]
                             kept = []
                             for d in decls:
                                 key = d.split(':',1)[0].strip().lower()
-                                if key.startswith('-qt-list-') or key == '-qt-paragraph-type':
+                                if key.startswith('-qt-list-') or key == '-qt-paragraph-type' or (tag_l == 'p' and key in ('margin-left',)):
                                     kept.append(d)
                             if kept:
                                 buffered_style = '; '.join(kept)
@@ -785,6 +803,513 @@ def _insert_image_via_dialog(text_edit: QtWidgets.QTextEdit):
     cursor.insertImage(path)
 
 
+# ----------------------------- Tables -----------------------------
+def _current_table(text_edit: QtWidgets.QTextEdit):
+    try:
+        cur = text_edit.textCursor()
+        return cur.currentTable()
+    except Exception:
+        return None
+
+
+def _table_insert_or_edit(text_edit: QtWidgets.QTextEdit):
+    tbl = _current_table(text_edit)
+    if tbl is None:
+        _table_insert_dialog(text_edit)
+    else:
+        _table_properties_dialog(text_edit, tbl)
+
+
+def _table_insert_dialog(text_edit: QtWidgets.QTextEdit):
+    dlg = QtWidgets.QDialog(text_edit)
+    dlg.setWindowTitle("Insert Table")
+    form = QtWidgets.QFormLayout(dlg)
+    sp_rows = QtWidgets.QSpinBox(dlg)
+    sp_rows.setRange(1, 100)
+    sp_rows.setValue(3)
+    sp_cols = QtWidgets.QSpinBox(dlg)
+    sp_cols.setRange(1, 20)
+    sp_cols.setValue(3)
+    sp_border = QtWidgets.QDoubleSpinBox(dlg)
+    sp_border.setRange(0.0, 8.0)
+    sp_border.setSingleStep(0.5)
+    sp_border.setValue(1.0)
+    sp_pad = QtWidgets.QDoubleSpinBox(dlg)
+    sp_pad.setRange(0.0, 20.0)
+    sp_pad.setSingleStep(0.5)
+    sp_pad.setValue(2.0)
+    sp_space = QtWidgets.QDoubleSpinBox(dlg)
+    sp_space.setRange(0.0, 20.0)
+    sp_space.setSingleStep(0.5)
+    sp_space.setValue(0.0)
+    sp_width = QtWidgets.QDoubleSpinBox(dlg)
+    sp_width.setRange(10.0, 100.0)
+    sp_width.setSingleStep(5.0)
+    sp_width.setValue(100.0)
+    form.addRow("Rows:", sp_rows)
+    form.addRow("Columns:", sp_cols)
+    form.addRow("Border width:", sp_border)
+    form.addRow("Cell padding:", sp_pad)
+    form.addRow("Cell spacing:", sp_space)
+    form.addRow("Table width (% of editor):", sp_width)
+    btns = QtWidgets.QDialogButtonBox(QtWidgets.QDialogButtonBox.Ok | QtWidgets.QDialogButtonBox.Cancel, parent=dlg)
+    form.addRow(btns)
+    btns.accepted.connect(dlg.accept)
+    btns.rejected.connect(dlg.reject)
+    if dlg.exec_() != QtWidgets.QDialog.Accepted:
+        return
+    rows = sp_rows.value()
+    cols = sp_cols.value()
+    from PyQt5.QtGui import QTextTableFormat, QTextLength
+    fmt = QTextTableFormat()
+    fmt.setBorder(sp_border.value())
+    fmt.setCellPadding(sp_pad.value())
+    fmt.setCellSpacing(sp_space.value())
+    # Set percentage width and distribute columns evenly
+    try:
+        fmt.setWidth(QTextLength(QTextLength.PercentageLength, sp_width.value()))
+        if cols > 0:
+            frac = 100.0 / float(cols)
+            fmt.setColumnWidthConstraints([QTextLength(QTextLength.PercentageLength, frac) for _ in range(cols)])
+    except Exception:
+        pass
+    cur = text_edit.textCursor()
+    cur.insertTable(rows, cols, fmt)
+
+
+def _table_properties_dialog(text_edit: QtWidgets.QTextEdit, table):
+    fmt = table.format()
+    dlg = QtWidgets.QDialog(text_edit)
+    dlg.setWindowTitle("Table Properties")
+    form = QtWidgets.QFormLayout(dlg)
+    sp_border = QtWidgets.QDoubleSpinBox(dlg)
+    sp_border.setRange(0.0, 8.0)
+    sp_border.setSingleStep(0.5)
+    sp_border.setValue(fmt.border())
+    sp_pad = QtWidgets.QDoubleSpinBox(dlg)
+    sp_pad.setRange(0.0, 20.0)
+    sp_pad.setSingleStep(0.5)
+    sp_pad.setValue(fmt.cellPadding())
+    sp_space = QtWidgets.QDoubleSpinBox(dlg)
+    sp_space.setRange(0.0, 20.0)
+    sp_space.setSingleStep(0.5)
+    sp_space.setValue(fmt.cellSpacing())
+    sp_width = QtWidgets.QDoubleSpinBox(dlg)
+    sp_width.setRange(10.0, 100.0)
+    sp_width.setSingleStep(5.0)
+    # Pre-fill from existing width; fallback estimate if fixed
+    try:
+        wlen = fmt.width()
+        # PyQt QTextLength exposes type() and value() or rawValue()
+        wtype = wlen.type() if hasattr(wlen, 'type') else None
+        if wtype == wlen.PercentageLength:
+            val = wlen.rawValue() if hasattr(wlen, 'rawValue') else wlen.value()
+            sp_width.setValue(float(val))
+        else:
+            # Approximate percent from viewport width
+            vp = text_edit.viewport() if hasattr(text_edit, 'viewport') else None
+            vw = float(vp.width()) if vp is not None else 1.0
+            v = (wlen.value() if hasattr(wlen, 'value') else 0.0)
+            pct = max(10.0, min(100.0, (float(v) / vw) * 100.0 if vw > 1.0 and v else 100.0))
+            sp_width.setValue(pct)
+    except Exception:
+        sp_width.setValue(100.0)
+    form.addRow("Border width:", sp_border)
+    form.addRow("Cell padding:", sp_pad)
+    form.addRow("Cell spacing:", sp_space)
+    form.addRow("Table width (% of editor):", sp_width)
+    btns = QtWidgets.QDialogButtonBox(QtWidgets.QDialogButtonBox.Ok | QtWidgets.QDialogButtonBox.Cancel, parent=dlg)
+    form.addRow(btns)
+    btns.accepted.connect(dlg.accept)
+    btns.rejected.connect(dlg.reject)
+    if dlg.exec_() != QtWidgets.QDialog.Accepted:
+        return
+    fmt.setBorder(sp_border.value())
+    fmt.setCellPadding(sp_pad.value())
+    fmt.setCellSpacing(sp_space.value())
+    try:
+        from PyQt5.QtGui import QTextLength
+        fmt.setWidth(QTextLength(QTextLength.PercentageLength, sp_width.value()))
+    except Exception:
+        pass
+    table.setFormat(fmt)
+
+
+def _table_add_remove(text_edit: QtWidgets.QTextEdit, action: str):
+    cur = text_edit.textCursor()
+    tbl = cur.currentTable()
+    if tbl is None:
+        return
+    cell = tbl.cellAt(cur)
+    if not cell.isValid():
+        return
+    row = cell.row()
+    col = cell.column()
+    if action == 'row_above':
+        tbl.insertRows(row, 1)
+    elif action == 'row_below':
+        tbl.insertRows(row+1, 1)
+    elif action == 'col_left':
+        tbl.insertColumns(col, 1)
+    elif action == 'col_right':
+        tbl.insertColumns(col+1, 1)
+    elif action == 'remove_row':
+        tbl.removeRows(row, 1)
+    elif action == 'remove_col':
+        tbl.removeColumns(col, 1)
+
+
+class _TableContextMenu(QObject):
+    def __init__(self, edit: QtWidgets.QTextEdit):
+        super().__init__(edit)
+        self._edit = edit
+        try:
+            self._viewport = edit.viewport()
+        except Exception:
+            self._viewport = None
+        # Track destruction to avoid using deleted C++ objects
+        try:
+            edit.destroyed.connect(self._on_dead)
+        except Exception:
+            pass
+        try:
+            if self._viewport is not None:
+                self._viewport.destroyed.connect(self._on_dead)
+        except Exception:
+            pass
+
+    def _on_dead(self, *args, **kwargs):
+        self._edit = None
+        self._viewport = None
+
+    def eventFilter(self, obj, event):
+        if self._edit is None:
+            return False
+        if (obj is self._edit or (self._viewport is not None and obj is self._viewport)) and event.type() == QEvent.ContextMenu:
+            pos = event.pos()
+            # Position reported is in obj coords; map to the edit for cursor and to global for menu
+            try:
+                if obj is self._edit:
+                    widget_pos = pos
+                    global_pos = self._edit.mapToGlobal(pos)
+                else:
+                    # obj is viewport
+                    widget_pos = pos  # QTextEdit accepts viewport coords for cursorForPosition
+                    global_pos = obj.mapToGlobal(pos)
+            except Exception:
+                widget_pos = pos
+                try:
+                    global_pos = self._edit.mapToGlobal(pos)
+                except Exception:
+                    return False
+            # Capture original selection and table
+            orig_cur = self._edit.textCursor()
+            orig_tbl = orig_cur.currentTable()
+            # Compute selection rectangle from original selection (do not disturb selection)
+            orig_rect = _table_selection_rect(self._edit, orig_tbl)
+            # Also capture clicked cell context
+            try:
+                clicked_cur = self._edit.cursorForPosition(widget_pos)
+            except Exception:
+                clicked_cur = orig_cur
+            clicked_tbl = clicked_cur.currentTable()
+            # Choose active table for the menu: prefer the one with a valid selection rect
+            tbl = orig_tbl if (orig_tbl is not None and orig_rect is not None) else clicked_tbl
+            # When not over a table, show a simple menu (Paste + Insert)
+            if tbl is None:
+                menu = QtWidgets.QMenu(self._edit)
+                act_paste = menu.addAction("Paste")
+                sub_ins = menu.addMenu("Insert")
+                act_ins_table = sub_ins.addAction("Table…")
+                chosen = menu.exec_(global_pos)
+                if chosen is None:
+                    return True
+                if chosen == act_paste:
+                    try:
+                        from settings_manager import get_default_paste_mode
+                        mode = get_default_paste_mode() or 'rich'
+                    except Exception:
+                        mode = 'rich'
+                    try:
+                        if mode == 'text-only':
+                            from ui_richtext import paste_text_only
+                            paste_text_only(self._edit)
+                        elif mode == 'match-style':
+                            from ui_richtext import paste_match_style
+                            paste_match_style(self._edit)
+                        elif mode == 'clean':
+                            from ui_richtext import paste_clean_formatting
+                            paste_clean_formatting(self._edit)
+                        else:
+                            self._edit.paste()
+                    except Exception:
+                        try:
+                            self._edit.paste()
+                        except Exception:
+                            pass
+                    return True
+                if chosen == act_ins_table:
+                    _table_insert_dialog(self._edit)
+                    return True
+                return True
+            # Otherwise, build the full table menu
+            menu = QtWidgets.QMenu(self._edit)
+            act_ins = menu.addAction("Insert Table…")
+            act_prop = menu.addAction("Table Properties…")
+            act_fit = menu.addAction("Fit Table to Width")
+            act_dist = menu.addAction("Distribute Columns Evenly")
+            act_set_col = menu.addAction("Set Current Column Width…")
+            menu.addSeparator()
+            # Determine multi-cell selection rectangle (within chosen table)
+            sel_rect = _table_selection_rect(self._edit, tbl)
+            sel_rows = (sel_rect[2] - sel_rect[0] + 1) if sel_rect is not None else 1
+            # Dynamic labels reflecting selection count
+            act_row_above = menu.addAction(f"Insert Row{'s' if sel_rows>1 else ''} Above ({sel_rows})")
+            act_row_below = menu.addAction(f"Insert Row{'s' if sel_rows>1 else ''} Below ({sel_rows})")
+            act_col_left = menu.addAction("Insert Column Left")
+            act_col_right = menu.addAction("Insert Column Right")
+            act_rm_row = menu.addAction(f"Remove Selected Row{'s' if sel_rows>1 else ''}")
+            act_rm_col = menu.addAction("Remove Column")
+            act_clear_cells = menu.addAction("Clear Selected Cells")
+            # Enable/disable depending on context
+            has_tbl = tbl is not None
+            act_prop.setEnabled(has_tbl)
+            act_fit.setEnabled(has_tbl)
+            act_dist.setEnabled(has_tbl)
+            act_set_col.setEnabled(has_tbl)
+            act_row_above.setEnabled(has_tbl)
+            act_row_below.setEnabled(has_tbl)
+            act_col_left.setEnabled(has_tbl)
+            act_col_right.setEnabled(has_tbl)
+            act_rm_row.setEnabled(has_tbl)
+            act_rm_col.setEnabled(has_tbl)
+            act_clear_cells.setEnabled(has_tbl and sel_rect is not None)
+            chosen = menu.exec_(global_pos)
+            if chosen is None:
+                return True
+            if chosen == act_ins:
+                _table_insert_dialog(self._edit)
+            elif chosen == act_prop and has_tbl:
+                _table_properties_dialog(self._edit, tbl)
+            elif chosen == act_fit and has_tbl:
+                _table_fit_width(tbl)
+            elif chosen == act_dist and has_tbl:
+                _table_distribute_columns(tbl)
+            elif chosen == act_set_col and has_tbl:
+                # For column-based actions, position the caret to clicked cell to define the column
+                try:
+                    self._edit.setTextCursor(clicked_cur)
+                except Exception:
+                    pass
+                _table_set_current_column_width(self._edit, tbl)
+            elif has_tbl:
+                if chosen == act_row_above:
+                    _table_insert_rows_from_selection(self._edit, tbl, sel_rect, above=True)
+                elif chosen == act_row_below:
+                    _table_insert_rows_from_selection(self._edit, tbl, sel_rect, above=False)
+                elif chosen == act_col_left:
+                    try:
+                        self._edit.setTextCursor(clicked_cur)
+                    except Exception:
+                        pass
+                    _table_add_remove(self._edit, 'col_left')
+                elif chosen == act_col_right:
+                    try:
+                        self._edit.setTextCursor(clicked_cur)
+                    except Exception:
+                        pass
+                    _table_add_remove(self._edit, 'col_right')
+                elif chosen == act_rm_row:
+                    _table_remove_rows_from_selection(self._edit, tbl, sel_rect)
+                elif chosen == act_rm_col:
+                    try:
+                        self._edit.setTextCursor(clicked_cur)
+                    except Exception:
+                        pass
+                    _table_add_remove(self._edit, 'remove_col')
+                elif chosen == act_clear_cells and sel_rect is not None:
+                    _table_clear_selected_cells(self._edit, tbl, sel_rect)
+            return True
+        return super().eventFilter(obj, event)
+
+
+def _install_table_context_menu(text_edit: QtWidgets.QTextEdit):
+    handler = _TableContextMenu(text_edit)
+    text_edit.installEventFilter(handler)
+    try:
+        vp = text_edit.viewport()
+        if vp is not None:
+            vp.installEventFilter(handler)
+    except Exception:
+        pass
+    if not hasattr(text_edit, '_tableCtx'):  # keep references
+        text_edit._tableCtx = []
+    text_edit._tableCtx.append(handler)
+
+
+def _table_selection_rect(text_edit: QtWidgets.QTextEdit, table):
+    """Return (r0,c0,r1,c1) rectangle for current selection within table; None if selection not in table."""
+    try:
+        if table is None:
+            return None
+        cur = text_edit.textCursor()
+        a = cur.anchor()
+        p = cur.position()
+        c1 = table.cellAt(min(a, p))
+        c2 = table.cellAt(max(a, p))
+        if not c1.isValid() or not c2.isValid():
+            # If no selection, use current cell
+            c = table.cellAt(cur)
+            if not c.isValid():
+                return None
+            r = c.row(); ccol = c.column()
+            return (r, ccol, r, ccol)
+        r0 = min(c1.row(), c2.row())
+        r1 = max(c1.row(), c2.row())
+        c0 = min(c1.column(), c2.column())
+        c1i = max(c1.column(), c2.column())
+        return (r0, c0, r1, c1i)
+    except Exception:
+        return None
+
+
+def _table_clear_selected_cells(text_edit: QtWidgets.QTextEdit, table, rect):
+    if rect is None:
+        return
+    r0, c0, r1, c1 = rect
+    for r in range(r0, r1+1):
+        for c in range(c0, c1+1):
+            cell = table.cellAt(r, c)
+            if not cell.isValid():
+                continue
+            tc = cell.firstCursorPosition()
+            # Select the cell range
+            last = cell.lastCursorPosition()
+            tc.setPosition(last.position(), QTextCursor.KeepAnchor)
+            try:
+                tc.removeSelectedText()
+            except Exception:
+                pass
+
+
+def _table_insert_rows_from_selection(text_edit: QtWidgets.QTextEdit, table, rect, above: bool):
+    cur = text_edit.textCursor()
+    cell = table.cellAt(cur)
+    if not cell.isValid():
+        return
+    base_row = cell.row()
+    count = 1
+    if rect is not None:
+        r0, _c0, r1, _c1 = rect
+        count = max(1, r1 - r0 + 1)
+        base_row = r0 if above else (r1 + 1)
+    try:
+        table.insertRows(base_row, count)
+    except Exception:
+        pass
+
+
+def _table_remove_rows_from_selection(text_edit: QtWidgets.QTextEdit, table, rect):
+    cur = text_edit.textCursor()
+    cell = table.cellAt(cur)
+    if rect is None or not cell.isValid():
+        # Remove current row
+        try:
+            table.removeRows(cell.row(), 1)
+        except Exception:
+            pass
+        _table_delete_if_empty(text_edit, table)
+        return
+    r0, _c0, r1, _c1 = rect
+    try:
+        table.removeRows(r0, r1 - r0 + 1)
+    except Exception:
+        pass
+    _table_delete_if_empty(text_edit, table)
+
+
+def _table_delete_if_empty(text_edit: QtWidgets.QTextEdit, table):
+    try:
+        if table.rows() > 0:
+            return
+        # Select the entire table frame and replace with a blank block
+        start = table.firstPosition()
+        end = table.lastPosition()
+        c = QTextCursor(text_edit.document())
+        c.setPosition(start)
+        c.setPosition(end, QTextCursor.KeepAnchor)
+        c.removeSelectedText()
+        # Ensure there's a paragraph to continue typing
+        c.insertBlock()
+    except Exception:
+        pass
+
+
+def _table_fit_width(table):
+    from PyQt5.QtGui import QTextTableFormat, QTextLength
+    try:
+        fmt = table.format()
+        fmt.setWidth(QTextLength(QTextLength.PercentageLength, 100))
+        table.setFormat(fmt)
+    except Exception:
+        pass
+
+
+def _table_distribute_columns(table):
+    from PyQt5.QtGui import QTextLength
+    try:
+        cols = table.columns()
+        if cols <= 0:
+            return
+        frac = 100.0 / float(cols)
+        fmt = table.format()
+        fmt.setColumnWidthConstraints([QTextLength(QTextLength.PercentageLength, frac) for _ in range(cols)])
+        table.setFormat(fmt)
+    except Exception:
+        pass
+
+
+def _table_set_current_column_width(text_edit: QtWidgets.QTextEdit, table):
+    from PyQt5.QtGui import QTextLength
+    cur = text_edit.textCursor()
+    cell = table.cellAt(cur)
+    if not cell.isValid():
+        return
+    col_idx = cell.column()
+    cols = table.columns()
+    fmt = table.format()
+    constraints = list(fmt.columnWidthConstraints()) or []
+    if not constraints or len(constraints) != cols:
+        constraints = [QTextLength(QTextLength.PercentageLength, 100.0/cols) for _ in range(cols)]
+    # Ask user for percentage
+    dlg = QtWidgets.QInputDialog(text_edit)
+    dlg.setWindowTitle("Set Column Width")
+    dlg.setLabelText(f"Width for column {col_idx+1} (% of table width):")
+    dlg.setInputMode(QtWidgets.QInputDialog.DoubleInput)
+    dlg.setDoubleRange(1.0, 100.0)
+    dlg.setDoubleDecimals(1)
+    dlg.setDoubleValue(constraints[col_idx].rawValue() if hasattr(constraints[col_idx], 'rawValue') else constraints[col_idx].value())
+    if dlg.exec_() != QtWidgets.QDialog.Accepted:
+        return
+    new_pct = dlg.doubleValue()
+    # Rebalance other columns to keep sum ~100
+    other_indices = [i for i in range(cols) if i != col_idx]
+    current_sum = sum((c.rawValue() if hasattr(c, 'rawValue') else c.value()) for c in constraints)
+    remaining = max(1.0, 100.0 - new_pct)
+    if not other_indices:
+        constraints[col_idx] = QTextLength(QTextLength.PercentageLength, new_pct)
+    else:
+        # Distribute remaining proportionally to their existing sizes
+        other_sum = max(1e-6, sum((constraints[i].rawValue() if hasattr(constraints[i], 'rawValue') else constraints[i].value()) for i in other_indices))
+        for i in other_indices:
+            base = (constraints[i].rawValue() if hasattr(constraints[i], 'rawValue') else constraints[i].value())
+            pct = remaining * (base / other_sum)
+            constraints[i] = QTextLength(QTextLength.PercentageLength, pct)
+        constraints[col_idx] = QTextLength(QTextLength.PercentageLength, new_pct)
+    fmt.setColumnWidthConstraints(constraints)
+    table.setFormat(fmt)
+
+
 def _apply_selection_colors(text_edit: QtWidgets.QTextEdit, bg: QColor, fg: QColor):
     pal = text_edit.palette()
     for group in (QPalette.Active, QPalette.Inactive, QPalette.Disabled):
@@ -844,6 +1369,20 @@ def _pick_color_and_apply(text_edit: QtWidgets.QTextEdit, foreground: bool = Tru
             cursor.select(cursor.WordUnderCursor)
         cursor.mergeCharFormat(fmt)
         text_edit.mergeCurrentCharFormat(fmt)
+
+
+def _clear_background(text_edit: QtWidgets.QTextEdit):
+    fmt = QTextCharFormat()
+    try:
+        fmt.setBackground(Qt.transparent)
+    except Exception:
+        fmt.clearBackground()
+    cursor = text_edit.textCursor()
+    if not cursor.hasSelection():
+        cursor.select(cursor.WordUnderCursor)
+    cursor.mergeCharFormat(fmt)
+    # Also update typing format so new text doesn't carry highlight
+    text_edit.mergeCurrentCharFormat(fmt)
 
 
 # ----------------------------- Lists and indentation -----------------------------
@@ -913,7 +1452,7 @@ class _ListTabHandler(QObject):
                 if cur.block().textList() is not None:
                     is_backtab = (key == Qt.Key_Backtab) or bool(event.modifiers() & Qt.ShiftModifier)
                     _change_list_indent(self._edit, -1 if is_backtab else +1)
-                    return True
+                    return True  # consume to avoid inserting a tab char
         return super().eventFilter(obj, event)
 
 
@@ -924,6 +1463,138 @@ def _install_list_tab_handler(text_edit: QtWidgets.QTextEdit):
     if not hasattr(text_edit, "_listTabHandler"):
         text_edit._listTabHandler = []
     text_edit._listTabHandler.append(handler)
+
+
+class _TableTabHandler(QObject):
+    def __init__(self, edit: QtWidgets.QTextEdit):
+        super().__init__(edit)
+        self._edit = edit
+
+    def eventFilter(self, obj, event):
+        if obj is self._edit and event.type() == QEvent.KeyPress:
+            key = event.key()
+            if key in (Qt.Key_Tab, Qt.Key_Backtab):
+                shift = (key == Qt.Key_Backtab) or bool(event.modifiers() & Qt.ShiftModifier)
+                cur = self._edit.textCursor()
+                tbl = cur.currentTable()
+                if tbl is None:
+                    return False
+                cell = tbl.cellAt(cur)
+                if not cell.isValid():
+                    return False
+                row = cell.row()
+                col = cell.column()
+                rows = tbl.rows()
+                cols = tbl.columns()
+                if shift:
+                    # Move backward
+                    prev_col = col - 1
+                    prev_row = row
+                    if prev_col < 0:
+                        prev_row -= 1
+                        if prev_row < 0:
+                            return True  # swallow at very start
+                        prev_col = cols - 1
+                    target = tbl.cellAt(prev_row, prev_col)
+                    self._edit.setTextCursor(target.firstCursorPosition())
+                    return True
+                # Forward
+                next_col = col + 1
+                next_row = row
+                if next_col >= cols:
+                    next_col = 0
+                    next_row += 1
+                    if next_row >= rows:
+                        # Append a new row
+                        try:
+                            tbl.insertRows(rows, 1)
+                            rows += 1
+                        except Exception:
+                            pass
+                if next_row < rows:
+                    target = tbl.cellAt(next_row, next_col)
+                    self._edit.setTextCursor(target.firstCursorPosition())
+                return True
+        return super().eventFilter(obj, event)
+
+
+def _install_table_tab_handler(text_edit: QtWidgets.QTextEdit):
+    handler = _TableTabHandler(text_edit)
+    text_edit.installEventFilter(handler)
+    if not hasattr(text_edit, '_tableTabHandlers'):
+        text_edit._tableTabHandlers = []
+    text_edit._tableTabHandlers.append(handler)
+
+
+# ----------------------------- Plain paragraph indent with Tab/Shift+Tab -----------------------------
+INDENT_STEP_PX = 24.0
+
+
+def _change_block_left_margin(text_edit: QtWidgets.QTextEdit, delta_px: float):
+    cur = text_edit.textCursor()
+    start = cur.selectionStart()
+    end = cur.selectionEnd()
+    work = QTextCursor(cur)
+    work.beginEditBlock()
+    try:
+        # If no selection, apply to current block
+        if start == end:
+            block = cur.block()
+            bf = block.blockFormat()
+            bf.setLeftMargin(max(0.0, float(bf.leftMargin()) + float(delta_px)))
+            cur.mergeBlockFormat(bf)
+        else:
+            c = QTextCursor(text_edit.document())
+            c.setPosition(start)
+            while True:
+                block = c.block()
+                bf = block.blockFormat()
+                bf.setLeftMargin(max(0.0, float(bf.leftMargin()) + float(delta_px)))
+                # Select this block and apply
+                bc = QTextCursor(block)
+                bc.select(QTextCursor.BlockUnderCursor)
+                bc.mergeBlockFormat(bf)
+                # Stop if we've passed end
+                if block.position() + block.length() >= end:
+                    break
+                if not c.movePosition(QTextCursor.NextBlock):
+                    break
+    finally:
+        work.endEditBlock()
+
+
+class _PlainIndentTabHandler(QObject):
+    def __init__(self, edit: QtWidgets.QTextEdit):
+        super().__init__(edit)
+        self._edit = edit
+
+    def eventFilter(self, obj, event):
+        if obj is self._edit and event.type() == QEvent.KeyPress:
+            key = event.key()
+            if key in (Qt.Key_Tab, Qt.Key_Backtab):
+                cur = self._edit.textCursor()
+                # Skip if inside table or list; handled by other filters
+                if cur.currentTable() is not None or cur.block().textList() is not None:
+                    return False
+                is_out = (key == Qt.Key_Backtab) or bool(event.modifiers() & Qt.ShiftModifier)
+                _change_block_left_margin(self._edit, -INDENT_STEP_PX if is_out else +INDENT_STEP_PX)
+                return True
+        return super().eventFilter(obj, event)
+
+
+def _install_plain_indent_tab_handler(text_edit: QtWidgets.QTextEdit):
+    handler = _PlainIndentTabHandler(text_edit)
+    text_edit.installEventFilter(handler)
+    if not hasattr(text_edit, '_plainIndentHandlers'):
+        text_edit._plainIndentHandlers = []
+    text_edit._plainIndentHandlers.append(handler)
+    # Load indent step from settings if available
+    try:
+        from settings_manager import get_plain_indent_px
+        global INDENT_STEP_PX
+        INDENT_STEP_PX = float(get_plain_indent_px())
+    except Exception:
+        pass
 
 
 def _select_combo_value(combo: QtWidgets.QComboBox, value: int):

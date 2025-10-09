@@ -17,6 +17,10 @@ def save_settings(settings):
     with open(SETTINGS_FILE, 'w') as f:
         json.dump(settings, f, indent=2)
 
+def get_settings_file_path() -> str:
+    """Return absolute path to the settings.json file."""
+    return os.path.abspath(SETTINGS_FILE)
+
 def get_last_db():
     settings = load_settings()
     return settings.get('last_db')
@@ -25,6 +29,26 @@ def set_last_db(db_path):
     settings = load_settings()
     settings['last_db'] = db_path
     save_settings(settings)
+
+# --- Databases root folder ---
+def get_databases_root() -> str:
+    """Folder under which .db files and their media folders are stored. Defaults to working directory."""
+    s = load_settings()
+    val = s.get('databases_root')
+    if val and isinstance(val, str) and os.path.isdir(val):
+        return val
+    # Fallback: current working directory
+    try:
+        return os.path.abspath(os.getcwd())
+    except Exception:
+        return os.path.abspath('.')
+
+def set_databases_root(path: str):
+    if not isinstance(path, str) or not path:
+        return
+    s = load_settings()
+    s['databases_root'] = path
+    save_settings(s)
 
 
 # --- Last position/state helpers ---
@@ -214,4 +238,40 @@ def set_default_paste_mode(mode: str):
         return
     s = load_settings()
     s['default_paste_mode'] = mode
+    save_settings(s)
+
+# --- Editor: plain paragraph indent step (pixels) ---
+def get_plain_indent_px() -> int:
+    """Return the number of pixels to indent/outdent plain paragraphs when pressing Tab/Shift+Tab outside lists/tables."""
+    s = load_settings()
+    try:
+        val = int(s.get('plain_indent_px', 24))
+        return max(4, min(160, val))
+    except Exception:
+        return 24
+
+def set_plain_indent_px(pixels: int):
+    try:
+        px = int(pixels)
+    except Exception:
+        return
+    px = max(4, min(160, px))
+    s = load_settings()
+    s['plain_indent_px'] = px
+    save_settings(s)
+
+# --- Theme selection ---
+def get_theme_name() -> str:
+    """Return the current theme name, e.g., 'Default' or 'High Contrast'. Defaults to 'Default'."""
+    s = load_settings()
+    name = s.get('theme_name', 'Default')
+    if isinstance(name, str) and name:
+        return name
+    return 'Default'
+
+def set_theme_name(name: str):
+    if not isinstance(name, str) or not name:
+        return
+    s = load_settings()
+    s['theme_name'] = name
     save_settings(s)

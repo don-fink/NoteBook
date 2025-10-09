@@ -5,8 +5,9 @@ Entry point for the NoteBook application. Handles main window setup, menu action
 import sys
 import warnings
 from PyQt5 import QtWidgets
-from PyQt5.QtCore import QProcess, QTimer
+from PyQt5.QtCore import QProcess, QTimer, Qt
 from ui_loader import load_main_window
+from PyQt5 import uic
 from ui_logic import populate_notebook_names
 from ui_tabs import setup_tab_sync, restore_last_position, refresh_for_notebook, ensure_left_tree_sections
 from settings_manager import set_last_state
@@ -20,15 +21,34 @@ from settings_manager import (
     clear_last_state,
 )
 from db_access import create_notebook as db_create_notebook, rename_notebook as db_rename_notebook, delete_notebook as db_delete_notebook
-from db_sections import create_section as db_create_section, get_sections_by_notebook_id as db_get_sections_by_notebook_id
+from db_sections import (
+    create_section as db_create_section,
+    get_sections_by_notebook_id as db_get_sections_by_notebook_id,
+    rename_section as db_rename_section,
+    delete_section as db_delete_section,
+    move_section_up as db_move_section_up,
+    move_section_down as db_move_section_down,
+)
 from db_pages import create_page as db_create_page
 from db_pages import update_page_title as db_update_page_title
+from db_pages import delete_page as db_delete_page
+from db_pages import set_pages_order as db_set_pages_order
 
 def create_new_database(window):
     options = QtWidgets.QFileDialog.Options()
-    file_name, _ = QtWidgets.QFileDialog.getSaveFileName(window, "Create New Database", "", "SQLite DB Files (*.db);;All Files (*)", options=options)
+    # Default to the configured Databases root
+    try:
+        from settings_manager import get_databases_root
+        import os
+        initial = os.path.join(get_databases_root(), "NewNotebook.db")
+    except Exception:
+        initial = "NewNotebook.db"
+    file_name, _ = QtWidgets.QFileDialog.getSaveFileName(window, "Create New Database", initial, "SQLite DB Files (*.db);;All Files (*)", options=options)
     if not file_name:
         return
+    # Ensure .db extension
+    if not str(file_name).lower().endswith('.db'):
+        file_name = file_name + '.db'
     import sqlite3
     conn = sqlite3.connect(file_name)
     cursor = conn.cursor()
@@ -67,6 +87,13 @@ def create_new_database(window):
     cursor.execute('PRAGMA user_version = 2')
     conn.commit()
     conn.close()
+    # Prepare media root directory for this DB
+    try:
+        from media_store import media_root_for_db, ensure_dir
+        media_base = media_root_for_db(file_name)
+        ensure_dir(media_base)
+    except Exception:
+        pass
     set_last_db(file_name)
     clear_last_state()
     # Force a clean restart so UI initializes with the new database
@@ -107,6 +134,8 @@ def add_binder(window):
     except Exception:
         pass
 
+    # (context menu wiring moved to main())
+
     # Create notebook and refresh UI
     nid = db_create_notebook(title, db_path)
     set_last_state(notebook_id=nid, section_id=None, page_id=None)
@@ -138,9 +167,12 @@ def rename_binder(window):
     if not tree_widget:
         return
     item = tree_widget.currentItem()
-    if item is None or item.parent() is not None:
+    if item is None:
         # fallback to first notebook
         item = tree_widget.topLevelItem(0) if tree_widget.topLevelItemCount() > 0 else None
+    elif item.parent() is not None:
+        # If a section is selected, rename its parent binder
+        item = item.parent()
     if item is None:
         QtWidgets.QMessageBox.information(window, "Rename Binder", "No binder selected.")
         return
@@ -192,12 +224,12 @@ def delete_binder(window):
     if not tree_widget:
         return
     item = tree_widget.currentItem()
-    if item is None or item.parent() is not None:
-        # If a section is selected, delete its parent binder; otherwise fallback to first binder
-        if item is not None and item.parent() is not None:
-            item = item.parent()
-        else:
-            item = tree_widget.topLevelItem(0) if tree_widget.topLevelItemCount() > 0 else None
+    if item is None:
+        # fallback to first binder
+        item = tree_widget.topLevelItem(0) if tree_widget.topLevelItemCount() > 0 else None
+    elif item.parent() is not None:
+        # If a section is selected, delete its parent binder
+        item = item.parent()
     if item is None:
         QtWidgets.QMessageBox.information(window, "Delete Binder", "No binder selected.")
         return
@@ -209,10 +241,11 @@ def delete_binder(window):
     except Exception:
         deleted_index = 0
     nid = int(item.data(0, 1000))
+    title_text = item.text(0) or "(untitled)"
     confirm = QtWidgets.QMessageBox.question(
         window,
         "Delete Binder",
-        "Are you sure you want to delete this binder and all its sections and pages?",
+        f"Are you sure you want to delete the binder \"{title_text}\" and all its sections and pages?",
         QtWidgets.QMessageBox.Yes | QtWidgets.QMessageBox.No,
     )
     if confirm != QtWidgets.QMessageBox.Yes:
@@ -523,13 +556,78 @@ def migrate_database_if_needed(db_path):
 
 def open_database(window):
     options = QtWidgets.QFileDialog.Options()
-    file_name, _ = QtWidgets.QFileDialog.getOpenFileName(window, "Open Database", "", "SQLite DB Files (*.db);;All Files (*)", options=options)
+    # Default to the configured Databases root
+    try:
+        from settings_manager import get_databases_root
+        import os
+        initial_dir = get_databases_root()
+    except Exception:
+        initial_dir = ""
+    file_name, _ = QtWidgets.QFileDialog.getOpenFileName(window, "Open Database", initial_dir, "SQLite DB Files (*.db);;All Files (*)", options=options)
     if not file_name:
         return
     migrate_database_if_needed(file_name)
     set_last_db(file_name)
     clear_last_state()
     # Force a clean restart so UI initializes with the opened database
+    restart_application()
+
+
+def save_database_as(window):
+    """Save the current database and its media folder under a new name (copy) and switch to it."""
+    # Ensure any unsaved edits are flushed first
+    try:
+        from ui_tabs import save_current_page
+        save_current_page(window)
+    except Exception:
+        pass
+    cur_db = getattr(window, '_db_path', None) or get_last_db() or 'notes.db'
+    # Propose a default new name in the Databases root
+    try:
+        import os
+        from settings_manager import get_databases_root
+        base = os.path.basename(cur_db)
+        name, ext = os.path.splitext(base)
+        proposed = name + '_copy' + (ext if ext else '.db')
+        initial = os.path.join(get_databases_root(), proposed)
+    except Exception:
+        initial = cur_db
+    options = QtWidgets.QFileDialog.Options()
+    new_path, _ = QtWidgets.QFileDialog.getSaveFileName(window, "Save Database As", initial, "SQLite DB Files (*.db);;All Files (*)", options=options)
+    if not new_path:
+        return
+    if not str(new_path).lower().endswith('.db'):
+        new_path = new_path + '.db'
+    try:
+        import os, shutil
+        # Confirm overwrite if target exists
+        if os.path.exists(new_path):
+            resp = QtWidgets.QMessageBox.question(
+                window, "Overwrite File?", f"{new_path}\nAlready exists. Overwrite?",
+                QtWidgets.QMessageBox.Yes | QtWidgets.QMessageBox.No
+            )
+            if resp != QtWidgets.QMessageBox.Yes:
+                return
+        # Copy DB file
+        shutil.copy2(cur_db, new_path)
+        # Copy media folder tree if present
+        from media_store import media_root_for_db
+        src_media = media_root_for_db(cur_db)
+        dst_media = media_root_for_db(new_path)
+        if os.path.isdir(src_media):
+            # If destination exists and we are overwriting, remove it first to avoid nested copies
+            if os.path.exists(dst_media):
+                shutil.rmtree(dst_media, ignore_errors=True)
+            shutil.copytree(src_media, dst_media)
+    except Exception as e:
+        QtWidgets.QMessageBox.warning(window, "Save As", f"Failed to copy database or media: {e}")
+        return
+    # Switch to the new database
+    try:
+        set_last_db(new_path)
+        clear_last_state()
+    except Exception:
+        pass
     restart_application()
 
 def restart_application():
@@ -546,6 +644,24 @@ def main():
     warnings.filterwarnings("ignore", category=DeprecationWarning, message=".*sipPyTypeDict.*")
     app = QtWidgets.QApplication(sys.argv)
     window = load_main_window()
+    # Apply saved theme QSS early
+    try:
+        import os
+        from settings_manager import get_theme_name
+        theme = get_theme_name()
+        themes_dir = os.path.join(os.path.dirname(__file__), 'themes')
+        name_to_file = {
+            'Default': 'default.qss',
+            'High Contrast': 'high-contrast.qss',
+        }
+        qss_file = name_to_file.get(theme)
+        if qss_file:
+            path = os.path.join(themes_dir, qss_file)
+            if os.path.isfile(path):
+                with open(path, 'r', encoding='utf-8') as f:
+                    app.setStyleSheet(f.read())
+    except Exception:
+        pass
     # Restore window geometry and maximized state
     geom = get_window_geometry()
     if geom and all(k in geom for k in ('x','y','w','h')):
@@ -559,6 +675,13 @@ def main():
     except Exception:
         pass
     window._db_path = db_path
+    # Show current DB in the window title (avoid duplicating in the status bar)
+    try:
+        window.setWindowTitle(f"NoteBook — {db_path}")
+    except Exception:
+        pass
+
+    # (Binder menu removed from UI definition; no runtime removal needed)
     # Prepare media root path for this database (not yet used by UI)
     try:
         from media_store import media_root_for_db, ensure_dir
@@ -602,6 +725,160 @@ def main():
     except Exception:
         pass
 
+    # Left binder tree: unified context menu (New/Rename/Delete Binder; New Binder on blank space)
+    try:
+        tree = window.findChild(QtWidgets.QTreeWidget, 'notebookName')
+        if tree is not None:
+            tree.setContextMenuPolicy(Qt.CustomContextMenu)
+            def _tree_ctx_menu(pos):
+                try:
+                    item = tree.itemAt(pos)
+                    global_pos = tree.viewport().mapToGlobal(pos)
+                    # Blank area: offer New Binder
+                    if item is None:
+                        m = QtWidgets.QMenu(tree)
+                        act_new = m.addAction("New Binder")
+                        m.addSeparator()
+                        act_collapse_all = m.addAction("Collapse All Binders")
+                        chosen = m.exec_(global_pos)
+                        if chosen == act_new:
+                            add_binder(window)
+                        elif chosen == act_collapse_all:
+                            try:
+                                # Collapse all top-level items and clear persisted expanded state
+                                for i in range(tree.topLevelItemCount()):
+                                    top = tree.topLevelItem(i)
+                                    top.setExpanded(False)
+                                try:
+                                    from settings_manager import set_expanded_notebooks
+                                    set_expanded_notebooks(set())
+                                except Exception:
+                                    pass
+                            except Exception:
+                                pass
+                        return
+                    # Top-level binder item
+                    if item.parent() is None:
+                        tree.setCurrentItem(item)
+                        m = QtWidgets.QMenu(tree)
+                        act_new = m.addAction("New Binder")
+                        act_rename = m.addAction("Rename Binder")
+                        act_delete = m.addAction("Delete Binder")
+                        # Add separator and explicit New Section for the selected binder
+                        m.addSeparator()
+                        act_new_section = m.addAction("New Section")
+                        m.addSeparator()
+                        act_collapse_all = m.addAction("Collapse All Binders")
+                        chosen = m.exec_(global_pos)
+                        if chosen == act_new:
+                            add_binder(window)
+                        elif chosen == act_rename:
+                            rename_binder(window)
+                        elif chosen == act_delete:
+                            delete_binder(window)
+                        elif chosen == act_new_section:
+                            add_section(window)
+                        elif chosen == act_collapse_all:
+                            try:
+                                for i in range(tree.topLevelItemCount()):
+                                    top = tree.topLevelItem(i)
+                                    top.setExpanded(False)
+                                try:
+                                    from settings_manager import set_expanded_notebooks
+                                    set_expanded_notebooks(set())
+                                except Exception:
+                                    pass
+                            except Exception:
+                                pass
+                        return
+                    # Non top-level (e.g., section): offer section ops
+                    tree.setCurrentItem(item)
+                    m = QtWidgets.QMenu(tree)
+                    act_new_section = m.addAction("New Section")
+                    act_rename_section = m.addAction("Rename Section")
+                    act_delete_section = m.addAction("Delete Section")
+                    chosen = m.exec_(global_pos)
+                    if chosen is None:
+                        return
+                    if chosen == act_new_section:
+                        add_section(window)
+                        return
+                    # Get ids/context
+                    section_id = item.data(0, 1000)
+                    parent = item.parent()
+                    nb_id = parent.data(0, 1000) if parent is not None else None
+                    db_path = getattr(window, '_db_path', None) or get_last_db() or 'notes.db'
+                    if chosen == act_rename_section and section_id is not None:
+                        current_text = item.text(0) or ""
+                        new_title, ok = QtWidgets.QInputDialog.getText(tree, "Rename Section", "New title:", text=current_text)
+                        if ok and new_title.strip():
+                            try:
+                                db_rename_section(int(section_id), new_title.strip(), db_path)
+                            except Exception:
+                                pass
+                            # Update UI bits
+                            try:
+                                item.setText(0, new_title.strip())
+                                # Update tab label if visible
+                                tab_widget = window.findChild(QtWidgets.QTabWidget, 'tabPages')
+                                if tab_widget:
+                                    tab_bar = tab_widget.tabBar()
+                                    for i in range(tab_widget.count()):
+                                        sid = tab_bar.tabData(i)
+                                        if sid == section_id:
+                                            tab_widget.setTabText(i, new_title.strip())
+                                            break
+                            except Exception:
+                                pass
+                            # Rebuild right pane and keep selection
+                            try:
+                                if nb_id is not None:
+                                    from ui_tabs import refresh_for_notebook, ensure_left_tree_sections
+                                    refresh_for_notebook(window, int(nb_id), select_section_id=int(section_id))
+                                    ensure_left_tree_sections(window, int(nb_id), select_section_id=int(section_id))
+                            except Exception:
+                                pass
+                        return
+                    if chosen == act_delete_section and section_id is not None:
+                        sec_name = item.text(0) or "(untitled)"
+                        confirm = QtWidgets.QMessageBox.question(
+                            tree,
+                            "Delete Section",
+                            f"Are you sure you want to delete the section \"{sec_name}\" and all its pages?",
+                            QtWidgets.QMessageBox.Yes | QtWidgets.QMessageBox.No,
+                        )
+                        if confirm != QtWidgets.QMessageBox.Yes:
+                            return
+                        # Save any dirty page before delete
+                        try:
+                            from ui_tabs import save_current_page
+                            save_current_page(window)
+                        except Exception:
+                            pass
+                        try:
+                            db_delete_section(int(section_id), db_path)
+                        except Exception:
+                            pass
+                        # Refresh UI after deletion
+                        try:
+                            from ui_tabs import refresh_for_notebook, ensure_left_tree_sections
+                            if nb_id is not None:
+                                refresh_for_notebook(window, int(nb_id))
+                                ensure_left_tree_sections(window, int(nb_id))
+                        except Exception:
+                            pass
+                        return
+                except Exception:
+                    pass
+            # Ensure single connection
+            try:
+                tree.customContextMenuRequested.disconnect()
+            except Exception:
+                pass
+            tree.customContextMenuRequested.connect(_tree_ctx_menu)
+    except Exception:
+        pass
+
     # Connect menu actions
     # Updated QAction name from UI: actionNew_Database
     action_newdb = window.findChild(QtWidgets.QAction, 'actionNew_Database')
@@ -624,6 +901,10 @@ def main():
     action_open = window.findChild(QtWidgets.QAction, 'actionOpen')
     if action_open:
         action_open.triggered.connect(lambda: open_database(window))
+    # Save As: copy current db and media to new path
+    action_save_as = window.findChild(QtWidgets.QAction, 'actionSave_As')
+    if action_save_as:
+        action_save_as.triggered.connect(lambda: save_database_as(window))
     # Insert menu wiring for quick content creation
     act_add_section = window.findChild(QtWidgets.QAction, 'actionAdd_Scction')
     if act_add_section:
@@ -631,12 +912,601 @@ def main():
     act_add_page = window.findChild(QtWidgets.QAction, 'actionAdd_Page')
     if act_add_page:
         act_add_page.triggered.connect(lambda: add_page(window))
+    # Insert menu: Collapse All Binders
+    act_collapse_all = window.findChild(QtWidgets.QAction, 'actionCollapse_All_Binders')
+    if act_collapse_all:
+        def _collapse_all_binders():
+            try:
+                tree = window.findChild(QtWidgets.QTreeWidget, 'notebookName')
+                if tree is None:
+                    return
+                for i in range(tree.topLevelItemCount()):
+                    top = tree.topLevelItem(i)
+                    top.setExpanded(False)
+                try:
+                    from settings_manager import set_expanded_notebooks
+                    set_expanded_notebooks(set())
+                except Exception:
+                    pass
+            except Exception:
+                pass
+        act_collapse_all.triggered.connect(_collapse_all_binders)
+    # Insert menu: Binder ops duplicates
+    act_del_wb_ins = window.findChild(QtWidgets.QAction, 'actionDelete_Workbook')
+    if act_del_wb_ins:
+        act_del_wb_ins.triggered.connect(lambda: delete_binder(window))
+    act_ren_wb_ins = window.findChild(QtWidgets.QAction, 'actionRename_WorkBook')
+    if act_ren_wb_ins:
+        act_ren_wb_ins.triggered.connect(lambda: rename_binder(window))
+    # Insert menu: Section ops
+    act_del_sec = window.findChild(QtWidgets.QAction, 'actionDelete_Section')
+    if act_del_sec:
+        def _del_section_from_menu():
+            try:
+                tree_widget = window.findChild(QtWidgets.QTreeWidget, 'notebookName')
+                item = tree_widget.currentItem() if tree_widget else None
+                if item is None:
+                    return
+                # If binder selected, try first child section
+                if item.parent() is None:
+                    # pick selected tab's section instead
+                    tab_widget = window.findChild(QtWidgets.QTabWidget, 'tabPages')
+                    if tab_widget and tab_widget.count() > 0:
+                        sid = tab_widget.tabBar().tabData(tab_widget.currentIndex())
+                        current_name = tab_widget.tabText(tab_widget.currentIndex()) or "(untitled)"
+                    else:
+                        sid = None
+                        current_name = "(untitled)"
+                else:
+                    sid = item.data(0, 1000)
+                    current_name = item.text(0) or "(untitled)"
+                if sid is None:
+                    return
+                confirm = QtWidgets.QMessageBox.question(
+                    window,
+                    "Delete Section",
+                    f"Are you sure you want to delete the section \"{current_name}\" and all its pages?",
+                    QtWidgets.QMessageBox.Yes | QtWidgets.QMessageBox.No,
+                )
+                if confirm != QtWidgets.QMessageBox.Yes:
+                    return
+                try:
+                    from ui_tabs import save_current_page
+                    save_current_page(window)
+                except Exception:
+                    pass
+                db_path = getattr(window, '_db_path', None) or get_last_db() or 'notes.db'
+                db_delete_section(int(sid), db_path)
+                nb_id = getattr(window, '_current_notebook_id', None)
+                if nb_id is not None:
+                    from ui_tabs import refresh_for_notebook, ensure_left_tree_sections
+                    refresh_for_notebook(window, int(nb_id))
+                    ensure_left_tree_sections(window, int(nb_id))
+            except Exception:
+                pass
+        act_del_sec.triggered.connect(_del_section_from_menu)
+    act_ren_sec = window.findChild(QtWidgets.QAction, 'actionRename_Section')
+    if act_ren_sec:
+        def _ren_section_from_menu():
+            try:
+                tree_widget = window.findChild(QtWidgets.QTreeWidget, 'notebookName')
+                item = tree_widget.currentItem() if tree_widget else None
+                # Prefer selected section; else active tab section
+                sid = None
+                if item is not None and item.parent() is not None:
+                    sid = item.data(0, 1000)
+                    current_text = item.text(0) or ""
+                else:
+                    tab_widget = window.findChild(QtWidgets.QTabWidget, 'tabPages')
+                    if tab_widget and tab_widget.count() > 0:
+                        idx = tab_widget.currentIndex()
+                        sid = tab_widget.tabBar().tabData(idx)
+                        current_text = tab_widget.tabText(idx) or ""
+                if sid is None:
+                    return
+                new_title, ok = QtWidgets.QInputDialog.getText(window, "Rename Section", "New title:", text=current_text)
+                if not ok or not new_title.strip():
+                    return
+                db_path = getattr(window, '_db_path', None) or get_last_db() or 'notes.db'
+                db_rename_section(int(sid), new_title.strip(), db_path)
+                nb_id = getattr(window, '_current_notebook_id', None)
+                if nb_id is not None:
+                    from ui_tabs import refresh_for_notebook, ensure_left_tree_sections
+                    refresh_for_notebook(window, int(nb_id), select_section_id=int(sid))
+                    ensure_left_tree_sections(window, int(nb_id), select_section_id=int(sid))
+            except Exception:
+                pass
+        act_ren_sec.triggered.connect(_ren_section_from_menu)
+    # Insert menu: Page ops
+    act_del_page = window.findChild(QtWidgets.QAction, 'actionDelete_Page')
+    if act_del_page:
+        def _del_page_from_menu():
+            try:
+                # Determine current page from active section
+                section_id, page_id = _current_page_context(window)
+                if page_id is None:
+                    QtWidgets.QMessageBox.information(window, "Delete Page", "Please select a page to delete.")
+                    return
+                confirm = QtWidgets.QMessageBox.question(
+                    window,
+                    "Delete Page",
+                    "Are you sure you want to delete this page?",
+                    QtWidgets.QMessageBox.Yes | QtWidgets.QMessageBox.No,
+                )
+                if confirm != QtWidgets.QMessageBox.Yes:
+                    return
+                db_path = getattr(window, '_db_path', None) or get_last_db() or 'notes.db'
+                db_delete_page(int(page_id), db_path)
+                # Refresh current section
+                nb_id = getattr(window, '_current_notebook_id', None)
+                if nb_id is not None:
+                    refresh_for_notebook(window, int(nb_id), select_section_id=int(section_id))
+            except Exception:
+                pass
+        act_del_page.triggered.connect(_del_page_from_menu)
+    act_ren_page = window.findChild(QtWidgets.QAction, 'actionRename_Page')
+    if act_ren_page:
+        def _ren_page_from_menu():
+            try:
+                section_id, page_id = _current_page_context(window)
+                if page_id is None:
+                    QtWidgets.QMessageBox.information(window, "Rename Page", "Please select a page to rename.")
+                    return
+                # Current title from right view/tab is non-trivial; just prompt empty
+                new_title, ok = QtWidgets.QInputDialog.getText(window, "Rename Page", "New title:", text="")
+                if not ok or not new_title.strip():
+                    return
+                db_path = getattr(window, '_db_path', None) or get_last_db() or 'notes.db'
+                db_update_page_title(int(page_id), new_title.strip(), db_path)
+                nb_id = getattr(window, '_current_notebook_id', None)
+                if nb_id is not None:
+                    refresh_for_notebook(window, int(nb_id), select_section_id=int(section_id))
+            except Exception:
+                pass
+        act_ren_page.triggered.connect(_ren_page_from_menu)
     act_insert_attachment = window.findChild(QtWidgets.QAction, 'actionInsert_Attachment')
     if act_insert_attachment:
         act_insert_attachment.triggered.connect(lambda: insert_attachment(window))
     action_exit = window.findChild(QtWidgets.QAction, 'actionExit')
     if action_exit:
         action_exit.triggered.connect(window.close)
+
+    # Keyboard: Ctrl+Up / Ctrl+Down to reorder binders (top-level notebooks)
+    try:
+        def _move_binder(delta: int):
+            try:
+                tree = window.findChild(QtWidgets.QTreeWidget, 'notebookName')
+                if tree is None or tree.topLevelItemCount() == 0:
+                    return
+                cur = tree.currentItem()
+                # If a section is selected, operate on its parent binder
+                if cur is not None and cur.parent() is not None:
+                    cur = cur.parent()
+                if cur is None or cur.parent() is not None:
+                    return
+                idx = tree.indexOfTopLevelItem(cur)
+                if idx < 0:
+                    return
+                new_idx = idx + (1 if delta > 0 else -1)
+                if new_idx < 0 or new_idx >= tree.topLevelItemCount():
+                    return
+                # Cache identifiers and db path up front
+                moved_id = cur.data(0, 1000)
+                db_path = getattr(window, '_db_path', None) or get_last_db() or 'notes.db'
+                # Build current order of ids
+                ordered_ids = []
+                for i in range(tree.topLevelItemCount()):
+                    nid = tree.topLevelItem(i).data(0, 1000)
+                    if nid is not None:
+                        ordered_ids.append(int(nid))
+                # Swap positions
+                ordered_ids[idx], ordered_ids[new_idx] = ordered_ids[new_idx], ordered_ids[idx]
+                # Persist order
+                try:
+                    from db_access import set_notebooks_order
+                    set_notebooks_order(ordered_ids, db_path)
+                except Exception:
+                    pass
+                # Repopulate left tree and reselect the moved binder
+                try:
+                    from ui_logic import populate_notebook_names
+                    populate_notebook_names(window, db_path)
+                    # Reselect by id
+                    if moved_id is not None:
+                        for i in range(tree.topLevelItemCount()):
+                            top = tree.topLevelItem(i)
+                            if int(top.data(0, 1000)) == int(moved_id):
+                                tree.setCurrentItem(top)
+                                break
+                    # Keep UI in sync without changing binder selection
+                    try:
+                        window._current_notebook_id = int(moved_id)
+                        from settings_manager import get_expanded_notebooks
+                        # Restore expanded state after repopulate
+                        expanded_ids = get_expanded_notebooks()
+                        for i in range(tree.topLevelItemCount()):
+                            top = tree.topLevelItem(i)
+                            tid = top.data(0, 1000)
+                            try:
+                                tid_int = int(tid)
+                            except Exception:
+                                tid_int = None
+                            if tid_int is not None and tid_int in expanded_ids:
+                                top.setExpanded(True)
+                        # Refresh center to reflect current binder context
+                        refresh_for_notebook(window, int(moved_id), keep_left_tree_selection=True)
+                        # Ensure focus stays on the left tree so repeated Ctrl+Up/Down works
+                        try:
+                            tree.setFocus(Qt.OtherFocusReason)
+                        except Exception:
+                            pass
+                    except Exception:
+                        pass
+                except Exception:
+                    pass
+            except Exception:
+                pass
+
+        # Bind shortcuts on the LEFT TREE ONLY so right-panel Ctrl+Up/Down won't move binders
+        from PyQt5.QtGui import QKeySequence
+        _left_tree_for_shortcuts = window.findChild(QtWidgets.QTreeWidget, 'notebookName')
+        if _left_tree_for_shortcuts is not None:
+            sc_up = QtWidgets.QShortcut(QKeySequence("Ctrl+Up"), _left_tree_for_shortcuts, activated=lambda: _move_binder(-1))
+            sc_down = QtWidgets.QShortcut(QKeySequence("Ctrl+Down"), _left_tree_for_shortcuts, activated=lambda: _move_binder(1))
+            try:
+                sc_up.setContext(Qt.WidgetWithChildrenShortcut)
+                sc_down.setContext(Qt.WidgetWithChildrenShortcut)
+            except Exception:
+                pass
+            # Keep refs
+            window._binder_move_shortcuts = [sc_up, sc_down]
+    except Exception:
+        pass
+
+    # Keyboard dispatch for right panel: Ctrl+Up / Ctrl+Down moves Section or Page based on selection
+    def _right_panel_move(delta: int):
+        try:
+            # Try QTreeWidget first
+            right_tw = window.findChild(QtWidgets.QTreeWidget, 'sectionPages')
+            if right_tw is not None:
+                cur = right_tw.currentItem()
+                if cur is not None:
+                    kind = cur.data(0, 1001)
+                    if kind == 'section':
+                        _move_section(delta)
+                        return
+                    if kind == 'page':
+                        _move_page(delta)
+                        return
+            # Fallback to QTreeView
+            right_tv = window.findChild(QtWidgets.QTreeView, 'sectionPages')
+            if right_tv is not None:
+                idx = right_tv.currentIndex()
+                if idx.isValid():
+                    kind = idx.data(1001)
+                    if kind == 'section':
+                        _move_section(delta)
+                        return
+                    if kind == 'page':
+                        _move_page(delta)
+                        return
+        except Exception:
+            pass
+
+    # Keyboard: Ctrl+Up / Ctrl+Down to reorder SECTIONS in the right panel (when a section is selected)
+    try:
+        def _move_section(delta: int):
+            try:
+                nb_id = getattr(window, '_current_notebook_id', None)
+                if nb_id is None:
+                    return
+                # Prefer QTreeWidget path
+                right_tw = window.findChild(QtWidgets.QTreeWidget, 'sectionPages')
+                right_tv = window.findChild(QtWidgets.QTreeView, 'sectionPages') if right_tw is None else None
+                section_id = None
+                focus_widget = None
+                if right_tw is not None:
+                    cur_item = right_tw.currentItem()
+                    if cur_item is not None and cur_item.data(0, 1001) == 'section':
+                        section_id = cur_item.data(0, 1000)
+                        focus_widget = right_tw
+                if section_id is None and right_tv is not None:
+                    idx = right_tv.currentIndex()
+                    if idx.isValid() and idx.data(1001) == 'section':
+                        section_id = idx.data(1000)
+                        focus_widget = right_tv
+                if section_id is None:
+                    return
+                # Persist move
+                db_path = getattr(window, '_db_path', None) or get_last_db() or 'notes.db'
+                try:
+                    if delta < 0:
+                        db_move_section_up(int(section_id), db_path)
+                    else:
+                        db_move_section_down(int(section_id), db_path)
+                except Exception:
+                    pass
+                # Ensure the right tree keeps the SECTION selected (not the first page) during refresh
+                try:
+                    window._keep_right_tree_section_selected_once = True
+                except Exception:
+                    pass
+                # Refresh UI and reselect the moved section
+                refresh_for_notebook(window, int(nb_id), select_section_id=int(section_id))
+                # Re-assert the section selection in the right panel after the model rebuild
+                try:
+                    def _reselect_section():
+                        try:
+                            # QTreeWidget path
+                            tw = window.findChild(QtWidgets.QTreeWidget, 'sectionPages')
+                            if tw is not None:
+                                for i in range(tw.topLevelItemCount()):
+                                    top = tw.topLevelItem(i)
+                                    try:
+                                        if int(top.data(0, 1000)) == int(section_id):
+                                            tw.setCurrentItem(top)
+                                            tw.setFocus(Qt.OtherFocusReason)
+                                            return
+                                    except Exception:
+                                        pass
+                            # QTreeView path
+                            tv = window.findChild(QtWidgets.QTreeView, 'sectionPages')
+                            if tv is not None and tv.model() is not None:
+                                model = tv.model()
+                                for row in range(model.rowCount()):
+                                    idx = model.index(row, 0)
+                                    try:
+                                        if idx.data(1001) == 'section' and int(idx.data(1000)) == int(section_id):
+                                            tv.setCurrentIndex(idx)
+                                            tv.expand(idx)
+                                            tv.setFocus(Qt.OtherFocusReason)
+                                            return
+                                    except Exception:
+                                        pass
+                        except Exception:
+                            pass
+                    QTimer.singleShot(0, _reselect_section)
+                except Exception:
+                    pass
+                try:
+                    ensure_left_tree_sections(window, int(nb_id), select_section_id=int(section_id))
+                except Exception:
+                    pass
+                # Return focus to the right panel so repeated Ctrl+Up/Down works
+                try:
+                    if focus_widget is not None:
+                        focus_widget.setFocus(Qt.OtherFocusReason)
+                except Exception:
+                    pass
+            except Exception:
+                pass
+
+        # Bind shortcuts on the RIGHT panel (tree or view) only — unified dispatcher
+        from PyQt5.QtGui import QKeySequence
+        _right_tw = window.findChild(QtWidgets.QTreeWidget, 'sectionPages')
+        _right_tv = window.findChild(QtWidgets.QTreeView, 'sectionPages')
+        window._section_move_shortcuts = []
+        if _right_tw is not None:
+            sc_tw_up = QtWidgets.QShortcut(QKeySequence("Ctrl+Up"), _right_tw, activated=lambda: _right_panel_move(-1))
+            sc_tw_down = QtWidgets.QShortcut(QKeySequence("Ctrl+Down"), _right_tw, activated=lambda: _right_panel_move(1))
+            try:
+                sc_tw_up.setContext(Qt.WidgetWithChildrenShortcut)
+                sc_tw_down.setContext(Qt.WidgetWithChildrenShortcut)
+            except Exception:
+                pass
+            window._section_move_shortcuts.extend([sc_tw_up, sc_tw_down])
+        if _right_tv is not None:
+            sc_tv_up = QtWidgets.QShortcut(QKeySequence("Ctrl+Up"), _right_tv, activated=lambda: _right_panel_move(-1))
+            sc_tv_down = QtWidgets.QShortcut(QKeySequence("Ctrl+Down"), _right_tv, activated=lambda: _right_panel_move(1))
+            try:
+                sc_tv_up.setContext(Qt.WidgetWithChildrenShortcut)
+                sc_tv_down.setContext(Qt.WidgetWithChildrenShortcut)
+            except Exception:
+                pass
+            window._section_move_shortcuts.extend([sc_tv_up, sc_tv_down])
+    except Exception:
+        pass
+
+    # Keyboard: Ctrl+Up / Ctrl+Down to reorder PAGES within the selected section in the right panel
+    try:
+        def _move_page(delta: int):
+            try:
+                # Determine selected page and its parent section
+                right_tw = window.findChild(QtWidgets.QTreeWidget, 'sectionPages')
+                right_tv = window.findChild(QtWidgets.QTreeView, 'sectionPages') if right_tw is None else None
+                page_id = None
+                section_id = None
+                focus_widget = None
+                if right_tw is not None:
+                    cur = right_tw.currentItem()
+                    if cur is not None and cur.data(0, 1001) == 'page':
+                        page_id = cur.data(0, 1000)
+                        parent = cur.parent()
+                        if parent is not None:
+                            section_id = parent.data(0, 1000)
+                        focus_widget = right_tw
+                if page_id is None and right_tv is not None:
+                    idx = right_tv.currentIndex()
+                    if idx.isValid() and idx.data(1001) == 'page':
+                        page_id = idx.data(1000)
+                        pidx = idx.parent()
+                        if pidx.isValid() and pidx.data(1001) == 'section':
+                            section_id = pidx.data(1000)
+                        focus_widget = right_tv
+                if page_id is None or section_id is None:
+                    return
+                # Build ordered page id list for the section from the right panel
+                ordered_ids = []
+                if right_tw is not None:
+                    # find the section item
+                    for i in range(right_tw.topLevelItemCount()):
+                        sec_item = right_tw.topLevelItem(i)
+                        if int(sec_item.data(0, 1000)) == int(section_id):
+                            for j in range(sec_item.childCount()):
+                                ch = sec_item.child(j)
+                                if ch.data(0, 1001) == 'page':
+                                    pid = ch.data(0, 1000)
+                                    if pid is not None:
+                                        ordered_ids.append(int(pid))
+                            break
+                elif right_tv is not None and right_tv.model() is not None:
+                    model = right_tv.model()
+                    # iterate top-level to find section, then its children pages
+                    for row in range(model.rowCount()):
+                        sec_idx = model.index(row, 0)
+                        if sec_idx.data(1001) == 'section' and int(sec_idx.data(1000)) == int(section_id):
+                            for crow in range(model.rowCount(sec_idx)):
+                                child_idx = model.index(crow, 0, sec_idx)
+                                if child_idx.data(1001) == 'page':
+                                    pid = child_idx.data(1000)
+                                    if pid is not None:
+                                        ordered_ids.append(int(pid))
+                            break
+                if not ordered_ids or page_id not in ordered_ids:
+                    return
+                # Compute new index for the page
+                cur_idx = ordered_ids.index(int(page_id))
+                new_idx = cur_idx + (1 if delta > 0 else -1)
+                if new_idx < 0 or new_idx >= len(ordered_ids):
+                    return
+                ordered_ids[cur_idx], ordered_ids[new_idx] = ordered_ids[new_idx], ordered_ids[cur_idx]
+                # Persist order
+                db_path = getattr(window, '_db_path', None)
+                if not db_path:
+                    return
+                try:
+                    db_set_pages_order(int(section_id), ordered_ids, db_path)
+                except Exception:
+                    pass
+                # Refresh UI: keep the same section and reselect the moved page
+                nb_id = getattr(window, '_current_notebook_id', None)
+                if nb_id is not None:
+                    # Prevent auto-selecting the first page during refresh; we'll reassert the moved page
+                    try:
+                        window._keep_right_tree_section_selected_once = True
+                    except Exception:
+                        pass
+                    refresh_for_notebook(window, int(nb_id), select_section_id=int(section_id))
+                    # Defer selection + page load until after the model rebuild settles
+                    def _finalize_page_selection():
+                        try:
+                            from ui_tabs import _load_page_for_current_tab as _load_page
+                            # Suppress sync signals while we set selection
+                            try:
+                                window._suppress_sync = True
+                            except Exception:
+                                pass
+                            tw = window.findChild(QtWidgets.QTreeWidget, 'sectionPages')
+                            done = False
+                            if tw is not None:
+                                for i in range(tw.topLevelItemCount()):
+                                    sec_item = tw.topLevelItem(i)
+                                    try:
+                                        if int(sec_item.data(0, 1000)) == int(section_id):
+                                            sec_item.setExpanded(True)
+                                            for j in range(sec_item.childCount()):
+                                                ch = sec_item.child(j)
+                                                if ch.data(0, 1001) == 'page' and int(ch.data(0, 1000)) == int(page_id):
+                                                    tw.setCurrentItem(ch)
+                                                    done = True
+                                                    break
+                                    except Exception:
+                                        pass
+                                    if done:
+                                        break
+                            if not done:
+                                tv = window.findChild(QtWidgets.QTreeView, 'sectionPages')
+                                if tv is not None and tv.model() is not None:
+                                    model = tv.model()
+                                    for row in range(model.rowCount()):
+                                        sec_idx = model.index(row, 0)
+                                        try:
+                                            if sec_idx.data(1001) == 'section' and int(sec_idx.data(1000)) == int(section_id):
+                                                tv.expand(sec_idx)
+                                                for crow in range(model.rowCount(sec_idx)):
+                                                    child_idx = model.index(crow, 0, sec_idx)
+                                                    if child_idx.data(1001) == 'page' and int(child_idx.data(1000)) == int(page_id):
+                                                        tv.setCurrentIndex(child_idx)
+                                                        done = True
+                                                        break
+                                        except Exception:
+                                            pass
+                                        if done:
+                                            break
+                            try:
+                                window._suppress_sync = False
+                            except Exception:
+                                pass
+                            # Update current page mapping and load the page into the editor
+                            try:
+                                if not hasattr(window, '_current_page_by_section'):
+                                    window._current_page_by_section = {}
+                                window._current_page_by_section[int(section_id)] = int(page_id)
+                            except Exception:
+                                pass
+                            try:
+                                _load_page(window, int(page_id))
+                            except Exception:
+                                pass
+                            try:
+                                set_last_state(section_id=int(section_id), page_id=int(page_id))
+                            except Exception:
+                                pass
+                            # Return focus to right panel for repeated moves
+                            try:
+                                if focus_widget is not None:
+                                    focus_widget.setFocus(Qt.OtherFocusReason)
+                            except Exception:
+                                pass
+                        except Exception:
+                            pass
+                    QTimer.singleShot(0, _finalize_page_selection)
+                # Reselect the page after model rebuild
+                try:
+                    def _reselect_page():
+                        try:
+                            tw = window.findChild(QtWidgets.QTreeWidget, 'sectionPages')
+                            if tw is not None:
+                                # locate section item first
+                                for i in range(tw.topLevelItemCount()):
+                                    sec_item = tw.topLevelItem(i)
+                                    if int(sec_item.data(0, 1000)) == int(section_id):
+                                        for j in range(sec_item.childCount()):
+                                            ch = sec_item.child(j)
+                                            if ch.data(0, 1001) == 'page' and int(ch.data(0, 1000)) == int(page_id):
+                                                tw.setCurrentItem(ch)
+                                                tw.setFocus(Qt.OtherFocusReason)
+                                                return
+                            tv = window.findChild(QtWidgets.QTreeView, 'sectionPages')
+                            if tv is not None and tv.model() is not None:
+                                model = tv.model()
+                                for row in range(model.rowCount()):
+                                    sec_idx = model.index(row, 0)
+                                    if sec_idx.data(1001) == 'section' and int(sec_idx.data(1000)) == int(section_id):
+                                        for crow in range(model.rowCount(sec_idx)):
+                                            child_idx = model.index(crow, 0, sec_idx)
+                                            if child_idx.data(1001) == 'page' and int(child_idx.data(1000)) == int(page_id):
+                                                tv.setCurrentIndex(child_idx)
+                                                tv.expand(sec_idx)
+                                                tv.setFocus(Qt.OtherFocusReason)
+                                                return
+                        except Exception:
+                            pass
+                    QTimer.singleShot(0, _reselect_page)
+                except Exception:
+                    pass
+                # Ensure focus on right panel
+                try:
+                    if focus_widget is not None:
+                        focus_widget.setFocus(Qt.OtherFocusReason)
+                except Exception:
+                    pass
+            except Exception:
+                pass
+
+        # Shortcuts for right panel are handled by the unified dispatcher above; no duplicate page bindings here.
+    except Exception:
+        pass
 
     # Edit: Paste actions
     try:
@@ -752,6 +1622,200 @@ def main():
     except Exception:
         pass
 
+    # Tools: Settings dialog
+    try:
+        act_settings = window.findChild(QtWidgets.QAction, 'actionSettings')
+        if act_settings:
+            def _open_settings():
+                try:
+                    import os
+                    # Load as a top-level QDialog with normal window chrome
+                    ui_path = os.path.join(os.path.dirname(__file__), 'settings_dialog.ui')
+                    dlg = uic.loadUi(ui_path)
+                    try:
+                        dlg.setWindowModality(Qt.ApplicationModal)
+                    except Exception:
+                        pass
+
+                    # Populate current settings
+                    try:
+                        from settings_manager import (
+                            get_default_paste_mode,
+                            get_plain_indent_px,
+                            get_list_schemes_settings,
+                            get_databases_root,
+                            get_settings_file_path,
+                            get_theme_name,
+                        )
+                        # Paste mode
+                        mode = get_default_paste_mode()
+                        combo = dlg.findChild(QtWidgets.QComboBox, 'comboPasteMode')
+                        if combo is not None:
+                            mapping = {
+                                'rich': 'Rich',
+                                'text-only': 'Text Only',
+                                'match-style': 'Match Style',
+                                'clean': 'Clean Formatting',
+                            }
+                            text = mapping.get(mode, 'Rich')
+                            idx = combo.findText(text)
+                            if idx >= 0:
+                                combo.setCurrentIndex(idx)
+                        # Plain indent px
+                        sp = dlg.findChild(QtWidgets.QSpinBox, 'spinIndentPx')
+                        if sp is not None:
+                            sp.setValue(int(get_plain_indent_px()))
+                        # List schemes
+                        ord_s, unord_s = get_list_schemes_settings()
+                        c_ord = dlg.findChild(QtWidgets.QComboBox, 'comboOrdered')
+                        if c_ord is not None:
+                            idx = c_ord.findText('Classic (I, A, 1, a, i)' if ord_s == 'classic' else 'Decimal (1, 2, 3)')
+                            if idx >= 0:
+                                c_ord.setCurrentIndex(idx)
+                        c_un = dlg.findChild(QtWidgets.QComboBox, 'comboUnordered')
+                        if c_un is not None:
+                            idx = c_un.findText('Disc → Circle → Square' if unord_s == 'disc-circle-square' else 'Disc only')
+                            if idx >= 0:
+                                c_un.setCurrentIndex(idx)
+                        # Databases root
+                        try:
+                            ed = dlg.findChild(QtWidgets.QLineEdit, 'editDbRoot')
+                            if ed is not None:
+                                ed.setText(get_databases_root())
+                        except Exception:
+                            pass
+                        # Theme name
+                        try:
+                            theme_combo = dlg.findChild(QtWidgets.QComboBox, 'comboTheme')
+                            if theme_combo is not None:
+                                name = get_theme_name()
+                                idx = theme_combo.findText(name)
+                                if idx >= 0:
+                                    theme_combo.setCurrentIndex(idx)
+                        except Exception:
+                            pass
+                        # Settings file path & open folder
+                        try:
+                            edp = dlg.findChild(QtWidgets.QLineEdit, 'editSettingsPath')
+                            btn_open = dlg.findChild(QtWidgets.QPushButton, 'btnOpenSettingsFolder')
+                            spath = get_settings_file_path()
+                            if edp is not None:
+                                edp.setText(spath)
+                            if btn_open is not None:
+                                def _open_settings_folder():
+                                    try:
+                                        folder = os.path.dirname(spath)
+                                        from PyQt5.QtGui import QDesktopServices
+                                        from PyQt5.QtCore import QUrl
+                                        QDesktopServices.openUrl(QUrl.fromLocalFile(folder))
+                                    except Exception:
+                                        pass
+                                btn_open.clicked.connect(_open_settings_folder)
+                        except Exception:
+                            pass
+                        # Browse for databases root
+                        try:
+                            btn_browse = dlg.findChild(QtWidgets.QPushButton, 'btnBrowseDbRoot')
+                            ed = dlg.findChild(QtWidgets.QLineEdit, 'editDbRoot')
+                            if btn_browse is not None and ed is not None:
+                                def _browse_db_root():
+                                    try:
+                                        start = ed.text().strip() or get_databases_root()
+                                        dir_path = QtWidgets.QFileDialog.getExistingDirectory(window, 'Select Databases Root', start)
+                                        if dir_path:
+                                            ed.setText(dir_path)
+                                    except Exception:
+                                        pass
+                                btn_browse.clicked.connect(_browse_db_root)
+                        except Exception:
+                            pass
+                    except Exception:
+                        pass
+
+                    if dlg.exec_() != QtWidgets.QDialog.Accepted:
+                        return
+                    # Persist settings
+                    try:
+                        from settings_manager import (
+                            set_default_paste_mode,
+                            set_plain_indent_px,
+                            set_list_schemes_settings,
+                            set_databases_root,
+                            set_theme_name,
+                        )
+                        # Paste mode
+                        combo = dlg.findChild(QtWidgets.QComboBox, 'comboPasteMode')
+                        if combo is not None:
+                            txt = combo.currentText()
+                            inv = {
+                                'Rich': 'rich',
+                                'Text Only': 'text-only',
+                                'Match Style': 'match-style',
+                                'Clean Formatting': 'clean',
+                            }
+                            m = inv.get(txt, 'rich')
+                            set_default_paste_mode(m)
+                            window._default_paste_mode = m
+                        # Indent step
+                        sp = dlg.findChild(QtWidgets.QSpinBox, 'spinIndentPx')
+                        if sp is not None:
+                            set_plain_indent_px(int(sp.value()))
+                            # Update active editors' indent step immediately
+                            try:
+                                import ui_richtext as rt
+                                rt.INDENT_STEP_PX = float(sp.value())
+                            except Exception:
+                                pass
+                        # List schemes
+                        c_ord = dlg.findChild(QtWidgets.QComboBox, 'comboOrdered')
+                        c_un = dlg.findChild(QtWidgets.QComboBox, 'comboUnordered')
+                        ordered = 'classic'
+                        unordered = 'disc-circle-square'
+                        if c_ord is not None and c_ord.currentText().startswith('Decimal'):
+                            ordered = 'decimal'
+                        if c_un is not None and c_un.currentText().startswith('Disc only'):
+                            unordered = 'disc-only'
+                        set_list_schemes_settings(ordered=ordered, unordered=unordered)
+                        try:
+                            from ui_richtext import set_list_schemes
+                            set_list_schemes(ordered=ordered, unordered=unordered)
+                        except Exception:
+                            pass
+                        # Databases root
+                        ed = dlg.findChild(QtWidgets.QLineEdit, 'editDbRoot')
+                        if ed is not None:
+                            path = (ed.text() or '').strip()
+                            if path:
+                                set_databases_root(path)
+                        # Theme name
+                        theme_combo = dlg.findChild(QtWidgets.QComboBox, 'comboTheme')
+                        if theme_combo is not None:
+                            name = theme_combo.currentText()
+                            set_theme_name(name)
+                            # Apply selected theme immediately
+                            try:
+                                import os
+                                themes_dir = os.path.join(os.path.dirname(__file__), 'themes')
+                                name_to_file = {
+                                    'Default': 'default.qss',
+                                    'High Contrast': 'high-contrast.qss',
+                                }
+                                qss_file = name_to_file.get(name)
+                                if qss_file:
+                                    path = os.path.join(themes_dir, qss_file)
+                                    if os.path.isfile(path):
+                                        with open(path, 'r', encoding='utf-8') as f:
+                                            QtWidgets.QApplication.instance().setStyleSheet(f.read())
+                            except Exception:
+                                pass
+                    except Exception as e:
+                        QtWidgets.QMessageBox.warning(window, "Settings", f"Failed to save settings: {e}")
+                except Exception as e:
+                    QtWidgets.QMessageBox.warning(window, "Settings", f"Failed to open settings: {e}")
+            act_settings.triggered.connect(_open_settings)
+    except Exception:
+        pass
+
     # Tools: Clean Unused Media
     try:
         act_clean_media = window.findChild(QtWidgets.QAction, 'actionClean_Unused_Media')
@@ -767,6 +1831,70 @@ def main():
             act_clean_media.triggered.connect(_do_clean_media)
     except Exception:
         pass
+
+    # Tools: Open Databases Folder
+    try:
+        act_open_root = window.findChild(QtWidgets.QAction, 'actionOpen_Databases_Folder')
+        if act_open_root:
+            def _open_root():
+                try:
+                    from settings_manager import get_databases_root
+                    from PyQt5.QtGui import QDesktopServices
+                    from PyQt5.QtCore import QUrl
+                    QDesktopServices.openUrl(QUrl.fromLocalFile(get_databases_root()))
+                except Exception:
+                    pass
+            act_open_root.triggered.connect(_open_root)
+    except Exception:
+        pass
+
+    # Tools: Migrate current DB into Databases Root
+    try:
+        act_migrate = window.findChild(QtWidgets.QAction, 'actionMigrate_Current_DB_to_Root')
+        if act_migrate:
+            def _migrate_into_root():
+                try:
+                    import os, shutil
+                    from settings_manager import get_databases_root
+                    from media_store import media_root_for_db
+                    src_db = getattr(window, '_db_path', None) or get_last_db() or 'notes.db'
+                    root = get_databases_root()
+                    base = os.path.basename(src_db)
+                    dst_db = os.path.join(root, base)
+                    if os.path.abspath(src_db) == os.path.abspath(dst_db):
+                        QtWidgets.QMessageBox.information(window, "Migrate", "Current database is already in the Databases root.")
+                        return
+                    # Confirm
+                    resp = QtWidgets.QMessageBox.question(
+                        window, "Migrate Database",
+                        f"Copy current database to:\n{dst_db}\n\nAnd copy its media folder next to it. Proceed?",
+                        QtWidgets.QMessageBox.Yes | QtWidgets.QMessageBox.No
+                    )
+                    if resp != QtWidgets.QMessageBox.Yes:
+                        return
+                    # Ensure root exists
+                    os.makedirs(root, exist_ok=True)
+                    # Copy DB
+                    if os.path.exists(dst_db):
+                        os.remove(dst_db)
+                    shutil.copy2(src_db, dst_db)
+                    # Copy media
+                    src_media = media_root_for_db(src_db)
+                    dst_media = media_root_for_db(dst_db)
+                    if os.path.isdir(src_media):
+                        if os.path.exists(dst_media):
+                            shutil.rmtree(dst_media, ignore_errors=True)
+                        shutil.copytree(src_media, dst_media)
+                    # Switch to migrated copy
+                    set_last_db(dst_db)
+                    clear_last_state()
+                    restart_application()
+                except Exception as e:
+                    QtWidgets.QMessageBox.warning(window, "Migrate", f"Failed to migrate database: {e}")
+            act_migrate.triggered.connect(_migrate_into_root)
+    except Exception:
+        pass
+
 
     # Format > List Scheme (wired to actions defined in main_window_5.ui)
     try:

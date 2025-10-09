@@ -13,9 +13,7 @@
   <property name="windowTitle">
    <string>MainWindow</string>
   </property>
-  <property name="styleSheet">
-   <string notr="true">background-color: rgb(202, 202, 202);</string>
-  </property>
+  
   <widget class="QWidget" name="centralwidget">
    <layout class="QHBoxLayout" name="horizontalLayout">
     <item>
@@ -74,7 +72,23 @@
         <item>
          <widget class="QTabWidget" name="tabPages">
           <property name="styleSheet">
-           <string notr="true">background-color: rgb(229, 229, 229);</string>
+           <string notr="true">QTabWidget::pane {
+  border: 1px solid palette(mid);
+}
+QTabBar::tab {
+  padding: 6px 12px;
+  margin-right: 2px;
+}
+QTabBar::tab:selected {
+  background: #efefef; /* lighter for selected */
+}
+QTabBar::tab:!selected {
+  background: #d6d6d6;  /* darker for unselected */
+}
+QTabBar::tab:hover:!selected {
+  background: #eaeaea;  /* subtle hover */
+}
+</string>
           </property>
           <property name="currentIndex">
            <number>1</number>
@@ -140,23 +154,24 @@
     <addaction name="separator"/>
     <addaction name="actionExit"/>
    </widget>
-   <widget class="QMenu" name="menuWorkbook">
-    <property name="title">
-     <string>Binder</string>
-    </property>
-    <addaction name="actionAdd_WorkBook"/>
-    <addaction name="actionDelete_Workbook"/>
-    <addaction name="actionRename_WorkBook"/>
-   </widget>
    <widget class="QMenu" name="menuInsert">
     <property name="title">
      <string>Insert</string>
     </property>
-    <addaction name="actionAdd_Workbook"/>
-    <addaction name="actionAdd_Scction"/>
-    <addaction name="actionAdd_Page"/>
-    <addaction name="separator"/>
-    <addaction name="actionInsert_Attachment"/>
+  <addaction name="actionAdd_Workbook"/>
+  <addaction name="actionDelete_Workbook"/>
+  <addaction name="actionRename_WorkBook"/>
+  <addaction name="actionCollapse_All_Binders"/>
+  <addaction name="separator"/>
+  <addaction name="actionAdd_Scction"/>
+  <addaction name="actionDelete_Section"/>
+  <addaction name="actionRename_Section"/>
+  <addaction name="separator"/>
+  <addaction name="actionAdd_Page"/>
+  <addaction name="actionDelete_Page"/>
+  <addaction name="actionRename_Page"/>
+  <addaction name="separator"/>
+  <addaction name="actionInsert_Attachment"/>
    </widget>
    <widget class="QMenu" name="menuView">
     <property name="title">
@@ -218,10 +233,12 @@
     <property name="title">
      <string>Tools</string>
     </property>
+  <addaction name="actionSettings"/>
+  <addaction name="actionOpen_Databases_Folder"/>
+  <addaction name="actionMigrate_Current_DB_to_Root"/>
     <addaction name="actionClean_Unused_Media"/>
    </widget>
   <addaction name="menuFile"/>
-  <addaction name="menuWorkbook"/>
   <addaction name="menuEdit"/>
   <addaction name="menuInsert"/>
    <addaction name="menuView"/>
@@ -285,9 +302,29 @@
     <string>Add Section</string>
    </property>
   </action>
+  <action name="actionDelete_Section">
+   <property name="text">
+    <string>Delete Section</string>
+   </property>
+  </action>
+  <action name="actionRename_Section">
+   <property name="text">
+    <string>Rename Section</string>
+   </property>
+  </action>
   <action name="actionAdd_Page">
    <property name="text">
     <string>Add Page</string>
+   </property>
+  </action>
+  <action name="actionDelete_Page">
+   <property name="text">
+    <string>Delete Page</string>
+   </property>
+  </action>
+  <action name="actionRename_Page">
+   <property name="text">
+    <string>Rename Page</string>
    </property>
   </action>
   <action name="actionInsert_Attachment">
@@ -303,6 +340,26 @@
   <action name="actionClean_Unused_Media">
    <property name="text">
     <string>Clean Unused Media</string>
+   </property>
+  </action>
+  <action name="actionSettings">
+   <property name="text">
+    <string>Settings…</string>
+   </property>
+  </action>
+  <action name="actionOpen_Databases_Folder">
+   <property name="text">
+    <string>Open Databases Folder</string>
+   </property>
+  </action>
+  <action name="actionMigrate_Current_DB_to_Root">
+   <property name="text">
+    <string>Migrate Current DB into Databases Root…</string>
+   </property>
+  </action>
+  <action name="actionCollapse_All_Binders">
+   <property name="text">
+    <string>Collapse All Binders</string>
    </property>
   </action>
    <action name="actionPaste_Text_Only">

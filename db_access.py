@@ -49,3 +49,26 @@ def delete_notebook(notebook_id: int, db_path: str):
     cur.execute("DELETE FROM notebooks WHERE id = ?", (notebook_id,))
     conn.commit()
     conn.close()
+
+def set_notebooks_order(ordered_ids, db_path: str):
+    """Update order_index for all notebooks based on the given ordered list of ids.
+    Any ids not present are ignored; unknown ids are skipped.
+    """
+    if not ordered_ids:
+        return
+    conn = sqlite3.connect(db_path)
+    try:
+        cur = conn.cursor()
+        # Assign sequential order_index starting at 0 to maintain stable ordering
+        for idx, nid in enumerate(ordered_ids):
+            try:
+                cur.execute(
+                    "UPDATE notebooks SET order_index = ?, modified_at = datetime('now') WHERE id = ?",
+                    (int(idx), int(nid)),
+                )
+            except Exception:
+                # Skip bad ids; continue others
+                pass
+        conn.commit()
+    finally:
+        conn.close()
