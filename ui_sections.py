@@ -14,8 +14,8 @@ from PyQt5.QtCore import Qt
 
 from db_pages import get_pages_by_section_id
 from db_sections import get_sections_by_notebook_id
-from ui_tabs import _is_two_column_ui as _is_two_col  # reuse detection
-from ui_tabs import _load_page_two_column as _load_page_2col
+from page_editor import is_two_column_ui as _is_two_col
+from page_editor import load_page as _load_page_2col
 from ui_tabs import load_first_page_for_current_tab, select_tab_for_section
 
 
@@ -40,11 +40,18 @@ def add_sections_as_children(tree_widget, notebook_id, parent_item, db_path):
             sec_item.setData(0, 1001, "section")
         except Exception:
             pass
-        # Sections: enabled + selectable; not drag/drop targets here
+        # Sections: enabled + selectable + draggable; DO NOT accept drops
+        # Reordering within a binder uses the binder as the drop target so the
+        # drop indicator appears between section rows. Allowing drops directly
+        # on a section causes Qt to treat it as a child-drop and expand instead
+        # of reordering.
         try:
             flags = sec_item.flags()
-            flags = (flags | Qt.ItemIsEnabled | Qt.ItemIsSelectable) & ~(
-                Qt.ItemIsDropEnabled | Qt.ItemIsDragEnabled
+            flags = (
+                flags
+                | Qt.ItemIsEnabled
+                | Qt.ItemIsSelectable
+                | Qt.ItemIsDragEnabled
             )
             sec_item.setFlags(flags)
         except Exception:
@@ -72,12 +79,13 @@ def add_sections_as_children(tree_widget, notebook_id, parent_item, db_path):
                 page_item.setData(0, 1002, section_id)
             except Exception:
                 pass
-            # In two-column mode allow selecting pages; in legacy tabs mode, keep non-selectable
+            # Two-column mode: pages are selectable and draggable for reordering within a section.
+            # Legacy tab mode: pages are enabled but not selectable or draggable here.
             try:
                 pflags = page_item.flags()
                 if _is_two_col(tree_widget.window()):
-                    pflags = (pflags | Qt.ItemIsEnabled | Qt.ItemIsSelectable) & ~(
-                        Qt.ItemIsDragEnabled | Qt.ItemIsDropEnabled
+                    pflags = (pflags | Qt.ItemIsEnabled | Qt.ItemIsSelectable | Qt.ItemIsDragEnabled) & ~(
+                        Qt.ItemIsDropEnabled
                     )
                 else:
                     pflags = (pflags | Qt.ItemIsEnabled) & ~(

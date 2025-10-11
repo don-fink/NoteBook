@@ -17,6 +17,13 @@ def populate_notebook_names(window, db_path):
         # Show expand/collapse arrows on top-level items
         tree_widget.setRootIsDecorated(True)
         tree_widget.setItemsExpandable(True)
+        # Ensure tree is configured for internal DnD moves
+        tree_widget.setSelectionMode(QtWidgets.QAbstractItemView.SingleSelection)
+        tree_widget.setDragDropMode(QtWidgets.QAbstractItemView.InternalMove)
+        tree_widget.setDefaultDropAction(Qt.MoveAction)
+        tree_widget.setAcceptDrops(True)
+        tree_widget.setDragEnabled(True)
+        tree_widget.setDropIndicatorShown(True)
     except Exception:
         pass
     for notebook in notebooks:
@@ -28,12 +35,16 @@ def populate_notebook_names(window, db_path):
             item.setChildIndicatorPolicy(QtWidgets.QTreeWidgetItem.ShowIndicator)
         except Exception:
             pass
-        # Enable dragging binders but do not allow dropping onto a binder item (prevents nesting)
+        # Enable dragging binders and allow dropping onto a binder to reorder sections beneath it
         try:
             flags = item.flags()
             flags = (
-                flags | Qt.ItemIsEnabled | Qt.ItemIsSelectable | Qt.ItemIsDragEnabled
-            ) & ~Qt.ItemIsDropEnabled
+                flags
+                | Qt.ItemIsEnabled
+                | Qt.ItemIsSelectable
+                | Qt.ItemIsDragEnabled
+                | Qt.ItemIsDropEnabled
+            )
             item.setFlags(flags)
         except Exception:
             pass

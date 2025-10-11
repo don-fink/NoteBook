@@ -2,6 +2,26 @@
 
 A PyQt5 desktop notebook app with binders, sections, and pages.
 
+## Two‑Pane UI (current)
+
+The app now uses a two‑column layout by default:
+- Left: Binder → Sections → Pages tree (`notebookName`).
+- Right: Page title (editable, bold) + rich text editor (`pageTitleEdit`, `pageEdit`).
+
+Behavior highlights:
+- Select a page to enable editing; otherwise the editor is read‑only.
+- Autosave on typing (debounced), focus‑out, and Ctrl+S.
+- Add/Rename/Delete Page/Section updates the tree immediately.
+- State persists: last notebook/section/page, expanded binders, splitter sizes, theme, paste mode.
+
+Shortcuts:
+- Ctrl+S — save current page.
+- Ctrl+Up / Ctrl+Down — reorder binders (focus left tree) and sections/pages (focus right panel).
+
+Notes:
+- Legacy tabbed wiring has been removed from setup; `setup_tab_sync` configures only the two‑pane UI.
+- If you use a legacy `.ui` without `pageEdit`, setup becomes a no‑op; switch to `main_window_2_column.ui` for full functionality.
+
 ## Features
 
 - Resizable split panes with saved layout
@@ -66,8 +86,9 @@ python -m pip install -r requirements-dev.txt
 - Qt Designer binaries and tools come from `pyqt5-tools` and related packages.
 - If you only need runtime deps, use `requirements.txt` instead.
 - Settings are stored in `settings.json` alongside the app.
-- The UI is loaded from `main_window_5.ui` via `ui_loader.py`.
+- The UI is loaded from `main_window_2_column.ui` (if present) or falls back to `main_window.ui` via `ui_loader.py`.
 
 ## Troubleshooting
 - If the UI fails to load with an UnsupportedPropertyError for `list`, remove any `sizes` property on QSplitter in the `.ui` file; set sizes in code instead.
 - If panel sizes don’t restore, ensure `settings.json` is writable and that the app exits cleanly at least once to save initial sizes.
+ - If the editor stays read‑only, make sure a page is selected in the left tree.

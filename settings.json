@@ -1,10 +1,10 @@
 {
   "last_db": "C:/Python Projects/NoteBook/notes.db",
   "window_geometry": {
-    "x": 3245,
-    "y": 182,
-    "w": 1085,
-    "h": 730
+    "x": 283,
+    "y": 202,
+    "w": 2245,
+    "h": 1442
   },
   "window_maximized": false,
   "expanded_notebooks": [],
@@ -189,8 +189,8 @@
     ]
   },
   "splitter_sizes": [
-    240,
-    809
+    506,
+    1703
   ],
   "list_scheme_ordered": "classic",
   "default_paste_mode": "match-style",
@@ -198,7 +198,7 @@
   "list_scheme_unordered": "disc-circle-square",
   "databases_root": "C:\\Python Projects\\NoteBook",
   "theme_name": "Default",
-  "last_notebook_id": 37,
-  "last_section_id": 59,
-  "last_page_id": 26
+  "last_notebook_id": 34,
+  "last_section_id": 64,
+  "last_page_id": 34
 }

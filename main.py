@@ -34,11 +34,14 @@ from settings_manager import (
 )
 from ui_loader import load_main_window
 from ui_logic import populate_notebook_names
-from ui_tabs import (
-    ensure_left_tree_sections,
-    refresh_for_notebook,
-    restore_last_position,
-    setup_tab_sync,
+from left_tree import ensure_left_tree_sections, refresh_for_notebook
+from ui_tabs import restore_last_position, setup_tab_sync
+from left_tree import select_left_tree_page, update_left_tree_page_title
+from page_editor import (
+    is_two_column_ui as _is_two_column_ui,
+    load_page as _load_page_two_column,
+    load_first_page_two_column as _load_first_page_two_column,
+    save_current_page,
 )
 
 
@@ -168,7 +171,7 @@ def add_binder(window):
     # Restore previously expanded binders (do not auto-expand the new one)
     try:
         from settings_manager import get_expanded_notebooks
-        from ui_tabs import ensure_left_tree_sections
+        from left_tree import ensure_left_tree_sections
 
         persisted_ids = get_expanded_notebooks()
         tree_widget = window.findChild(QtWidgets.QTreeWidget, "notebookName")
@@ -233,7 +236,7 @@ def rename_binder(window):
     # Restore expansion from persisted state
     try:
         from settings_manager import get_expanded_notebooks
-        from ui_tabs import ensure_left_tree_sections
+        from left_tree import ensure_left_tree_sections
 
         persisted_ids = get_expanded_notebooks()
         for i in range(tree_widget.topLevelItemCount()):
@@ -313,7 +316,7 @@ def delete_binder(window):
     # Restore previously expanded binders (excluding the one we just deleted), based on persisted state
     try:
         from settings_manager import get_expanded_notebooks
-        from ui_tabs import ensure_left_tree_sections
+        from left_tree import ensure_left_tree_sections
 
         persisted_ids = get_expanded_notebooks()
         if persisted_ids:
@@ -347,7 +350,7 @@ def delete_binder(window):
                 from settings_manager import get_expanded_notebooks
 
                 if nb_id in get_expanded_notebooks():
-                    from ui_tabs import ensure_left_tree_sections
+                    from left_tree import ensure_left_tree_sections
 
                     ensure_left_tree_sections(window, nb_id)
             except Exception:
@@ -400,7 +403,7 @@ def add_section(window):
     sid = db_create_section(int(nb_id), title, db_path)
     # Preserve left-tree state: avoid full repopulate; refresh only the target binder children
     try:
-        from ui_tabs import ensure_left_tree_sections, refresh_for_notebook
+        from left_tree import ensure_left_tree_sections, refresh_for_notebook
 
         set_last_state(notebook_id=int(nb_id), section_id=sid, page_id=None)
         # Keep current selection but ensure the binder’s children reflect the new section
@@ -494,8 +497,6 @@ def add_page(window):
     # Fallback to current section context in two-column mode
     if section_id is None:
         try:
-            from ui_tabs import _is_two_column_ui
-
             if _is_two_column_ui(window):
                 section_id = getattr(window, "_current_section_id", None)
         except Exception:
@@ -509,8 +510,6 @@ def add_page(window):
     pid = db_create_page(int(section_id), "Untitled Page", db_path)
     # Update UI depending on mode
     try:
-        from ui_tabs import _is_two_column_ui
-
         if _is_two_column_ui(window):
             # Refresh left tree under the owning binder so the new page appears
             try:
@@ -527,9 +526,9 @@ def add_page(window):
                 nb_id = None
             try:
                 if nb_id is not None:
-                    from ui_tabs import ensure_left_tree_sections
-
-                    ensure_left_tree_sections(window, nb_id, select_section_id=int(section_id))
+                    ensure_left_tree_sections(
+                        window, nb_id, select_section_id=int(section_id)
+                    )
             except Exception:
                 pass
             # Set current context and load the new page into the editor
@@ -541,11 +540,9 @@ def add_page(window):
             except Exception:
                 pass
             try:
-                from ui_tabs import _load_page_two_column, _select_left_tree_page
-
                 _load_page_two_column(window, int(pid))
                 # Ensure left tree selects the new page and section remains expanded
-                _select_left_tree_page(window, int(section_id), int(pid))
+                select_left_tree_page(window, int(section_id), int(pid))
             except Exception:
                 pass
             # Persist last state
@@ -569,8 +566,6 @@ def _current_page_context(window):
     - In tabbed UI: use the current tab's section and tracked page id.
     """
     try:
-        from ui_tabs import _is_two_column_ui
-
         if _is_two_column_ui(window):
             sid = getattr(window, "_current_section_id", None)
             pid = None
@@ -757,8 +752,6 @@ def save_database_as(window):
     """Save the current database and its media folder under a new name (copy) and switch to it."""
     # Ensure any unsaved edits are flushed first
     try:
-        from ui_tabs import save_current_page
-
         save_current_page(window)
     except Exception:
         pass
@@ -912,8 +905,6 @@ def main():
     try:
         tree_widget = window.findChild(QtWidgets.QTreeWidget, "notebookName")
         from settings_manager import get_expanded_notebooks
-        from ui_tabs import ensure_left_tree_sections
-
         expanded_ids = get_expanded_notebooks()
         if tree_widget is not None and expanded_ids:
             for i in range(tree_widget.topLevelItemCount()):
@@ -966,12 +957,13 @@ def main():
                     if item.parent() is None:
                         tree.setCurrentItem(item)
                         m = QtWidgets.QMenu(tree)
+                        # Place 'New Section' at the very top, followed by a separator
+                        act_new_section = m.addAction("New Section")
+                        m.addSeparator()
+                        # Binder operations
                         act_new = m.addAction("New Binder")
                         act_rename = m.addAction("Rename Binder")
                         act_delete = m.addAction("Delete Binder")
-                        # Add separator and explicit New Section for the selected binder
-                        m.addSeparator()
-                        act_new_section = m.addAction("New Section")
                         m.addSeparator()
                         act_collapse_all = m.addAction("Collapse All Binders")
                         chosen = m.exec_(global_pos)
@@ -997,18 +989,233 @@ def main():
                             except Exception:
                                 pass
                         return
-                    # Non top-level (e.g., section): offer section ops
+                    # Non top-level (section or page)
                     tree.setCurrentItem(item)
                     m = QtWidgets.QMenu(tree)
-                    act_new_section = m.addAction("New Section")
-                    act_rename_section = m.addAction("Rename Section")
-                    act_delete_section = m.addAction("Delete Section")
-                    chosen = m.exec_(global_pos)
-                    if chosen is None:
+                    kind = item.data(0, 1001)
+                    if kind == "section":
+                        # Section menu
+                        act_add_page = m.addAction("Add Page")
+                        m.addSeparator()
+                        act_new_section = m.addAction("New Section")
+                        act_rename_section = m.addAction("Rename Section")
+                        act_delete_section = m.addAction("Delete Section")
+                        chosen = m.exec_(global_pos)
+                        if chosen is None:
+                            return
+                        if chosen == act_add_page:
+                            add_page(window)
+                            return
+                        if chosen == act_new_section:
+                            add_section(window)
+                            return
+                        # Get ids/context
+                        section_id = item.data(0, 1000)
+                        parent = item.parent()
+                        nb_id = parent.data(0, 1000) if parent is not None else None
+                        db_path = getattr(window, "_db_path", None) or get_last_db() or "notes.db"
+                        if chosen == act_rename_section and section_id is not None:
+                            current_text = item.text(0) or ""
+                            new_title, ok = QtWidgets.QInputDialog.getText(
+                                tree, "Rename Section", "New title:", text=current_text
+                            )
+                            if ok and new_title.strip():
+                                try:
+                                    db_rename_section(int(section_id), new_title.strip(), db_path)
+                                except Exception:
+                                    pass
+                                # Update UI bits
+                                try:
+                                    item.setText(0, new_title.strip())
+                                except Exception:
+                                    pass
+                                try:
+                                    if nb_id is not None:
+                                        refresh_for_notebook(
+                                            window, int(nb_id), select_section_id=int(section_id)
+                                        )
+                                        ensure_left_tree_sections(
+                                            window, int(nb_id), select_section_id=int(section_id)
+                                        )
+                                except Exception:
+                                    pass
+                            return
+                        if chosen == act_delete_section and section_id is not None:
+                            sec_name = item.text(0) or "(untitled)"
+                            confirm = QtWidgets.QMessageBox.question(
+                                tree,
+                                "Delete Section",
+                                f'Are you sure you want to delete the section "{sec_name}" and all its pages?',
+                                QtWidgets.QMessageBox.Yes | QtWidgets.QMessageBox.No,
+                            )
+                            if confirm != QtWidgets.QMessageBox.Yes:
+                                return
+                            try:
+                                save_current_page(window)
+                            except Exception:
+                                pass
+                            try:
+                                db_delete_section(int(section_id), db_path)
+                            except Exception:
+                                pass
+                            if nb_id is not None:
+                                try:
+                                    refresh_for_notebook(window, int(nb_id))
+                                    ensure_left_tree_sections(window, int(nb_id))
+                                except Exception:
+                                    pass
+                            return
+                    elif kind == "page":
+                        # Page menu
+                        act_add_page = m.addAction("Add Page")
+                        act_rename_page = m.addAction("Rename Page")
+                        act_delete_page = m.addAction("Delete Page")
+                        chosen = m.exec_(global_pos)
+                        if chosen is None:
+                            return
+                        # Context: ids
+                        page_id = item.data(0, 1000)
+                        section_id = item.data(0, 1002)
+                        db_path = getattr(window, "_db_path", None) or get_last_db() or "notes.db"
+                        if chosen == act_add_page:
+                            add_page(window)
+                            return
+                        if chosen == act_rename_page and page_id is not None:
+                            # Prefill current title
+                            try:
+                                from db_pages import get_page_by_id as db_get_page_by_id
+
+                                row = db_get_page_by_id(int(page_id), db_path)
+                                current_title = str(row[2]) if row else ""
+                            except Exception:
+                                current_title = ""
+                            new_title, ok = QtWidgets.QInputDialog.getText(
+                                tree, "Rename Page", "New title:", text=current_title
+                            )
+                            if not ok or not new_title.strip():
+                                return
+                            try:
+                                db_update_page_title(int(page_id), new_title.strip(), db_path)
+                            except Exception:
+                                pass
+                            # Update editor title if this page is active and left-tree label
+                            try:
+                                if _is_two_column_ui(window):
+                                    # Update title field if currently viewing this page
+                                    sid_ctx, pid_ctx = _current_page_context(window)
+                                    if pid_ctx is not None and int(pid_ctx) == int(page_id):
+                                        title_le = window.findChild(QtWidgets.QLineEdit, "pageTitleEdit")
+                                        if title_le is not None:
+                                            title_le.blockSignals(True)
+                                            title_le.setText(new_title.strip())
+                                            title_le.blockSignals(False)
+                                    # Update left tree label directly
+                                    if section_id is not None:
+                                        update_left_tree_page_title(
+                                            window, int(section_id), int(page_id), new_title.strip()
+                                        )
+                            except Exception:
+                                pass
+                            # Optionally update right pane labels in-place without rebuilding trees
+                            try:
+                                right_tw = window.findChild(QtWidgets.QTreeWidget, "sectionPages")
+                                if right_tw is not None and section_id is not None:
+                                    for i in range(right_tw.topLevelItemCount()):
+                                        sec_item = right_tw.topLevelItem(i)
+                                        try:
+                                            if int(sec_item.data(0, 1000)) == int(section_id):
+                                                for j in range(sec_item.childCount()):
+                                                    ch = sec_item.child(j)
+                                                    if ch.data(0, 1001) == "page" and int(ch.data(0, 1000)) == int(page_id):
+                                                        ch.setText(0, new_title.strip())
+                                                        raise StopIteration
+                                        except Exception:
+                                            pass
+                                else:
+                                    # Model view path
+                                    right_tv = window.findChild(QtWidgets.QTreeView, "sectionPages")
+                                    if right_tv is not None and right_tv.model() is not None and section_id is not None:
+                                        model = right_tv.model()
+                                        from ui_tabs import USER_ROLE_ID, USER_ROLE_KIND
+                                        for row in range(model.rowCount()):
+                                            idx = model.index(row, 0)
+                                            try:
+                                                if idx.data(USER_ROLE_KIND) == "section" and int(idx.data(USER_ROLE_ID)) == int(section_id):
+                                                    for crow in range(model.rowCount(idx)):
+                                                        cidx = model.index(crow, 0, idx)
+                                                        if cidx.data(USER_ROLE_KIND) == "page" and int(cidx.data(USER_ROLE_ID)) == int(page_id):
+                                                            model.setData(cidx, new_title.strip())
+                                                            raise StopIteration
+                                            except Exception:
+                                                pass
+                            except StopIteration:
+                                pass
+                            except Exception:
+                                pass
+                            return
+                        if chosen == act_delete_page and page_id is not None:
+                            # Confirm and delete
+                            confirm = QtWidgets.QMessageBox.question(
+                                tree,
+                                "Delete Page",
+                                "Are you sure you want to delete this page?",
+                                QtWidgets.QMessageBox.Yes | QtWidgets.QMessageBox.No,
+                            )
+                            if confirm != QtWidgets.QMessageBox.Yes:
+                                return
+                            try:
+                                save_current_page(window)
+                            except Exception:
+                                pass
+                            try:
+                                db_delete_page(int(page_id), db_path)
+                            except Exception:
+                                pass
+                            # Two-column: refresh section's children and load first page
+                            try:
+                                if _is_two_column_ui(window):
+                                    # Determine notebook id for this section
+                                    nb_id = getattr(window, "_current_notebook_id", None)
+                                    if nb_id is None and section_id is not None:
+                                        import sqlite3
+
+                                        con = sqlite3.connect(db_path)
+                                        cur = con.cursor()
+                                        cur.execute(
+                                            "SELECT notebook_id FROM sections WHERE id = ?",
+                                            (int(section_id),),
+                                        )
+                                        row = cur.fetchone()
+                                        con.close()
+                                        nb_id = int(row[0]) if row else None
+                                    if nb_id is not None:
+                                        ensure_left_tree_sections(
+                                            window, int(nb_id), select_section_id=int(section_id) if section_id is not None else None
+                                        )
+                                    # Clear current if we deleted the active page, then load first page
+                                    try:
+                                        if section_id is not None:
+                                            sid_int = int(section_id)
+                                            cur_pid = getattr(window, "_current_page_by_section", {}).get(sid_int)
+                                            if cur_pid is not None and int(cur_pid) == int(page_id):
+                                                window._current_page_by_section[sid_int] = None
+                                        _load_first_page_two_column(window)
+                                    except Exception:
+                                        pass
+                                else:
+                                    # Legacy: rebuild panes for current notebook
+                                    nb_id = getattr(window, "_current_notebook_id", None)
+                                    if nb_id is not None:
+                                        refresh_for_notebook(
+                                            window, int(nb_id), select_section_id=int(section_id) if section_id is not None else None
+                                        )
+                            except Exception:
+                                pass
+                            return
                         return
-                    if chosen == act_new_section:
-                        add_section(window)
-                        return
+                    else:
+                        # Fallback: treat as section
+                        chosen = None
                     # Get ids/context
                     section_id = item.data(0, 1000)
                     parent = item.parent()
@@ -1041,11 +1248,6 @@ def main():
                             # Rebuild right pane and keep selection
                             try:
                                 if nb_id is not None:
-                                    from ui_tabs import (
-                                        ensure_left_tree_sections,
-                                        refresh_for_notebook,
-                                    )
-
                                     refresh_for_notebook(
                                         window, int(nb_id), select_section_id=int(section_id)
                                     )
@@ -1067,8 +1269,6 @@ def main():
                             return
                         # Save any dirty page before delete
                         try:
-                            from ui_tabs import save_current_page
-
                             save_current_page(window)
                         except Exception:
                             pass
@@ -1078,11 +1278,6 @@ def main():
                             pass
                         # Refresh UI after deletion
                         try:
-                            from ui_tabs import (
-                                ensure_left_tree_sections,
-                                refresh_for_notebook,
-                            )
-
                             if nb_id is not None:
                                 refresh_for_notebook(window, int(nb_id))
                                 ensure_left_tree_sections(window, int(nb_id))
@@ -1098,6 +1293,26 @@ def main():
             except Exception:
                 pass
             tree.customContextMenuRequested.connect(_tree_ctx_menu)
+
+            # Enable drag-and-drop reordering for top-level binders only
+            try:
+                # Configure tree-wide DnD behavior
+                tree.setSelectionMode(QtWidgets.QAbstractItemView.SingleSelection)
+                tree.setDragDropMode(QtWidgets.QAbstractItemView.InternalMove)
+                tree.setDefaultDropAction(Qt.MoveAction)
+                tree.setAcceptDrops(True)
+                tree.setDragEnabled(True)
+                tree.setDropIndicatorShown(True)
+                # Ensure event filter constrains DnD to top-level and persists order
+                if not hasattr(window, "_left_tree_dnd_filter"):
+                    from left_tree import LeftTreeDnDFilter
+
+                    window._left_tree_dnd_filter = LeftTreeDnDFilter(window)
+                tree.installEventFilter(window._left_tree_dnd_filter)
+                if hasattr(tree, "viewport") and tree.viewport() is not None:
+                    tree.viewport().installEventFilter(window._left_tree_dnd_filter)
+            except Exception:
+                pass
     except Exception:
         pass
 
@@ -1197,8 +1412,6 @@ def main():
                 if confirm != QtWidgets.QMessageBox.Yes:
                     return
                 try:
-                    from ui_tabs import save_current_page
-
                     save_current_page(window)
                 except Exception:
                     pass
@@ -1206,8 +1419,6 @@ def main():
                 db_delete_section(int(sid), db_path)
                 nb_id = getattr(window, "_current_notebook_id", None)
                 if nb_id is not None:
-                    from ui_tabs import ensure_left_tree_sections, refresh_for_notebook
-
                     refresh_for_notebook(window, int(nb_id))
                     ensure_left_tree_sections(window, int(nb_id))
             except Exception:
@@ -1243,8 +1454,6 @@ def main():
                 db_rename_section(int(sid), new_title.strip(), db_path)
                 nb_id = getattr(window, "_current_notebook_id", None)
                 if nb_id is not None:
-                    from ui_tabs import ensure_left_tree_sections, refresh_for_notebook
-
                     refresh_for_notebook(window, int(nb_id), select_section_id=int(sid))
                     ensure_left_tree_sections(window, int(nb_id), select_section_id=int(sid))
             except Exception:
@@ -1276,8 +1485,6 @@ def main():
                 db_delete_page(int(page_id), db_path)
                 # Refresh UI
                 try:
-                    from ui_tabs import _is_two_column_ui
-
                     if _is_two_column_ui(window):
                         # If we deleted the active page for this section, clear mapping
                         try:
@@ -1314,8 +1521,6 @@ def main():
                                 window, int(nb_id), select_section_id=int(section_id)
                             )
                         try:
-                            from ui_tabs import _load_first_page_two_column
-
                             # Ensure section context and load first page (or clear)
                             try:
                                 window._current_section_id = int(section_id)
@@ -1371,8 +1576,6 @@ def main():
                 db_update_page_title(int(page_id), new_title.strip(), db_path)
                 # Reflect in UI: update title field (2-col) and left tree label
                 try:
-                    from ui_tabs import _is_two_column_ui
-
                     if _is_two_column_ui(window):
                         try:
                             title_le = window.findChild(QtWidgets.QLineEdit, "pageTitleEdit")
@@ -1384,11 +1587,7 @@ def main():
                             pass
                         try:
                             # Update left tree item text without full rebuild
-                            from ui_tabs import (
-                                _update_left_tree_page_title as _upd_left_title,
-                            )
-
-                            _upd_left_title(
+                            update_left_tree_page_title(
                                 window, int(section_id), int(page_id), new_title.strip()
                             )
                         except Exception:
@@ -1396,8 +1595,6 @@ def main():
                             try:
                                 # Lookup notebook id for section to refresh children
                                 import sqlite3
-
-                                from ui_tabs import ensure_left_tree_sections
 
                                 con = sqlite3.connect(db_path)
                                 cur = con.cursor()
@@ -1950,8 +2147,6 @@ def main():
                     paste_text_only(te)
                     # Persist immediately so closing the app doesn't lose the paste
                     try:
-                        from ui_tabs import save_current_page
-
                         save_current_page(window)
                     except Exception:
                         pass
@@ -1977,8 +2172,6 @@ def main():
 
                     paste_match_style(te)
                     try:
-                        from ui_tabs import save_current_page
-
                         save_current_page(window)
                     except Exception:
                         pass
@@ -2004,8 +2197,6 @@ def main():
 
                     paste_clean_formatting(te)
                     try:
-                        from ui_tabs import save_current_page
-
                         save_current_page(window)
                     except Exception:
                         pass
