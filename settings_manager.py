@@ -2,52 +2,60 @@
 settings_manager.py
 Manages loading and saving application settings, such as the last opened database, in a JSON file.
 """
+
 import json
 import os
 
-SETTINGS_FILE = 'settings.json'
+SETTINGS_FILE = "settings.json"
+
 
 def load_settings():
     if os.path.exists(SETTINGS_FILE):
-        with open(SETTINGS_FILE, 'r') as f:
+        with open(SETTINGS_FILE, "r") as f:
             return json.load(f)
     return {}
 
+
 def save_settings(settings):
-    with open(SETTINGS_FILE, 'w') as f:
+    with open(SETTINGS_FILE, "w") as f:
         json.dump(settings, f, indent=2)
+
 
 def get_settings_file_path() -> str:
     """Return absolute path to the settings.json file."""
     return os.path.abspath(SETTINGS_FILE)
 
+
 def get_last_db():
     settings = load_settings()
-    return settings.get('last_db')
+    return settings.get("last_db")
+
 
 def set_last_db(db_path):
     settings = load_settings()
-    settings['last_db'] = db_path
+    settings["last_db"] = db_path
     save_settings(settings)
+
 
 # --- Databases root folder ---
 def get_databases_root() -> str:
     """Folder under which .db files and their media folders are stored. Defaults to working directory."""
     s = load_settings()
-    val = s.get('databases_root')
+    val = s.get("databases_root")
     if val and isinstance(val, str) and os.path.isdir(val):
         return val
     # Fallback: current working directory
     try:
         return os.path.abspath(os.getcwd())
     except Exception:
-        return os.path.abspath('.')
+        return os.path.abspath(".")
+
 
 def set_databases_root(path: str):
     if not isinstance(path, str) or not path:
         return
     s = load_settings()
-    s['databases_root'] = path
+    s["databases_root"] = path
     save_settings(s)
 
 
@@ -56,26 +64,27 @@ def get_last_state():
     """Return a dict with keys: last_notebook_id, last_section_id, last_page_id."""
     s = load_settings()
     return {
-        'last_notebook_id': s.get('last_notebook_id'),
-        'last_section_id': s.get('last_section_id'),
-        'last_page_id': s.get('last_page_id'),
+        "last_notebook_id": s.get("last_notebook_id"),
+        "last_section_id": s.get("last_section_id"),
+        "last_page_id": s.get("last_page_id"),
     }
+
 
 def set_last_state(notebook_id=None, section_id=None, page_id=None):
     s = load_settings()
     if notebook_id is not None:
-        s['last_notebook_id'] = notebook_id
+        s["last_notebook_id"] = notebook_id
     if section_id is not None:
-        s['last_section_id'] = section_id
+        s["last_section_id"] = section_id
     if page_id is not None:
-        s['last_page_id'] = page_id
+        s["last_page_id"] = page_id
     save_settings(s)
 
 
 def clear_last_state():
     """Clear last selected notebook/section/page from settings."""
     s = load_settings()
-    for k in ('last_notebook_id', 'last_section_id', 'last_page_id'):
+    for k in ("last_notebook_id", "last_section_id", "last_page_id"):
         if k in s:
             del s[k]
     save_settings(s)
@@ -83,31 +92,36 @@ def clear_last_state():
 
 def get_window_geometry():
     s = load_settings()
-    return s.get('window_geometry')  # dict with x, y, w, h
+    return s.get("window_geometry")  # dict with x, y, w, h
+
 
 def set_window_geometry(x, y, w, h):
     s = load_settings()
-    s['window_geometry'] = {'x': int(x), 'y': int(y), 'w': int(w), 'h': int(h)}
+    s["window_geometry"] = {"x": int(x), "y": int(y), "w": int(w), "h": int(h)}
     save_settings(s)
+
 
 def get_window_maximized():
     s = load_settings()
-    return bool(s.get('window_maximized', False))
+    return bool(s.get("window_maximized", False))
+
 
 def set_window_maximized(is_maximized: bool):
     s = load_settings()
-    s['window_maximized'] = bool(is_maximized)
+    s["window_maximized"] = bool(is_maximized)
     save_settings(s)
+
 
 # --- Splitter sizes (main horizontal splitter) ---
 def get_splitter_sizes():
     """Return a list of ints representing QSplitter sizes, or None if not set."""
     s = load_settings()
-    sizes = s.get('splitter_sizes')
+    sizes = s.get("splitter_sizes")
     if isinstance(sizes, list) and all(isinstance(x, (int, float)) for x in sizes):
         # Coerce to ints
         return [int(x) for x in sizes]
     return None
+
 
 def set_splitter_sizes(sizes):
     """Persist splitter sizes list (ints)."""
@@ -117,11 +131,11 @@ def set_splitter_sizes(sizes):
         cleaned = None
     s = load_settings()
     if cleaned:
-        s['splitter_sizes'] = cleaned
+        s["splitter_sizes"] = cleaned
     else:
         # Remove if invalid/empty
-        if 'splitter_sizes' in s:
-            del s['splitter_sizes']
+        if "splitter_sizes" in s:
+            del s["splitter_sizes"]
     save_settings(s)
 
 
@@ -129,36 +143,41 @@ def set_splitter_sizes(sizes):
 def get_section_colors():
     """Return a dict mapping section_id (as string) -> color hex string (e.g., '#FF8800')."""
     s = load_settings()
-    return s.get('section_colors', {})
+    return s.get("section_colors", {})
+
 
 def set_section_color(section_id: int, color_hex: str):
     """Persist a color hex string for a section id."""
     s = load_settings()
-    colors = s.get('section_colors', {})
+    colors = s.get("section_colors", {})
     colors[str(int(section_id))] = str(color_hex)
-    s['section_colors'] = colors
+    s["section_colors"] = colors
     save_settings(s)
+
 
 # --- Left tree expanded state ---
 def get_expanded_notebooks():
     """Return a set of notebook IDs that should be expanded in the left tree."""
     s = load_settings()
-    vals = s.get('expanded_notebooks', [])
+    vals = s.get("expanded_notebooks", [])
     try:
         return set(int(v) for v in vals)
     except Exception:
         return set()
 
+
 def set_expanded_notebooks(ids):
     """Persist the full set of expanded notebook IDs."""
     s = load_settings()
-    s['expanded_notebooks'] = [int(v) for v in ids]
+    s["expanded_notebooks"] = [int(v) for v in ids]
     save_settings(s)
+
 
 def add_expanded_notebook(notebook_id: int):
     ids = get_expanded_notebooks()
     ids.add(int(notebook_id))
     set_expanded_notebooks(ids)
+
 
 def remove_expanded_notebook(notebook_id: int):
     ids = get_expanded_notebooks()
@@ -166,11 +185,12 @@ def remove_expanded_notebook(notebook_id: int):
         ids.remove(int(notebook_id))
     set_expanded_notebooks(ids)
 
+
 # --- Right tree expanded sections (per notebook) ---
 def get_expanded_sections_by_notebook():
     """Return a dict mapping notebook_id (str) -> set of expanded section IDs (ints)."""
     s = load_settings()
-    raw = s.get('expanded_sections_by_notebook', {})
+    raw = s.get("expanded_sections_by_notebook", {})
     out = {}
     try:
         for k, vals in raw.items():
@@ -182,12 +202,14 @@ def get_expanded_sections_by_notebook():
         pass
     return out
 
+
 def set_expanded_sections_for_notebook(notebook_id: int, section_ids):
     s = load_settings()
-    raw = s.get('expanded_sections_by_notebook', {})
+    raw = s.get("expanded_sections_by_notebook", {})
     raw[str(int(notebook_id))] = [int(v) for v in section_ids]
-    s['expanded_sections_by_notebook'] = raw
+    s["expanded_sections_by_notebook"] = raw
     save_settings(s)
+
 
 def add_expanded_section(notebook_id: int, section_id: int):
     m = get_expanded_sections_by_notebook()
@@ -195,6 +217,7 @@ def add_expanded_section(notebook_id: int, section_id: int):
     cur = m.get(key, set())
     cur.add(int(section_id))
     set_expanded_sections_for_notebook(int(notebook_id), cur)
+
 
 def remove_expanded_section(notebook_id: int, section_id: int):
     m = get_expanded_sections_by_notebook()
@@ -211,44 +234,49 @@ def get_list_schemes_settings():
     ordered_scheme in {'classic','decimal'}; unordered_scheme in {'disc-circle-square','disc-only'}.
     """
     s = load_settings()
-    ordered = s.get('list_scheme_ordered', 'classic')
-    unordered = s.get('list_scheme_unordered', 'disc-circle-square')
+    ordered = s.get("list_scheme_ordered", "classic")
+    unordered = s.get("list_scheme_unordered", "disc-circle-square")
     return ordered, unordered
+
 
 def set_list_schemes_settings(ordered: str = None, unordered: str = None):
     s = load_settings()
-    if ordered in ('classic', 'decimal'):
-        s['list_scheme_ordered'] = ordered
-    if unordered in ('disc-circle-square', 'disc-only'):
-        s['list_scheme_unordered'] = unordered
+    if ordered in ("classic", "decimal"):
+        s["list_scheme_ordered"] = ordered
+    if unordered in ("disc-circle-square", "disc-only"):
+        s["list_scheme_unordered"] = unordered
     save_settings(s)
+
 
 # --- Default paste mode ---
 def get_default_paste_mode():
     """Return default paste mode string in {'rich','text-only','match-style','clean'}; default 'rich'."""
     s = load_settings()
-    mode = s.get('default_paste_mode', 'rich')
-    if mode in ('rich','text-only','match-style','clean'):
+    mode = s.get("default_paste_mode", "rich")
+    if mode in ("rich", "text-only", "match-style", "clean"):
         return mode
-    return 'rich'
+    return "rich"
+
 
 def set_default_paste_mode(mode: str):
     """Persist default paste mode if valid."""
-    if mode not in ('rich','text-only','match-style','clean'):
+    if mode not in ("rich", "text-only", "match-style", "clean"):
         return
     s = load_settings()
-    s['default_paste_mode'] = mode
+    s["default_paste_mode"] = mode
     save_settings(s)
+
 
 # --- Editor: plain paragraph indent step (pixels) ---
 def get_plain_indent_px() -> int:
     """Return the number of pixels to indent/outdent plain paragraphs when pressing Tab/Shift+Tab outside lists/tables."""
     s = load_settings()
     try:
-        val = int(s.get('plain_indent_px', 24))
+        val = int(s.get("plain_indent_px", 24))
         return max(4, min(160, val))
     except Exception:
         return 24
+
 
 def set_plain_indent_px(pixels: int):
     try:
@@ -257,21 +285,23 @@ def set_plain_indent_px(pixels: int):
         return
     px = max(4, min(160, px))
     s = load_settings()
-    s['plain_indent_px'] = px
+    s["plain_indent_px"] = px
     save_settings(s)
+
 
 # --- Theme selection ---
 def get_theme_name() -> str:
     """Return the current theme name, e.g., 'Default' or 'High Contrast'. Defaults to 'Default'."""
     s = load_settings()
-    name = s.get('theme_name', 'Default')
+    name = s.get("theme_name", "Default")
     if isinstance(name, str) and name:
         return name
-    return 'Default'
+    return "Default"
+
 
 def set_theme_name(name: str):
     if not isinstance(name, str) or not name:
         return
     s = load_settings()
-    s['theme_name'] = name
+    s["theme_name"] = name
     save_settings(s)

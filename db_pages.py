@@ -2,7 +2,9 @@
 db_pages.py
 Provides functions to retrieve pages for a given section from the database.
 """
+
 import sqlite3
+
 
 def get_pages_by_section_id(section_id, db_path):
     conn = sqlite3.connect(db_path)
@@ -11,6 +13,7 @@ def get_pages_by_section_id(section_id, db_path):
     rows = cursor.fetchall()
     conn.close()
     return rows
+
 
 def get_page_by_id(page_id: int, db_path: str):
     """Return a single page row by id, or None if not found."""
@@ -21,13 +24,17 @@ def get_page_by_id(page_id: int, db_path: str):
     conn.close()
     return row
 
+
 def _get_next_page_order_index(section_id: int, db_path: str) -> int:
     conn = sqlite3.connect(db_path)
     cur = conn.cursor()
-    cur.execute("SELECT COALESCE(MAX(order_index), 0) FROM pages WHERE section_id = ?", (section_id,))
+    cur.execute(
+        "SELECT COALESCE(MAX(order_index), 0) FROM pages WHERE section_id = ?", (section_id,)
+    )
     max_idx = cur.fetchone()[0] or 0
     conn.close()
     return int(max_idx) + 1
+
 
 def create_page(section_id: int, title: str, db_path: str) -> int:
     """Create a new page in a section and return its id."""
@@ -46,6 +53,7 @@ def create_page(section_id: int, title: str, db_path: str) -> int:
     conn.close()
     return page_id
 
+
 def update_page_title(page_id: int, title: str, db_path: str):
     conn = sqlite3.connect(db_path)
     cur = conn.cursor()
@@ -56,6 +64,7 @@ def update_page_title(page_id: int, title: str, db_path: str):
     conn.commit()
     conn.close()
 
+
 def update_page_content(page_id: int, content_html: str, db_path: str):
     conn = sqlite3.connect(db_path)
     cur = conn.cursor()
@@ -65,6 +74,7 @@ def update_page_content(page_id: int, content_html: str, db_path: str):
     )
     conn.commit()
     conn.close()
+
 
 def delete_page(page_id: int, db_path: str):
     conn = sqlite3.connect(db_path)

@@ -1,0 +1,16 @@
+name: CI
+on:
+- push
+- pull_request
+jobs:
+  lint:
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v4
+    - run: pip install black isort ruff && ruff . && black --check . && isort 
+        --check-only .
+  test:
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v4
+    - run: pip install -r requirements.txt pytest && pytest -q

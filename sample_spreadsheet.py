@@ -1,11 +1,14 @@
-import sys
 import re
+import sys
+
 from PyQt5.QtWidgets import QApplication, QTableWidget, QTableWidgetItem
 
+
 def cell_to_index(cell):
-    col = ord(cell[0].upper()) - ord('A')
+    col = ord(cell[0].upper()) - ord("A")
     row = int(cell[1:]) - 1
     return row, col
+
 
 def sum_range(table, start_cell, end_cell):
     start_row, start_col = cell_to_index(start_cell)
@@ -21,6 +24,7 @@ def sum_range(table, start_cell, end_cell):
                     pass
     return total
 
+
 class Spreadsheet(QTableWidget):
     def __init__(self, rows, cols):
         super().__init__(rows, cols)
@@ -32,7 +36,7 @@ class Spreadsheet(QTableWidget):
         item = self.item(row, col)
         if item:
             text = item.text()
-            if text.startswith('=SUM('):
+            if text.startswith("=SUM("):
                 self.formulas[(row, col)] = text
             elif (row, col) in self.formulas:
                 # If user overwrites formula with plain value, remove it
@@ -42,13 +46,14 @@ class Spreadsheet(QTableWidget):
     def recalculate_formulas(self):
         self.blockSignals(True)
         for (row, col), formula in self.formulas.items():
-            match = re.match(r'=SUM\((\w+\d+):(\w+\d+)\)', formula)
+            match = re.match(r"=SUM\((\w+\d+):(\w+\d+)\)", formula)
             if match:
                 start, end = match.groups()
                 total = sum_range(self, start, end)
                 display = f"{total:.2f}"  # Show result
                 self.item(row, col).setText(display)
         self.blockSignals(False)
+
 
 if __name__ == "__main__":
     app = QApplication(sys.argv)

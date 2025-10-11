@@ -5,9 +5,24 @@ Supports: Undo/Redo, Bold/Italic/Underline/Strike, Font family/size,
 Text color/Highlight, Align L/C/R/Justify, Bullets/Numbers, Clear formatting,
 Insert image, Horizontal rule.
 """
+
 from PyQt5 import QtWidgets
-from PyQt5.QtGui import QTextCharFormat, QFont, QColor, QKeySequence, QIcon, QPixmap, QPainter, QPen, QTextListFormat, QTextCursor, QTextList, QDesktopServices, QPalette
-from PyQt5.QtCore import Qt, QSize, QRect, QPoint, QEvent, QObject, QUrl
+from PyQt5.QtCore import QEvent, QObject, QPoint, QRect, QSize, Qt, QUrl
+from PyQt5.QtGui import (
+    QColor,
+    QDesktopServices,
+    QFont,
+    QIcon,
+    QKeySequence,
+    QPainter,
+    QPalette,
+    QPen,
+    QPixmap,
+    QTextCharFormat,
+    QTextCursor,
+    QTextList,
+    QTextListFormat,
+)
 
 
 def _ensure_layout(widget: QtWidgets.QWidget) -> QtWidgets.QVBoxLayout:
@@ -18,16 +33,17 @@ def _ensure_layout(widget: QtWidgets.QWidget) -> QtWidgets.QVBoxLayout:
     widget.setLayout(layout)
     return layout
 
+
 # Defaults you can change
 DEFAULT_FONT_FAMILY = "Arial"  # e.g., "Arial", "Calibri", "Times New Roman"
-DEFAULT_FONT_SIZE_PT = 12          # in points
+DEFAULT_FONT_SIZE_PT = 12  # in points
 
 # List scheme configuration (can be changed at runtime from main menu)
-_ORDERED_SCHEME = 'classic'  # 'classic' or 'decimal'
-_UNORDERED_SCHEME = 'disc-circle-square'  # 'disc-circle-square' or 'disc-only'
+_ORDERED_SCHEME = "classic"  # 'classic' or 'decimal'
+_UNORDERED_SCHEME = "disc-circle-square"  # 'disc-circle-square' or 'disc-only'
 
 
-def _make_icon(kind: str, size: QSize = QSize(24, 24), fg: QColor = QColor('#303030')) -> QIcon:
+def _make_icon(kind: str, size: QSize = QSize(24, 24), fg: QColor = QColor("#303030")) -> QIcon:
     pm = QPixmap(size)
     pm.fill(Qt.transparent)
     p = QPainter(pm)
@@ -49,10 +65,10 @@ def _make_icon(kind: str, size: QSize = QSize(24, 24), fg: QColor = QColor('#303
         p.drawText(rect, Qt.AlignCenter, txt)
         if underline:
             y = int(h * 0.72)
-            p.drawLine(int(w*0.25), y, int(w*0.75), y)
+            p.drawLine(int(w * 0.25), y, int(w * 0.75), y)
         if strike:
             y = int(h * 0.5)
-            p.drawLine(int(w*0.25), y, int(w*0.75), y)
+            p.drawLine(int(w * 0.25), y, int(w * 0.75), y)
 
     def _draw_align(mode: str):
         y = 5
@@ -64,18 +80,18 @@ def _make_icon(kind: str, size: QSize = QSize(24, 24), fg: QColor = QColor('#303
         ]
         for i, (lw, pad) in enumerate(lines):
             yy = y + i * int(h * 0.18)
-            if mode == 'left':
-                x1, x2 = 3, 3 + int((w-6) * lw)
-            elif mode == 'center':
-                span = int((w-6) * lw)
+            if mode == "left":
+                x1, x2 = 3, 3 + int((w - 6) * lw)
+            elif mode == "center":
+                span = int((w - 6) * lw)
                 x1 = (w - span) // 2
                 x2 = x1 + span
-            elif mode == 'right':
-                span = int((w-6) * lw)
-                x2 = w-3
+            elif mode == "right":
+                span = int((w - 6) * lw)
+                x2 = w - 3
                 x1 = x2 - span
             else:  # justify
-                x1, x2 = 3, w-3
+                x1, x2 = 3, w - 3
             p.drawLine(x1, yy, x2, yy)
 
     def _draw_list(bullets: bool):
@@ -86,78 +102,84 @@ def _make_icon(kind: str, size: QSize = QSize(24, 24), fg: QColor = QColor('#303
                 p.drawEllipse(QPoint(6, yy), 2, 2)
             else:
                 # tiny '1.' like marker
-                p.drawText(QRect(2, yy-6, 10, 12), Qt.AlignLeft | Qt.AlignVCenter, str(i+1)+'.')
-            p.drawLine(12, yy, w-4, yy)
+                p.drawText(
+                    QRect(2, yy - 6, 10, 12), Qt.AlignLeft | Qt.AlignVCenter, str(i + 1) + "."
+                )
+            p.drawLine(12, yy, w - 4, yy)
 
-    if kind == 'undo':
+    if kind == "undo":
         # left arrow
-        p.drawLine(int(w*0.75), int(h*0.3), int(w*0.35), int(h*0.3))
-        p.drawLine(int(w*0.35), int(h*0.3), int(w*0.45), int(h*0.2))
-        p.drawLine(int(w*0.35), int(h*0.3), int(w*0.45), int(h*0.4))
-    elif kind == 'redo':
-        p.drawLine(int(w*0.25), int(h*0.3), int(w*0.65), int(h*0.3))
-        p.drawLine(int(w*0.65), int(h*0.3), int(w*0.55), int(h*0.2))
-        p.drawLine(int(w*0.65), int(h*0.3), int(w*0.55), int(h*0.4))
-    elif kind == 'bold':
-        _draw_text('B', bold=True)
-    elif kind == 'italic':
-        _draw_text('I', italic=True)
-    elif kind == 'underline':
-        _draw_text('U', underline=True)
-    elif kind == 'strike':
-        _draw_text('S', strike=True)
-    elif kind == 'align_left':
-        _draw_align('left')
-    elif kind == 'align_center':
-        _draw_align('center')
-    elif kind == 'align_right':
-        _draw_align('right')
-    elif kind == 'align_justify':
-        _draw_align('justify')
-    elif kind == 'list_bullets':
+        p.drawLine(int(w * 0.75), int(h * 0.3), int(w * 0.35), int(h * 0.3))
+        p.drawLine(int(w * 0.35), int(h * 0.3), int(w * 0.45), int(h * 0.2))
+        p.drawLine(int(w * 0.35), int(h * 0.3), int(w * 0.45), int(h * 0.4))
+    elif kind == "redo":
+        p.drawLine(int(w * 0.25), int(h * 0.3), int(w * 0.65), int(h * 0.3))
+        p.drawLine(int(w * 0.65), int(h * 0.3), int(w * 0.55), int(h * 0.2))
+        p.drawLine(int(w * 0.65), int(h * 0.3), int(w * 0.55), int(h * 0.4))
+    elif kind == "bold":
+        _draw_text("B", bold=True)
+    elif kind == "italic":
+        _draw_text("I", italic=True)
+    elif kind == "underline":
+        _draw_text("U", underline=True)
+    elif kind == "strike":
+        _draw_text("S", strike=True)
+    elif kind == "align_left":
+        _draw_align("left")
+    elif kind == "align_center":
+        _draw_align("center")
+    elif kind == "align_right":
+        _draw_align("right")
+    elif kind == "align_justify":
+        _draw_align("justify")
+    elif kind == "list_bullets":
         _draw_list(True)
-    elif kind == 'list_numbers':
+    elif kind == "list_numbers":
         _draw_list(False)
-    elif kind == 'indent':
+    elif kind == "indent":
         # right pointing arrow/step
-        p.drawLine(4, h//2, w-8, h//2)
-        p.drawLine(w-10, h//2 - 6, w-4, h//2)
-        p.drawLine(w-10, h//2 + 6, w-4, h//2)
-        p.drawLine(4, 6, 4, h-6)
-    elif kind == 'outdent':
+        p.drawLine(4, h // 2, w - 8, h // 2)
+        p.drawLine(w - 10, h // 2 - 6, w - 4, h // 2)
+        p.drawLine(w - 10, h // 2 + 6, w - 4, h // 2)
+        p.drawLine(4, 6, 4, h - 6)
+    elif kind == "outdent":
         # left pointing arrow/step
-        p.drawLine(w-4, h//2, 8, h//2)
-        p.drawLine(10, h//2 - 6, 4, h//2)
-        p.drawLine(10, h//2 + 6, 4, h//2)
-        p.drawLine(w-4, 6, w-4, h-6)
-    elif kind == 'hr':
-        y = h//2
-        p.drawLine(4, y, w-4, y)
-    elif kind == 'image':
+        p.drawLine(w - 4, h // 2, 8, h // 2)
+        p.drawLine(10, h // 2 - 6, 4, h // 2)
+        p.drawLine(10, h // 2 + 6, 4, h // 2)
+        p.drawLine(w - 4, 6, w - 4, h - 6)
+    elif kind == "hr":
+        y = h // 2
+        p.drawLine(4, y, w - 4, y)
+    elif kind == "image":
         # simple picture: frame + mountain + sun
-        p.drawRect(3, 5, w-6, h-10)
-        p.drawLine(6, h-8, w-10, h-14)
-        p.drawEllipse(QPoint(w-10, 9), 2, 2)
-    elif kind == 'table':
+        p.drawRect(3, 5, w - 6, h - 10)
+        p.drawLine(6, h - 8, w - 10, h - 14)
+        p.drawEllipse(QPoint(w - 10, 9), 2, 2)
+    elif kind == "table":
         # 3x3 grid
-        p.drawRect(3, 5, w-6, h-10)
+        p.drawRect(3, 5, w - 6, h - 10)
         for i in range(1, 3):
-            x = 3 + i * (w-6)//3
-            p.drawLine(x, 5, x, h-5)
-            y = 5 + i * (h-10)//3
-            p.drawLine(3, y, w-3, y)
-    elif kind == 'color':
-        _draw_text('A')
-        p.drawRect(5, h-8, w-10, 4)
-    elif kind == 'highlight':
-        p.fillRect(QRect(4, h-10, w-8, 6), QColor('#ffe680'))
-        _draw_text('A')
+            x = 3 + i * (w - 6) // 3
+            p.drawLine(x, 5, x, h - 5)
+            y = 5 + i * (h - 10) // 3
+            p.drawLine(3, y, w - 3, y)
+    elif kind == "color":
+        _draw_text("A")
+        p.drawRect(5, h - 8, w - 10, 4)
+    elif kind == "highlight":
+        p.fillRect(QRect(4, h - 10, w - 8, 6), QColor("#ffe680"))
+        _draw_text("A")
 
     p.end()
     return QIcon(pm)
 
 
-def add_rich_text_toolbar(parent_tab: QtWidgets.QWidget, text_edit: QtWidgets.QTextEdit, before_widget: QtWidgets.QWidget = None):
+def add_rich_text_toolbar(
+    parent_tab: QtWidgets.QWidget,
+    text_edit: QtWidgets.QTextEdit,
+    before_widget: QtWidgets.QWidget = None,
+):
     if text_edit is None or parent_tab is None:
         return None
     layout = _ensure_layout(parent_tab)
@@ -185,10 +207,10 @@ def add_rich_text_toolbar(parent_tab: QtWidgets.QWidget, text_edit: QtWidgets.QT
     toolbar.setToolButtonStyle(Qt.ToolButtonIconOnly)
 
     # Undo/Redo
-    act_undo = toolbar.addAction(_make_icon('undo'), "", text_edit.undo)
+    act_undo = toolbar.addAction(_make_icon("undo"), "", text_edit.undo)
     act_undo.setShortcut(QKeySequence.Undo)
     act_undo.setToolTip("Undo (Ctrl+Z)")
-    act_redo = toolbar.addAction(_make_icon('redo'), "", text_edit.redo)
+    act_redo = toolbar.addAction(_make_icon("redo"), "", text_edit.redo)
     act_redo.setShortcut(QKeySequence.Redo)
     act_redo.setToolTip("Redo (Ctrl+Y)")
     toolbar.addSeparator()
@@ -196,13 +218,13 @@ def add_rich_text_toolbar(parent_tab: QtWidgets.QWidget, text_edit: QtWidgets.QT
     # Bold/Italic/Underline/Strike
     def toggle_format(flag_attr: str, on: bool):
         fmt = QTextCharFormat()
-        if flag_attr == 'bold':
+        if flag_attr == "bold":
             fmt.setFontWeight(QFont.Bold if on else QFont.Normal)
-        elif flag_attr == 'italic':
+        elif flag_attr == "italic":
             fmt.setFontItalic(on)
-        elif flag_attr == 'underline':
+        elif flag_attr == "underline":
             fmt.setFontUnderline(on)
-        elif flag_attr == 'strike':
+        elif flag_attr == "strike":
             fmt.setFontStrikeOut(on)
         cursor = text_edit.textCursor()
         if not cursor.hasSelection():
@@ -211,31 +233,31 @@ def add_rich_text_toolbar(parent_tab: QtWidgets.QWidget, text_edit: QtWidgets.QT
         cursor.mergeCharFormat(fmt)
         text_edit.mergeCurrentCharFormat(fmt)
 
-    act_bold = QtWidgets.QAction(_make_icon('bold'), "", toolbar)
+    act_bold = QtWidgets.QAction(_make_icon("bold"), "", toolbar)
     act_bold.setCheckable(True)
     act_bold.setShortcut(QKeySequence.Bold)
     act_bold.setToolTip("Bold (Ctrl+B)")
-    act_bold.triggered.connect(lambda on: toggle_format('bold', on))
+    act_bold.triggered.connect(lambda on: toggle_format("bold", on))
     toolbar.addAction(act_bold)
 
-    act_italic = QtWidgets.QAction(_make_icon('italic'), "", toolbar)
+    act_italic = QtWidgets.QAction(_make_icon("italic"), "", toolbar)
     act_italic.setCheckable(True)
     act_italic.setShortcut(QKeySequence.Italic)
     act_italic.setToolTip("Italic (Ctrl+I)")
-    act_italic.triggered.connect(lambda on: toggle_format('italic', on))
+    act_italic.triggered.connect(lambda on: toggle_format("italic", on))
     toolbar.addAction(act_italic)
 
-    act_underline = QtWidgets.QAction(_make_icon('underline'), "", toolbar)
+    act_underline = QtWidgets.QAction(_make_icon("underline"), "", toolbar)
     act_underline.setCheckable(True)
     act_underline.setShortcut(QKeySequence.Underline)
     act_underline.setToolTip("Underline (Ctrl+U)")
-    act_underline.triggered.connect(lambda on: toggle_format('underline', on))
+    act_underline.triggered.connect(lambda on: toggle_format("underline", on))
     toolbar.addAction(act_underline)
 
-    act_strike = QtWidgets.QAction(_make_icon('strike'), "", toolbar)
+    act_strike = QtWidgets.QAction(_make_icon("strike"), "", toolbar)
     act_strike.setCheckable(True)
     act_strike.setToolTip("Strikethrough")
-    act_strike.triggered.connect(lambda on: toggle_format('strike', on))
+    act_strike.triggered.connect(lambda on: toggle_format("strike", on))
     toolbar.addAction(act_strike)
 
     toolbar.addSeparator()
@@ -256,7 +278,9 @@ def add_rich_text_toolbar(parent_tab: QtWidgets.QWidget, text_edit: QtWidgets.QT
     for sz in [8, 9, 10, 11, 12, 14, 16, 18, 20, 24, 28, 32]:
         size_box.addItem(str(sz), sz)
     size_box.setEditable(False)
-    size_box.currentIndexChanged.connect(lambda _i: _apply_font_size(text_edit, size_box.currentData()))
+    size_box.currentIndexChanged.connect(
+        lambda _i: _apply_font_size(text_edit, size_box.currentData())
+    )
     size_box.setToolTip("Font size")
     toolbar.addWidget(size_box)
 
@@ -300,13 +324,13 @@ def add_rich_text_toolbar(parent_tab: QtWidgets.QWidget, text_edit: QtWidgets.QT
     # Alignment
     group_align = QtWidgets.QActionGroup(toolbar)
     group_align.setExclusive(True)
-    act_align_left = QtWidgets.QAction(_make_icon('align_left'), "", toolbar, checkable=True)
+    act_align_left = QtWidgets.QAction(_make_icon("align_left"), "", toolbar, checkable=True)
     act_align_left.setToolTip("Align Left")
-    act_align_center = QtWidgets.QAction(_make_icon('align_center'), "", toolbar, checkable=True)
+    act_align_center = QtWidgets.QAction(_make_icon("align_center"), "", toolbar, checkable=True)
     act_align_center.setToolTip("Align Center")
-    act_align_right = QtWidgets.QAction(_make_icon('align_right'), "", toolbar, checkable=True)
+    act_align_right = QtWidgets.QAction(_make_icon("align_right"), "", toolbar, checkable=True)
     act_align_right.setToolTip("Align Right")
-    act_align_justify = QtWidgets.QAction(_make_icon('align_justify'), "", toolbar, checkable=True)
+    act_align_justify = QtWidgets.QAction(_make_icon("align_justify"), "", toolbar, checkable=True)
     act_align_justify.setToolTip("Justify")
     for a in (act_align_left, act_align_center, act_align_right, act_align_justify):
         group_align.addAction(a)
@@ -319,16 +343,24 @@ def add_rich_text_toolbar(parent_tab: QtWidgets.QWidget, text_edit: QtWidgets.QT
     toolbar.addSeparator()
 
     # Lists
-    act_bullets = toolbar.addAction(_make_icon('list_bullets'), "", lambda: _toggle_list(text_edit, ordered=False))
+    act_bullets = toolbar.addAction(
+        _make_icon("list_bullets"), "", lambda: _toggle_list(text_edit, ordered=False)
+    )
     act_bullets.setToolTip("Bulleted list")
-    act_numbers = toolbar.addAction(_make_icon('list_numbers'), "", lambda: _toggle_list(text_edit, ordered=True))
+    act_numbers = toolbar.addAction(
+        _make_icon("list_numbers"), "", lambda: _toggle_list(text_edit, ordered=True)
+    )
     act_numbers.setToolTip("Numbered list")
 
     # Indent/Outdent for list nesting
-    act_indent = toolbar.addAction(_make_icon('indent'), "", lambda: _change_list_indent(text_edit, +1))
+    act_indent = toolbar.addAction(
+        _make_icon("indent"), "", lambda: _change_list_indent(text_edit, +1)
+    )
     act_indent.setShortcut(QKeySequence("Ctrl+]"))
     act_indent.setToolTip("Indent (Tab, Ctrl+])")
-    act_outdent = toolbar.addAction(_make_icon('outdent'), "", lambda: _change_list_indent(text_edit, -1))
+    act_outdent = toolbar.addAction(
+        _make_icon("outdent"), "", lambda: _change_list_indent(text_edit, -1)
+    )
     act_outdent.setShortcut(QKeySequence("Ctrl+["))
     act_outdent.setToolTip("Outdent (Shift+Tab, Ctrl+[)")
 
@@ -342,21 +374,27 @@ def add_rich_text_toolbar(parent_tab: QtWidgets.QWidget, text_edit: QtWidgets.QT
     toolbar.addSeparator()
 
     # Clear formatting, HR, Insert image
-    act_clear = toolbar.addAction(_make_icon('color'), "", lambda: text_edit.setCurrentCharFormat(QTextCharFormat()))
+    act_clear = toolbar.addAction(
+        _make_icon("color"), "", lambda: text_edit.setCurrentCharFormat(QTextCharFormat())
+    )
     act_clear.setToolTip("Clear formatting")
-    act_hr = toolbar.addAction(_make_icon('hr'), "", lambda: text_edit.textCursor().insertHtml("<hr/>"))
+    act_hr = toolbar.addAction(
+        _make_icon("hr"), "", lambda: text_edit.textCursor().insertHtml("<hr/>")
+    )
     act_hr.setToolTip("Insert horizontal rule")
-    act_img = toolbar.addAction(_make_icon('image'), "", lambda: _insert_image_via_dialog(text_edit))
+    act_img = toolbar.addAction(
+        _make_icon("image"), "", lambda: _insert_image_via_dialog(text_edit)
+    )
     act_img.setToolTip("Insert image from file")
 
     # Paste Text Only quick action
-    act_paste_plain = toolbar.addAction(_make_icon('color'), "", lambda: paste_text_only(text_edit))
+    act_paste_plain = toolbar.addAction(_make_icon("color"), "", lambda: paste_text_only(text_edit))
     act_paste_plain.setToolTip("Paste Text Only (Ctrl+Shift+V)")
 
     # Table: insert or edit if caret is inside a table
     toolbar.addSeparator()
     btn_table = QtWidgets.QToolButton(toolbar)
-    btn_table.setIcon(_make_icon('table'))
+    btn_table.setIcon(_make_icon("table"))
     btn_table.setToolTip("Insert/edit table")
     btn_table.setEnabled(True)
     btn_table.clicked.connect(lambda: _table_insert_or_edit(text_edit))
@@ -402,7 +440,7 @@ def add_rich_text_toolbar(parent_tab: QtWidgets.QWidget, text_edit: QtWidgets.QT
 
     # Improve selection visibility: use a clearer highlight and text color
     try:
-        _apply_selection_colors(text_edit, QColor("#4d84b7"), QColor('#000000'))
+        _apply_selection_colors(text_edit, QColor("#4d84b7"), QColor("#000000"))
     except Exception:
         pass
     return toolbar
@@ -436,7 +474,11 @@ def paste_text_only(text_edit: QtWidgets.QTextEdit):
         text = md.text()
     else:
         # Fallback: try plain text format explicitly
-        text = md.data('text/plain').data().decode('utf-8', errors='replace') if md.hasFormat('text/plain') else ''
+        text = (
+            md.data("text/plain").data().decode("utf-8", errors="replace")
+            if md.hasFormat("text/plain")
+            else ""
+        )
     if not text:
         return
     # Capture current format/cursor and create a neutral style based on current selection style
@@ -502,7 +544,7 @@ def paste_match_style(text_edit: QtWidgets.QTextEdit):
             url = _normalize_url_scheme(txt)
             html = f'<a href="{url}">{txt}</a>'
         else:
-            html = txt.replace('\n', '<br/>')
+            html = txt.replace("\n", "<br/>")
     else:
         return
     cursor = text_edit.textCursor()
@@ -548,35 +590,48 @@ def paste_match_style(text_edit: QtWidgets.QTextEdit):
 def _strip_match_style_html(html: str) -> str:
     """Remove background, font-size, and font-family related styles/attributes so current style applies immediately."""
     import re
+
     s = html
     # Remove any <style>...</style> blocks entirely to prevent global overrides affecting pasted fragment
-    s = re.sub(r'<\s*style\b[^>]*>.*?<\s*/\s*style\s*>', '', s, flags=re.IGNORECASE | re.DOTALL)
+    s = re.sub(r"<\s*style\b[^>]*>.*?<\s*/\s*style\s*>", "", s, flags=re.IGNORECASE | re.DOTALL)
     # Remove bgcolor attribute
-    s = re.sub(r'\sbgcolor\s*=\s*"[^"]*"', '', s, flags=re.IGNORECASE)
-    s = re.sub(r"\sbgcolor\s*=\s*'[^']*'", '', s, flags=re.IGNORECASE)
-    s = re.sub(r'\sbgcolor\s*=\s*[^\s>]+', '', s, flags=re.IGNORECASE)
+    s = re.sub(r'\sbgcolor\s*=\s*"[^"]*"', "", s, flags=re.IGNORECASE)
+    s = re.sub(r"\sbgcolor\s*=\s*'[^']*'", "", s, flags=re.IGNORECASE)
+    s = re.sub(r"\sbgcolor\s*=\s*[^\s>]+", "", s, flags=re.IGNORECASE)
     # Replace deprecated <font> tags with span
-    s = re.sub(r'<\s*font\b[^>]*>', '<span>', s, flags=re.IGNORECASE)
-    s = re.sub(r'<\s*/\s*font\s*>', '</span>', s, flags=re.IGNORECASE)
+    s = re.sub(r"<\s*font\b[^>]*>", "<span>", s, flags=re.IGNORECASE)
+    s = re.sub(r"<\s*/\s*font\s*>", "</span>", s, flags=re.IGNORECASE)
     # Drop face/size/color attributes
-    s = re.sub(r'\s(face|size|color)\s*=\s*"[^"]*"', '', s, flags=re.IGNORECASE)
-    s = re.sub(r"\s(face|size|color)\s*=\s*'[^']*'", '', s, flags=re.IGNORECASE)
-    s = re.sub(r'\s(face|size|color)\s*=\s*[^\s>]+', '', s, flags=re.IGNORECASE)
+    s = re.sub(r'\s(face|size|color)\s*=\s*"[^"]*"', "", s, flags=re.IGNORECASE)
+    s = re.sub(r"\s(face|size|color)\s*=\s*'[^']*'", "", s, flags=re.IGNORECASE)
+    s = re.sub(r"\s(face|size|color)\s*=\s*[^\s>]+", "", s, flags=re.IGNORECASE)
+
     # Clean style attributes: remove background*, font-size, font-family, shorthand font, and line-height
     def _clean_style(m):
         inner = m.group(1)
-        parts = [p.strip() for p in inner.split(';') if p.strip()]
+        parts = [p.strip() for p in inner.split(";") if p.strip()]
         kept = []
         for p in parts:
-            key = p.split(':',1)[0].strip().lower()
-            if key.startswith('background') or key in ('font-size','font-family','font','line-height'):
+            key = p.split(":", 1)[0].strip().lower()
+            if key.startswith("background") or key in (
+                "font-size",
+                "font-family",
+                "font",
+                "line-height",
+            ):
                 continue
             kept.append(p)
         if not kept:
-            return ''
-        return ' style="' + '; '.join(kept) + '"'
+            return ""
+        return ' style="' + "; ".join(kept) + '"'
+
     s = re.sub(r'\sstyle\s*=\s*"([^"]*)"', _clean_style, s, flags=re.IGNORECASE)
-    s = re.sub(r"\sstyle\s*=\s*'([^']*)'", lambda m: _clean_style(m).replace('"','\"'), s, flags=re.IGNORECASE)
+    s = re.sub(
+        r"\sstyle\s*=\s*'([^']*)'",
+        lambda m: _clean_style(m).replace('"', '"'),
+        s,
+        flags=re.IGNORECASE,
+    )
     return s
 
 
@@ -596,93 +651,110 @@ def sanitize_html_for_storage(raw_html: str) -> str:
 
         def handle_starttag(self, tag, attrs):
             tag_l = tag.lower()
-            if tag_l == 'style':
+            if tag_l == "style":
                 # Skip entire style blocks
                 self._skip_style = True
                 return
             # Convert deprecated <font> to span
-            if tag_l == 'font':
-                tag_l = 'span'
+            if tag_l == "font":
+                tag_l = "span"
             allowed = []
             buffered_style = None
             for k, v in attrs:
                 lk = k.lower()
-                if lk in ('class', 'bgcolor', 'color', 'face', 'size'):
+                if lk in ("class", "bgcolor", "color", "face", "size"):
                     continue
-                if lk == 'style':
+                if lk == "style":
                     # Keep only Qt list-related declarations to preserve indent/numbering across reloads
                     # Also keep paragraph left margin to support Tab/Shift+Tab indent for plain text
-                    if tag_l in ('ol','ul','li','p'):
+                    if tag_l in ("ol", "ul", "li", "p"):
                         try:
-                            decls = [d.strip() for d in str(v).split(';') if d.strip()]
+                            decls = [d.strip() for d in str(v).split(";") if d.strip()]
                             kept = []
                             for d in decls:
-                                key = d.split(':',1)[0].strip().lower()
-                                if key.startswith('-qt-list-') or key == '-qt-paragraph-type' or (tag_l == 'p' and key in ('margin-left',)):
+                                key = d.split(":", 1)[0].strip().lower()
+                                if (
+                                    key.startswith("-qt-list-")
+                                    or key == "-qt-paragraph-type"
+                                    or (tag_l == "p" and key in ("margin-left",))
+                                ):
                                     kept.append(d)
                             if kept:
-                                buffered_style = '; '.join(kept)
+                                buffered_style = "; ".join(kept)
                         except Exception:
                             pass
                     continue
                 # Preserve list semantics
-                if tag_l in ('ol','ul') and lk in ('type','start'):  # type may be set by Qt for list appearance
+                if tag_l in ("ol", "ul") and lk in (
+                    "type",
+                    "start",
+                ):  # type may be set by Qt for list appearance
                     allowed.append((k, v))
-                elif tag_l == 'li' and lk in ('value',):  # value allows continuing numbering
+                elif tag_l == "li" and lk in ("value",):  # value allows continuing numbering
                     allowed.append((k, v))
-                elif tag_l == 'a' and lk in ('href', 'title'):
+                elif tag_l == "a" and lk in ("href", "title"):
                     allowed.append((k, v))
-                elif tag_l == 'img' and lk in ('src', 'alt', 'title'):
+                elif tag_l == "img" and lk in ("src", "alt", "title"):
                     allowed.append((k, v))
-                elif lk.startswith('data-'):
+                elif lk.startswith("data-"):
                     continue
-                elif lk in ('width','height','cellpadding','cellspacing','border') and tag_l in ('table','td','th','tr'):
+                elif lk in (
+                    "width",
+                    "height",
+                    "cellpadding",
+                    "cellspacing",
+                    "border",
+                ) and tag_l in ("table", "td", "th", "tr"):
                     allowed.append((k, v))
                 # drop everything else
             if buffered_style:
-                allowed.append(('style', buffered_style))
-            attrs_txt = ''.join(f' {k}="{v}"' for k,v in allowed)
-            self.out.append(f'<{tag_l}{attrs_txt}>' )
+                allowed.append(("style", buffered_style))
+            attrs_txt = "".join(f' {k}="{v}"' for k, v in allowed)
+            self.out.append(f"<{tag_l}{attrs_txt}>")
 
         def handle_endtag(self, tag):
             tag_l = tag.lower()
-            if tag_l == 'style':
+            if tag_l == "style":
                 self._skip_style = False
                 return
-            if tag_l == 'font':
-                tag_l = 'span'
-            self.out.append(f'</{tag_l}>' )
+            if tag_l == "font":
+                tag_l = "span"
+            self.out.append(f"</{tag_l}>")
 
         def handle_startendtag(self, tag, attrs):
             tag_l = tag.lower()
-            if tag_l == 'style':
+            if tag_l == "style":
                 return
             allowed = []
             buffered_style = None
             for k, v in attrs:
                 lk = k.lower()
-                if lk in ('class', 'bgcolor', 'color', 'face', 'size'):
+                if lk in ("class", "bgcolor", "color", "face", "size"):
                     continue
-                if lk == 'style':
-                    if tag_l in ('ol','ul','li','p'):
+                if lk == "style":
+                    if tag_l in ("ol", "ul", "li", "p"):
                         try:
-                            decls = [d.strip() for d in str(v).split(';') if d.strip()]
+                            decls = [d.strip() for d in str(v).split(";") if d.strip()]
                             kept = []
                             for d in decls:
-                                key = d.split(':',1)[0].strip().lower()
-                                if key.startswith('-qt-list-') or key == '-qt-paragraph-type' or (tag_l == 'p' and key in ('margin-left',)):
+                                key = d.split(":", 1)[0].strip().lower()
+                                if (
+                                    key.startswith("-qt-list-")
+                                    or key == "-qt-paragraph-type"
+                                    or (tag_l == "p" and key in ("margin-left",))
+                                ):
                                     kept.append(d)
                             if kept:
-                                buffered_style = '; '.join(kept)
+                                buffered_style = "; ".join(kept)
                         except Exception:
                             pass
                     continue
-                if tag_l == 'img' and lk in ('src', 'alt', 'title'):
+                if tag_l == "img" and lk in ("src", "alt", "title"):
                     allowed.append((k, v))
             if buffered_style:
-                allowed.append(('style', buffered_style))
-            attrs_txt = ''.join(f' {k}="{v}"' for k,v in allowed)
-            self.out.append(f'<{tag_l}{attrs_txt}/>' )
+                allowed.append(("style", buffered_style))
+            attrs_txt = "".join(f' {k}="{v}"' for k, v in allowed)
+            self.out.append(f"<{tag_l}{attrs_txt}/>")
 
         def handle_data(self, data):
             if not self._skip_style:
@@ -691,9 +763,10 @@ def sanitize_html_for_storage(raw_html: str) -> str:
     try:
         cl = _StoreCleaner()
         cl.feed(raw_html)
-        return ''.join(cl.out)
+        return "".join(cl.out)
     except Exception:
         return raw_html
+
 
 def _merge_with_adjacent_lists(cursor: QTextCursor, cur_list: QTextList):
     """If the current list is adjacent to another with the same style/level, merge them so numbering continues.
@@ -747,7 +820,7 @@ def _is_ordered_style(style: QTextListFormat.Style) -> bool:
 
 def _ordered_style_for_level(level: int) -> QTextListFormat.Style:
     lvl = max(1, level)
-    if _ORDERED_SCHEME == 'decimal':
+    if _ORDERED_SCHEME == "decimal":
         return QTextListFormat.ListDecimal
     # 'classic' default: I, A, 1, a, i (repeat)
     idx = (lvl - 1) % 5
@@ -764,7 +837,7 @@ def _ordered_style_for_level(level: int) -> QTextListFormat.Style:
 
 def _unordered_style_for_level(level: int) -> QTextListFormat.Style:
     lvl = max(1, level)
-    if _UNORDERED_SCHEME == 'disc-only':
+    if _UNORDERED_SCHEME == "disc-only":
         return QTextListFormat.ListDisc
     # 'disc-circle-square' default (cycles every 3 levels)
     idx = (lvl - 1) % 3
@@ -781,13 +854,13 @@ def set_list_schemes(ordered: str = None, unordered: str = None):
     unordered: 'disc-circle-square' or 'disc-only'
     """
     global _ORDERED_SCHEME, _UNORDERED_SCHEME
-    if ordered in (None, ''):
+    if ordered in (None, ""):
         pass
-    elif ordered in ('classic', 'decimal'):
+    elif ordered in ("classic", "decimal"):
         _ORDERED_SCHEME = ordered
-    if unordered in (None, ''):
+    if unordered in (None, ""):
         pass
-    elif unordered in ('disc-circle-square', 'disc-only'):
+    elif unordered in ("disc-circle-square", "disc-only"):
         _UNORDERED_SCHEME = unordered
 
 
@@ -796,7 +869,9 @@ def get_list_schemes():
 
 
 def _insert_image_via_dialog(text_edit: QtWidgets.QTextEdit):
-    path, _ = QtWidgets.QFileDialog.getOpenFileName(text_edit, "Insert Image", "", "Images (*.png *.jpg *.jpeg *.gif *.bmp);;All Files (*)")
+    path, _ = QtWidgets.QFileDialog.getOpenFileName(
+        text_edit, "Insert Image", "", "Images (*.png *.jpg *.jpeg *.gif *.bmp);;All Files (*)"
+    )
     if not path:
         return
     cursor = text_edit.textCursor()
@@ -852,7 +927,9 @@ def _table_insert_dialog(text_edit: QtWidgets.QTextEdit):
     form.addRow("Cell padding:", sp_pad)
     form.addRow("Cell spacing:", sp_space)
     form.addRow("Table width (% of editor):", sp_width)
-    btns = QtWidgets.QDialogButtonBox(QtWidgets.QDialogButtonBox.Ok | QtWidgets.QDialogButtonBox.Cancel, parent=dlg)
+    btns = QtWidgets.QDialogButtonBox(
+        QtWidgets.QDialogButtonBox.Ok | QtWidgets.QDialogButtonBox.Cancel, parent=dlg
+    )
     form.addRow(btns)
     btns.accepted.connect(dlg.accept)
     btns.rejected.connect(dlg.reject)
@@ -860,7 +937,8 @@ def _table_insert_dialog(text_edit: QtWidgets.QTextEdit):
         return
     rows = sp_rows.value()
     cols = sp_cols.value()
-    from PyQt5.QtGui import QTextTableFormat, QTextLength
+    from PyQt5.QtGui import QTextLength, QTextTableFormat
+
     fmt = QTextTableFormat()
     fmt.setBorder(sp_border.value())
     fmt.setCellPadding(sp_pad.value())
@@ -870,7 +948,9 @@ def _table_insert_dialog(text_edit: QtWidgets.QTextEdit):
         fmt.setWidth(QTextLength(QTextLength.PercentageLength, sp_width.value()))
         if cols > 0:
             frac = 100.0 / float(cols)
-            fmt.setColumnWidthConstraints([QTextLength(QTextLength.PercentageLength, frac) for _ in range(cols)])
+            fmt.setColumnWidthConstraints(
+                [QTextLength(QTextLength.PercentageLength, frac) for _ in range(cols)]
+            )
     except Exception:
         pass
     cur = text_edit.textCursor()
@@ -901,15 +981,15 @@ def _table_properties_dialog(text_edit: QtWidgets.QTextEdit, table):
     try:
         wlen = fmt.width()
         # PyQt QTextLength exposes type() and value() or rawValue()
-        wtype = wlen.type() if hasattr(wlen, 'type') else None
+        wtype = wlen.type() if hasattr(wlen, "type") else None
         if wtype == wlen.PercentageLength:
-            val = wlen.rawValue() if hasattr(wlen, 'rawValue') else wlen.value()
+            val = wlen.rawValue() if hasattr(wlen, "rawValue") else wlen.value()
             sp_width.setValue(float(val))
         else:
             # Approximate percent from viewport width
-            vp = text_edit.viewport() if hasattr(text_edit, 'viewport') else None
+            vp = text_edit.viewport() if hasattr(text_edit, "viewport") else None
             vw = float(vp.width()) if vp is not None else 1.0
-            v = (wlen.value() if hasattr(wlen, 'value') else 0.0)
+            v = wlen.value() if hasattr(wlen, "value") else 0.0
             pct = max(10.0, min(100.0, (float(v) / vw) * 100.0 if vw > 1.0 and v else 100.0))
             sp_width.setValue(pct)
     except Exception:
@@ -918,7 +998,9 @@ def _table_properties_dialog(text_edit: QtWidgets.QTextEdit, table):
     form.addRow("Cell padding:", sp_pad)
     form.addRow("Cell spacing:", sp_space)
     form.addRow("Table width (% of editor):", sp_width)
-    btns = QtWidgets.QDialogButtonBox(QtWidgets.QDialogButtonBox.Ok | QtWidgets.QDialogButtonBox.Cancel, parent=dlg)
+    btns = QtWidgets.QDialogButtonBox(
+        QtWidgets.QDialogButtonBox.Ok | QtWidgets.QDialogButtonBox.Cancel, parent=dlg
+    )
     form.addRow(btns)
     btns.accepted.connect(dlg.accept)
     btns.rejected.connect(dlg.reject)
@@ -929,6 +1011,7 @@ def _table_properties_dialog(text_edit: QtWidgets.QTextEdit, table):
     fmt.setCellSpacing(sp_space.value())
     try:
         from PyQt5.QtGui import QTextLength
+
         fmt.setWidth(QTextLength(QTextLength.PercentageLength, sp_width.value()))
     except Exception:
         pass
@@ -945,17 +1028,17 @@ def _table_add_remove(text_edit: QtWidgets.QTextEdit, action: str):
         return
     row = cell.row()
     col = cell.column()
-    if action == 'row_above':
+    if action == "row_above":
         tbl.insertRows(row, 1)
-    elif action == 'row_below':
-        tbl.insertRows(row+1, 1)
-    elif action == 'col_left':
+    elif action == "row_below":
+        tbl.insertRows(row + 1, 1)
+    elif action == "col_left":
         tbl.insertColumns(col, 1)
-    elif action == 'col_right':
-        tbl.insertColumns(col+1, 1)
-    elif action == 'remove_row':
+    elif action == "col_right":
+        tbl.insertColumns(col + 1, 1)
+    elif action == "remove_row":
         tbl.removeRows(row, 1)
-    elif action == 'remove_col':
+    elif action == "remove_col":
         tbl.removeColumns(col, 1)
 
 
@@ -985,7 +1068,9 @@ class _TableContextMenu(QObject):
     def eventFilter(self, obj, event):
         if self._edit is None:
             return False
-        if (obj is self._edit or (self._viewport is not None and obj is self._viewport)) and event.type() == QEvent.ContextMenu:
+        if (
+            obj is self._edit or (self._viewport is not None and obj is self._viewport)
+        ) and event.type() == QEvent.ContextMenu:
             pos = event.pos()
             # Position reported is in obj coords; map to the edit for cursor and to global for menu
             try:
@@ -1027,18 +1112,22 @@ class _TableContextMenu(QObject):
                 if chosen == act_paste:
                     try:
                         from settings_manager import get_default_paste_mode
-                        mode = get_default_paste_mode() or 'rich'
+
+                        mode = get_default_paste_mode() or "rich"
                     except Exception:
-                        mode = 'rich'
+                        mode = "rich"
                     try:
-                        if mode == 'text-only':
+                        if mode == "text-only":
                             from ui_richtext import paste_text_only
+
                             paste_text_only(self._edit)
-                        elif mode == 'match-style':
+                        elif mode == "match-style":
                             from ui_richtext import paste_match_style
+
                             paste_match_style(self._edit)
-                        elif mode == 'clean':
+                        elif mode == "clean":
                             from ui_richtext import paste_clean_formatting
+
                             paste_clean_formatting(self._edit)
                         else:
                             self._edit.paste()
@@ -1064,8 +1153,12 @@ class _TableContextMenu(QObject):
             sel_rect = _table_selection_rect(self._edit, tbl)
             sel_rows = (sel_rect[2] - sel_rect[0] + 1) if sel_rect is not None else 1
             # Dynamic labels reflecting selection count
-            act_row_above = menu.addAction(f"Insert Row{'s' if sel_rows>1 else ''} Above ({sel_rows})")
-            act_row_below = menu.addAction(f"Insert Row{'s' if sel_rows>1 else ''} Below ({sel_rows})")
+            act_row_above = menu.addAction(
+                f"Insert Row{'s' if sel_rows>1 else ''} Above ({sel_rows})"
+            )
+            act_row_below = menu.addAction(
+                f"Insert Row{'s' if sel_rows>1 else ''} Below ({sel_rows})"
+            )
             act_col_left = menu.addAction("Insert Column Left")
             act_col_right = menu.addAction("Insert Column Right")
             act_rm_row = menu.addAction(f"Remove Selected Row{'s' if sel_rows>1 else ''}")
@@ -1112,13 +1205,13 @@ class _TableContextMenu(QObject):
                         self._edit.setTextCursor(clicked_cur)
                     except Exception:
                         pass
-                    _table_add_remove(self._edit, 'col_left')
+                    _table_add_remove(self._edit, "col_left")
                 elif chosen == act_col_right:
                     try:
                         self._edit.setTextCursor(clicked_cur)
                     except Exception:
                         pass
-                    _table_add_remove(self._edit, 'col_right')
+                    _table_add_remove(self._edit, "col_right")
                 elif chosen == act_rm_row:
                     _table_remove_rows_from_selection(self._edit, tbl, sel_rect)
                 elif chosen == act_rm_col:
@@ -1126,7 +1219,7 @@ class _TableContextMenu(QObject):
                         self._edit.setTextCursor(clicked_cur)
                     except Exception:
                         pass
-                    _table_add_remove(self._edit, 'remove_col')
+                    _table_add_remove(self._edit, "remove_col")
                 elif chosen == act_clear_cells and sel_rect is not None:
                     _table_clear_selected_cells(self._edit, tbl, sel_rect)
             return True
@@ -1142,7 +1235,7 @@ def _install_table_context_menu(text_edit: QtWidgets.QTextEdit):
             vp.installEventFilter(handler)
     except Exception:
         pass
-    if not hasattr(text_edit, '_tableCtx'):  # keep references
+    if not hasattr(text_edit, "_tableCtx"):  # keep references
         text_edit._tableCtx = []
     text_edit._tableCtx.append(handler)
 
@@ -1162,7 +1255,8 @@ def _table_selection_rect(text_edit: QtWidgets.QTextEdit, table):
             c = table.cellAt(cur)
             if not c.isValid():
                 return None
-            r = c.row(); ccol = c.column()
+            r = c.row()
+            ccol = c.column()
             return (r, ccol, r, ccol)
         r0 = min(c1.row(), c2.row())
         r1 = max(c1.row(), c2.row())
@@ -1177,8 +1271,8 @@ def _table_clear_selected_cells(text_edit: QtWidgets.QTextEdit, table, rect):
     if rect is None:
         return
     r0, c0, r1, c1 = rect
-    for r in range(r0, r1+1):
-        for c in range(c0, c1+1):
+    for r in range(r0, r1 + 1):
+        for c in range(c0, c1 + 1):
             cell = table.cellAt(r, c)
             if not cell.isValid():
                 continue
@@ -1246,7 +1340,8 @@ def _table_delete_if_empty(text_edit: QtWidgets.QTextEdit, table):
 
 
 def _table_fit_width(table):
-    from PyQt5.QtGui import QTextTableFormat, QTextLength
+    from PyQt5.QtGui import QTextLength, QTextTableFormat
+
     try:
         fmt = table.format()
         fmt.setWidth(QTextLength(QTextLength.PercentageLength, 100))
@@ -1257,13 +1352,16 @@ def _table_fit_width(table):
 
 def _table_distribute_columns(table):
     from PyQt5.QtGui import QTextLength
+
     try:
         cols = table.columns()
         if cols <= 0:
             return
         frac = 100.0 / float(cols)
         fmt = table.format()
-        fmt.setColumnWidthConstraints([QTextLength(QTextLength.PercentageLength, frac) for _ in range(cols)])
+        fmt.setColumnWidthConstraints(
+            [QTextLength(QTextLength.PercentageLength, frac) for _ in range(cols)]
+        )
         table.setFormat(fmt)
     except Exception:
         pass
@@ -1271,6 +1369,7 @@ def _table_distribute_columns(table):
 
 def _table_set_current_column_width(text_edit: QtWidgets.QTextEdit, table):
     from PyQt5.QtGui import QTextLength
+
     cur = text_edit.textCursor()
     cell = table.cellAt(cur)
     if not cell.isValid():
@@ -1280,7 +1379,7 @@ def _table_set_current_column_width(text_edit: QtWidgets.QTextEdit, table):
     fmt = table.format()
     constraints = list(fmt.columnWidthConstraints()) or []
     if not constraints or len(constraints) != cols:
-        constraints = [QTextLength(QTextLength.PercentageLength, 100.0/cols) for _ in range(cols)]
+        constraints = [QTextLength(QTextLength.PercentageLength, 100.0 / cols) for _ in range(cols)]
     # Ask user for percentage
     dlg = QtWidgets.QInputDialog(text_edit)
     dlg.setWindowTitle("Set Column Width")
@@ -1288,21 +1387,39 @@ def _table_set_current_column_width(text_edit: QtWidgets.QTextEdit, table):
     dlg.setInputMode(QtWidgets.QInputDialog.DoubleInput)
     dlg.setDoubleRange(1.0, 100.0)
     dlg.setDoubleDecimals(1)
-    dlg.setDoubleValue(constraints[col_idx].rawValue() if hasattr(constraints[col_idx], 'rawValue') else constraints[col_idx].value())
+    dlg.setDoubleValue(
+        constraints[col_idx].rawValue()
+        if hasattr(constraints[col_idx], "rawValue")
+        else constraints[col_idx].value()
+    )
     if dlg.exec_() != QtWidgets.QDialog.Accepted:
         return
     new_pct = dlg.doubleValue()
     # Rebalance other columns to keep sum ~100
     other_indices = [i for i in range(cols) if i != col_idx]
-    current_sum = sum((c.rawValue() if hasattr(c, 'rawValue') else c.value()) for c in constraints)
+    current_sum = sum((c.rawValue() if hasattr(c, "rawValue") else c.value()) for c in constraints)
     remaining = max(1.0, 100.0 - new_pct)
     if not other_indices:
         constraints[col_idx] = QTextLength(QTextLength.PercentageLength, new_pct)
     else:
         # Distribute remaining proportionally to their existing sizes
-        other_sum = max(1e-6, sum((constraints[i].rawValue() if hasattr(constraints[i], 'rawValue') else constraints[i].value()) for i in other_indices))
+        other_sum = max(
+            1e-6,
+            sum(
+                (
+                    constraints[i].rawValue()
+                    if hasattr(constraints[i], "rawValue")
+                    else constraints[i].value()
+                )
+                for i in other_indices
+            ),
+        )
         for i in other_indices:
-            base = (constraints[i].rawValue() if hasattr(constraints[i], 'rawValue') else constraints[i].value())
+            base = (
+                constraints[i].rawValue()
+                if hasattr(constraints[i], "rawValue")
+                else constraints[i].value()
+            )
             pct = remaining * (base / other_sum)
             constraints[i] = QTextLength(QTextLength.PercentageLength, pct)
         constraints[col_idx] = QTextLength(QTextLength.PercentageLength, new_pct)
@@ -1319,7 +1436,8 @@ def _apply_selection_colors(text_edit: QtWidgets.QTextEdit, bg: QColor, fg: QCol
     # Stylesheet fallback (some styles prefer stylesheet roles)
     try:
         text_edit.setStyleSheet(
-            "QTextEdit { selection-background-color: %s; selection-color: %s; }" % (bg.name(), fg.name())
+            "QTextEdit { selection-background-color: %s; selection-color: %s; }"
+            % (bg.name(), fg.name())
         )
     except Exception:
         pass
@@ -1424,7 +1542,9 @@ def _change_list_indent(text_edit: QtWidgets.QTextEdit, delta: int):
     ordered = _is_ordered_style(cur_list.format().style())
     lf = QTextListFormat()
     lf.setIndent(new_level)
-    lf.setStyle(_ordered_style_for_level(new_level) if ordered else _unordered_style_for_level(new_level))
+    lf.setStyle(
+        _ordered_style_for_level(new_level) if ordered else _unordered_style_for_level(new_level)
+    )
     # Remove this block from its current list by clearing object index
     bf = block.blockFormat()
     bf.setObjectIndex(-1)
@@ -1450,7 +1570,9 @@ class _ListTabHandler(QObject):
             if key in (Qt.Key_Tab, Qt.Key_Backtab):
                 cur = self._edit.textCursor()
                 if cur.block().textList() is not None:
-                    is_backtab = (key == Qt.Key_Backtab) or bool(event.modifiers() & Qt.ShiftModifier)
+                    is_backtab = (key == Qt.Key_Backtab) or bool(
+                        event.modifiers() & Qt.ShiftModifier
+                    )
                     _change_list_indent(self._edit, -1 if is_backtab else +1)
                     return True  # consume to avoid inserting a tab char
         return super().eventFilter(obj, event)
@@ -1521,7 +1643,7 @@ class _TableTabHandler(QObject):
 def _install_table_tab_handler(text_edit: QtWidgets.QTextEdit):
     handler = _TableTabHandler(text_edit)
     text_edit.installEventFilter(handler)
-    if not hasattr(text_edit, '_tableTabHandlers'):
+    if not hasattr(text_edit, "_tableTabHandlers"):
         text_edit._tableTabHandlers = []
     text_edit._tableTabHandlers.append(handler)
 
@@ -1577,7 +1699,9 @@ class _PlainIndentTabHandler(QObject):
                 if cur.currentTable() is not None or cur.block().textList() is not None:
                     return False
                 is_out = (key == Qt.Key_Backtab) or bool(event.modifiers() & Qt.ShiftModifier)
-                _change_block_left_margin(self._edit, -INDENT_STEP_PX if is_out else +INDENT_STEP_PX)
+                _change_block_left_margin(
+                    self._edit, -INDENT_STEP_PX if is_out else +INDENT_STEP_PX
+                )
                 return True
         return super().eventFilter(obj, event)
 
@@ -1585,12 +1709,13 @@ class _PlainIndentTabHandler(QObject):
 def _install_plain_indent_tab_handler(text_edit: QtWidgets.QTextEdit):
     handler = _PlainIndentTabHandler(text_edit)
     text_edit.installEventFilter(handler)
-    if not hasattr(text_edit, '_plainIndentHandlers'):
+    if not hasattr(text_edit, "_plainIndentHandlers"):
         text_edit._plainIndentHandlers = []
     text_edit._plainIndentHandlers.append(handler)
     # Load indent step from settings if available
     try:
         from settings_manager import get_plain_indent_px
+
         global INDENT_STEP_PX
         INDENT_STEP_PX = float(get_plain_indent_px())
     except Exception:
@@ -1620,19 +1745,24 @@ def _install_default_paste_override(text_edit: QtWidgets.QTextEdit):
         def _mode(self) -> str:
             try:
                 from settings_manager import get_default_paste_mode
-                return get_default_paste_mode() or 'rich'
+
+                return get_default_paste_mode() or "rich"
             except Exception:
-                return 'rich'
+                return "rich"
 
         def eventFilter(self, obj, event):
             if obj is self._edit and event.type() == QEvent.KeyPress:
-                if event.key() == Qt.Key_V and (event.modifiers() & Qt.ControlModifier) and not (event.modifiers() & Qt.AltModifier):
+                if (
+                    event.key() == Qt.Key_V
+                    and (event.modifiers() & Qt.ControlModifier)
+                    and not (event.modifiers() & Qt.AltModifier)
+                ):
                     mode = self._mode()
-                    if mode == 'text-only':
+                    if mode == "text-only":
                         paste_text_only(self._edit)
-                    elif mode == 'match-style':
+                    elif mode == "match-style":
                         paste_match_style(self._edit)
-                    elif mode == 'clean':
+                    elif mode == "clean":
                         paste_clean_formatting(self._edit)
                     else:
                         self._edit.paste()
@@ -1663,17 +1793,18 @@ def paste_clean_formatting(text_edit: QtWidgets.QTextEdit):
             url = _normalize_url_scheme(txt)
             html = f'<a href="{url}">{txt}</a>'
         else:
-            html = txt.replace('\n', '<br/>')
+            html = txt.replace("\n", "<br/>")
     if not html:
         return
     try:
         s = _strip_match_style_html(html)
         # Additionally drop any remaining style/class attributes outright
         import re
-        s = re.sub(r'\sstyle\s*=\s*"[^"]*"', '', s, flags=re.IGNORECASE)
-        s = re.sub(r"\sstyle\s*=\s*'[^']*'", '', s, flags=re.IGNORECASE)
-        s = re.sub(r'\sclass\s*=\s*"[^"]*"', '', s, flags=re.IGNORECASE)
-        s = re.sub(r"\sclass\s*=\s*'[^']*'", '', s, flags=re.IGNORECASE)
+
+        s = re.sub(r'\sstyle\s*=\s*"[^"]*"', "", s, flags=re.IGNORECASE)
+        s = re.sub(r"\sstyle\s*=\s*'[^']*'", "", s, flags=re.IGNORECASE)
+        s = re.sub(r'\sclass\s*=\s*"[^"]*"', "", s, flags=re.IGNORECASE)
+        s = re.sub(r"\sclass\s*=\s*'[^']*'", "", s, flags=re.IGNORECASE)
         cleaned = s
     except Exception:
         cleaned = html
@@ -1720,22 +1851,24 @@ def _looks_like_url(text: str) -> bool:
         return False
     t = text.strip()
     # Quick heuristics for URLs and mailto
-    if t.lower().startswith(('http://', 'https://', 'mailto:')):
+    if t.lower().startswith(("http://", "https://", "mailto:")):
         return True
-    if t.lower().startswith('www.') and ' ' not in t:
+    if t.lower().startswith("www.") and " " not in t:
         return True
     # basic domain.tld pattern without spaces
-    return ('.' in t and ' ' not in t and '/' in t) or ('.' in t and t.count('.') >= 1 and ' ' not in t)
+    return ("." in t and " " not in t and "/" in t) or (
+        "." in t and t.count(".") >= 1 and " " not in t
+    )
 
 
 def _normalize_url_scheme(text: str) -> str:
-    t = (text or '').strip()
+    t = (text or "").strip()
     if not t:
         return t
-    if t.lower().startswith(('http://', 'https://', 'mailto:')):
+    if t.lower().startswith(("http://", "https://", "mailto:")):
         return t
-    if t.lower().startswith('www.'):
-        return 'http://' + t
+    if t.lower().startswith("www."):
+        return "http://" + t
     return t
 
 
@@ -1766,13 +1899,15 @@ class _LinkClickHandler(QObject):
         if self._viewport is not None and obj is self._viewport:
             if event.type() == QEvent.MouseMove:
                 try:
-                    href = self._edit.anchorAt(event.pos()) if self._edit is not None else ''
+                    href = self._edit.anchorAt(event.pos()) if self._edit is not None else ""
                     self._viewport.setCursor(Qt.PointingHandCursor if href else Qt.IBeamCursor)
                 except RuntimeError:
                     return False
             elif event.type() == QEvent.MouseButtonPress and event.button() == Qt.LeftButton:
                 try:
-                    self._pressed_anchor = self._edit.anchorAt(event.pos()) if self._edit is not None else None
+                    self._pressed_anchor = (
+                        self._edit.anchorAt(event.pos()) if self._edit is not None else None
+                    )
                 except RuntimeError:
                     self._pressed_anchor = None
             elif event.type() == QEvent.MouseButtonRelease and event.button() == Qt.LeftButton:
@@ -1807,7 +1942,7 @@ def _install_link_click_handler(text_edit: QtWidgets.QTextEdit):
         if vp is not None:
             vp.installEventFilter(handler)
         # Keep strong reference on the text_edit object
-        if not hasattr(text_edit, '_linkHandler'):
+        if not hasattr(text_edit, "_linkHandler"):
             text_edit._linkHandler = []
         text_edit._linkHandler.append(handler)
     except RuntimeError:

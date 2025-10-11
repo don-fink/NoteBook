@@ -2,26 +2,38 @@
 db_sections.py
 Provides functions to retrieve sections for a given notebook from the database.
 """
+
 import sqlite3
+
 
 def get_sections_by_notebook_id(notebook_id, db_path):
     conn = sqlite3.connect(db_path)
     cursor = conn.cursor()
-    cursor.execute("SELECT * FROM sections WHERE notebook_id = ? ORDER BY order_index, id", (notebook_id,))
+    cursor.execute(
+        "SELECT * FROM sections WHERE notebook_id = ? ORDER BY order_index, id", (notebook_id,)
+    )
     rows = cursor.fetchall()
     conn.close()
     return rows
+
 
 def update_section_color(section_id: int, color_hex: str, db_path: str):
     """Set or clear the color for a section. Pass None or '' to clear."""
     conn = sqlite3.connect(db_path)
     cur = conn.cursor()
     if color_hex:
-        cur.execute("UPDATE sections SET color_hex = ?, modified_at = datetime('now') WHERE id = ?", (color_hex, section_id))
+        cur.execute(
+            "UPDATE sections SET color_hex = ?, modified_at = datetime('now') WHERE id = ?",
+            (color_hex, section_id),
+        )
     else:
-        cur.execute("UPDATE sections SET color_hex = NULL, modified_at = datetime('now') WHERE id = ?", (section_id,))
+        cur.execute(
+            "UPDATE sections SET color_hex = NULL, modified_at = datetime('now') WHERE id = ?",
+            (section_id,),
+        )
     conn.commit()
     conn.close()
+
 
 def get_section_color_map(notebook_id: int, db_path: str):
     """Return a dict {section_id: color_hex or None} for a notebook."""
@@ -32,13 +44,17 @@ def get_section_color_map(notebook_id: int, db_path: str):
     conn.close()
     return {row[0]: row[1] for row in rows}
 
+
 def _get_next_section_order_index(notebook_id: int, db_path: str) -> int:
     conn = sqlite3.connect(db_path)
     cur = conn.cursor()
-    cur.execute("SELECT COALESCE(MAX(order_index), 0) FROM sections WHERE notebook_id = ?", (notebook_id,))
+    cur.execute(
+        "SELECT COALESCE(MAX(order_index), 0) FROM sections WHERE notebook_id = ?", (notebook_id,)
+    )
     max_idx = cur.fetchone()[0] or 0
     conn.close()
     return int(max_idx) + 1
+
 
 def create_section(notebook_id: int, title: str, db_path: str) -> int:
     order_index = _get_next_section_order_index(notebook_id, db_path)
@@ -53,6 +69,7 @@ def create_section(notebook_id: int, title: str, db_path: str) -> int:
     conn.close()
     return sid
 
+
 def rename_section(section_id: int, title: str, db_path: str):
     conn = sqlite3.connect(db_path)
     cur = conn.cursor()
@@ -62,6 +79,7 @@ def rename_section(section_id: int, title: str, db_path: str):
     )
     conn.commit()
     conn.close()
+
 
 def delete_section(section_id: int, db_path: str):
     conn = sqlite3.connect(db_path)
@@ -101,7 +119,9 @@ def move_section_up(section_id: int, db_path: str) -> bool:
     conn = sqlite3.connect(db_path)
     cur = conn.cursor()
     try:
-        cur.execute("SELECT notebook_id, COALESCE(order_index, 0) FROM sections WHERE id = ?", (section_id,))
+        cur.execute(
+            "SELECT notebook_id, COALESCE(order_index, 0) FROM sections WHERE id = ?", (section_id,)
+        )
         row = cur.fetchone()
         if not row:
             return False
@@ -121,8 +141,12 @@ def move_section_up(section_id: int, db_path: str) -> bool:
             return False
         neighbor_id, neighbor_order = neighbor
         # Swap order_index values in a transaction
-        cur.execute("UPDATE sections SET order_index = ? WHERE id = ?", (neighbor_order, section_id))
-        cur.execute("UPDATE sections SET order_index = ? WHERE id = ?", (current_order, neighbor_id))
+        cur.execute(
+            "UPDATE sections SET order_index = ? WHERE id = ?", (neighbor_order, section_id)
+        )
+        cur.execute(
+            "UPDATE sections SET order_index = ? WHERE id = ?", (current_order, neighbor_id)
+        )
         conn.commit()
         return True
     finally:
@@ -134,7 +158,9 @@ def move_section_down(section_id: int, db_path: str) -> bool:
     conn = sqlite3.connect(db_path)
     cur = conn.cursor()
     try:
-        cur.execute("SELECT notebook_id, COALESCE(order_index, 0) FROM sections WHERE id = ?", (section_id,))
+        cur.execute(
+            "SELECT notebook_id, COALESCE(order_index, 0) FROM sections WHERE id = ?", (section_id,)
+        )
         row = cur.fetchone()
         if not row:
             return False
@@ -154,8 +180,12 @@ def move_section_down(section_id: int, db_path: str) -> bool:
             return False
         neighbor_id, neighbor_order = neighbor
         # Swap order_index values in a transaction
-        cur.execute("UPDATE sections SET order_index = ? WHERE id = ?", (neighbor_order, section_id))
-        cur.execute("UPDATE sections SET order_index = ? WHERE id = ?", (current_order, neighbor_id))
+        cur.execute(
+            "UPDATE sections SET order_index = ? WHERE id = ?", (neighbor_order, section_id)
+        )
+        cur.execute(
+            "UPDATE sections SET order_index = ? WHERE id = ?", (current_order, neighbor_id)
+        )
         conn.commit()
         return True
     finally:

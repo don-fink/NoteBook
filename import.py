@@ -1,5 +1,6 @@
 import sqlite3
 
+
 def seed_database(path="notes.db"):
     conn = sqlite3.connect(path)
     conn.execute("PRAGMA foreign_keys = ON")
@@ -13,7 +14,7 @@ def seed_database(path="notes.db"):
     notebooks = [("Work",), ("Personal",)]
     cur.executemany(
         "INSERT INTO notebooks (title, order_index) VALUES (?, ?)",
-        [(nb[0], idx) for idx, nb in enumerate(notebooks)]
+        [(nb[0], idx) for idx, nb in enumerate(notebooks)],
     )
 
     # Fetch notebook IDs
@@ -29,7 +30,7 @@ def seed_database(path="notes.db"):
     ]
     cur.executemany(
         "INSERT INTO sections (notebook_id, title, order_index) VALUES (?, ?, ?)",
-        [(nbid, title, idx) for idx, (nbid, title) in enumerate(sections)]
+        [(nbid, title, idx) for idx, (nbid, title) in enumerate(sections)],
     )
 
     # Fetch section IDs
@@ -45,12 +46,13 @@ def seed_database(path="notes.db"):
     ]
     cur.executemany(
         "INSERT INTO pages (section_id, title, content_html, order_index) VALUES (?, ?, ?, ?)",
-        [(sid, title, html, idx) for idx, (sid, title, html) in enumerate(pages)]
+        [(sid, title, html, idx) for idx, (sid, title, html) in enumerate(pages)],
     )
 
     conn.commit()
     conn.close()
     print(f"Seeded database at {path}")
+
 
 if __name__ == "__main__":
     seed_database()

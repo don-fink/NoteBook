@@ -1,4 +1,3 @@
-
 """
 ui_sections.py
 Handles logic for displaying sections (and now pages) in the left binder tree.
@@ -9,13 +8,16 @@ Binder -> Section -> Pages.
 In two-column mode, page items are selectable and clicking them
 loads the page content into the center editor.
 """
+
 from PyQt5 import QtWidgets
 from PyQt5.QtCore import Qt
-from db_sections import get_sections_by_notebook_id
+
 from db_pages import get_pages_by_section_id
-from ui_tabs import select_tab_for_section, load_first_page_for_current_tab
+from db_sections import get_sections_by_notebook_id
 from ui_tabs import _is_two_column_ui as _is_two_col  # reuse detection
 from ui_tabs import _load_page_two_column as _load_page_2col
+from ui_tabs import load_first_page_for_current_tab, select_tab_for_section
+
 
 def add_sections_as_children(tree_widget, notebook_id, parent_item, db_path):
     """Populate the given binder item with its sections and pages.
@@ -35,13 +37,15 @@ def add_sections_as_children(tree_widget, notebook_id, parent_item, db_path):
         sec_item = QtWidgets.QTreeWidgetItem([section_title])
         sec_item.setData(0, 1000, section_id)  # Store section_id in UserRole
         try:
-            sec_item.setData(0, 1001, 'section')
+            sec_item.setData(0, 1001, "section")
         except Exception:
             pass
         # Sections: enabled + selectable; not drag/drop targets here
         try:
             flags = sec_item.flags()
-            flags = (flags | Qt.ItemIsEnabled | Qt.ItemIsSelectable) & ~(Qt.ItemIsDropEnabled | Qt.ItemIsDragEnabled)
+            flags = (flags | Qt.ItemIsEnabled | Qt.ItemIsSelectable) & ~(
+                Qt.ItemIsDropEnabled | Qt.ItemIsDragEnabled
+            )
             sec_item.setFlags(flags)
         except Exception:
             pass
@@ -63,7 +67,7 @@ def add_sections_as_children(tree_widget, notebook_id, parent_item, db_path):
             page_item = QtWidgets.QTreeWidgetItem([page_title])
             page_item.setData(0, 1000, page_id)
             try:
-                page_item.setData(0, 1001, 'page')
+                page_item.setData(0, 1001, "page")
                 # Also store parent section id for convenience (1002 consistent with ui_tabs)
                 page_item.setData(0, 1002, section_id)
             except Exception:
@@ -72,13 +76,18 @@ def add_sections_as_children(tree_widget, notebook_id, parent_item, db_path):
             try:
                 pflags = page_item.flags()
                 if _is_two_col(tree_widget.window()):
-                    pflags = (pflags | Qt.ItemIsEnabled | Qt.ItemIsSelectable) & ~(Qt.ItemIsDragEnabled | Qt.ItemIsDropEnabled)
+                    pflags = (pflags | Qt.ItemIsEnabled | Qt.ItemIsSelectable) & ~(
+                        Qt.ItemIsDragEnabled | Qt.ItemIsDropEnabled
+                    )
                 else:
-                    pflags = (pflags | Qt.ItemIsEnabled) & ~(Qt.ItemIsSelectable | Qt.ItemIsDragEnabled | Qt.ItemIsDropEnabled)
+                    pflags = (pflags | Qt.ItemIsEnabled) & ~(
+                        Qt.ItemIsSelectable | Qt.ItemIsDragEnabled | Qt.ItemIsDropEnabled
+                    )
                 page_item.setFlags(pflags)
             except Exception:
                 pass
             sec_item.addChild(page_item)
+
 
 def on_notebook_clicked(item, column):
     tree_widget = item.treeWidget()
@@ -93,6 +102,7 @@ def on_notebook_clicked(item, column):
     tree_widget.itemClicked.disconnect()
     tree_widget.itemClicked.connect(on_section_clicked)
 
+
 def on_section_clicked(item, column, db_path):
     # Only handle if this is a section (not a notebook)
     if item.parent() is None:
@@ -103,20 +113,20 @@ def on_section_clicked(item, column, db_path):
         return
     kind = item.data(0, 1001)
     window = item.treeWidget().window()
-    if kind == 'section':
+    if kind == "section":
         section_id = item.data(0, 1000)
         if section_id is not None:
             select_tab_for_section(window, section_id)
             # In two-column mode, do not auto-load; legacy tabs will load via helper
             if not _is_two_col(window):
                 load_first_page_for_current_tab(window)
-    elif kind == 'page' and _is_two_col(window):
+    elif kind == "page" and _is_two_col(window):
         page_id = item.data(0, 1000)
         section_id = item.data(0, 1002)
         if page_id is not None and section_id is not None:
             try:
                 # Update current context map
-                if not hasattr(window, '_current_page_by_section'):
+                if not hasattr(window, "_current_page_by_section"):
                     window._current_page_by_section = {}
                 window._current_page_by_section[int(section_id)] = int(page_id)
                 window._current_section_id = int(section_id)
@@ -129,6 +139,7 @@ def on_section_clicked(item, column, db_path):
             try:
                 # Persist last state
                 from settings_manager import set_last_state
+
                 set_last_state(section_id=int(section_id), page_id=int(page_id))
             except Exception:
                 pass

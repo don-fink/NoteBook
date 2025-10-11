@@ -8,6 +8,7 @@ Helpers for managing per-database media storage.
 
 Note: UI wiring (normalizing HTML, hooks, etc.) will be added later.
 """
+
 import hashlib
 import mimetypes
 import os
@@ -26,7 +27,7 @@ def media_root_for_db(db_path: str) -> str:
 
 def build_rel_path(sha256_hex: str, ext: str) -> str:
     a = sha256_hex[:FANOUT1]
-    b = sha256_hex[FANOUT1:FANOUT1+FANOUT2]
+    b = sha256_hex[FANOUT1 : FANOUT1 + FANOUT2]
     return os.path.join("media", a, b, f"{sha256_hex}.{ext}")
 
 
@@ -36,8 +37,8 @@ def ensure_dir(path: str):
 
 def sha256_file(src_path: str) -> str:
     h = hashlib.sha256()
-    with open(src_path, 'rb') as f:
-        for chunk in iter(lambda: f.read(1024 * 1024), b''):
+    with open(src_path, "rb") as f:
+        for chunk in iter(lambda: f.read(1024 * 1024), b""):
             h.update(chunk)
     return h.hexdigest()
 
@@ -45,8 +46,8 @@ def sha256_file(src_path: str) -> str:
 def guess_mime_and_ext(src_path: str) -> Tuple[str, str]:
     mime, _ = mimetypes.guess_type(src_path)
     if not mime:
-        mime = 'application/octet-stream'
-    ext = os.path.splitext(src_path)[1].lstrip('.').lower() or 'bin'
+        mime = "application/octet-stream"
+    ext = os.path.splitext(src_path)[1].lstrip(".").lower() or "bin"
     return mime, ext
 
 
@@ -54,7 +55,14 @@ def _conn(db_path: str):
     return sqlite3.connect(db_path)
 
 
-def upsert_media_record(db_path: str, sha256_hex: str, mime_type: str, ext: str, original_filename: Optional[str], size_bytes: int) -> int:
+def upsert_media_record(
+    db_path: str,
+    sha256_hex: str,
+    mime_type: str,
+    ext: str,
+    original_filename: Optional[str],
+    size_bytes: int,
+) -> int:
     con = _conn(db_path)
     try:
         cur = con.cursor()
@@ -72,7 +80,15 @@ def upsert_media_record(db_path: str, sha256_hex: str, mime_type: str, ext: str,
         con.close()
 
 
-def add_media_ref(db_path: str, media_id: int, *, page_id: int = None, section_id: int = None, notebook_id: int = None, role: str = 'attachment'):
+def add_media_ref(
+    db_path: str,
+    media_id: int,
+    *,
+    page_id: int = None,
+    section_id: int = None,
+    notebook_id: int = None,
+    role: str = "attachment",
+):
     if sum(x is not None for x in (page_id, section_id, notebook_id)) != 1:
         raise ValueError("Exactly one of page_id, section_id, notebook_id must be provided")
     con = _conn(db_path)
@@ -87,7 +103,14 @@ def add_media_ref(db_path: str, media_id: int, *, page_id: int = None, section_i
         con.close()
 
 
-def remove_media_ref(db_path: str, media_id: int, *, page_id: int = None, section_id: int = None, notebook_id: int = None):
+def remove_media_ref(
+    db_path: str,
+    media_id: int,
+    *,
+    page_id: int = None,
+    section_id: int = None,
+    notebook_id: int = None,
+):
     if sum(x is not None for x in (page_id, section_id, notebook_id)) != 1:
         raise ValueError("Exactly one of page_id, section_id, notebook_id must be provided")
     con = _conn(db_path)
@@ -102,7 +125,9 @@ def remove_media_ref(db_path: str, media_id: int, *, page_id: int = None, sectio
         con.close()
 
 
-def save_file_into_store(db_path: str, src_path: str, *, original_filename: Optional[str] = None) -> Tuple[int, str]:
+def save_file_into_store(
+    db_path: str, src_path: str, *, original_filename: Optional[str] = None
+) -> Tuple[int, str]:
     """Copy a file into the DB's media store (content-addressed). Returns (media_id, relative_path)."""
     sha_hex = sha256_file(src_path)
     mime_type, ext = guess_mime_and_ext(src_path)
@@ -113,7 +138,9 @@ def save_file_into_store(db_path: str, src_path: str, *, original_filename: Opti
     if not os.path.exists(abs_path):
         shutil.copy2(src_path, abs_path)
     size = os.path.getsize(abs_path)
-    media_id = upsert_media_record(db_path, sha_hex, mime_type, ext, original_filename or os.path.basename(src_path), size)
+    media_id = upsert_media_record(
+        db_path, sha_hex, mime_type, ext, original_filename or os.path.basename(src_path), size
+    )
     return media_id, rel_path
 
 

@@ -1,6 +1,6 @@
 import sqlite3
 
-conn = sqlite3.connect('notes.db')
+conn = sqlite3.connect("notes.db")
 cursor = conn.cursor()
 
 # List all tables
