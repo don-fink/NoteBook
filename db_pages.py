@@ -12,6 +12,15 @@ def get_pages_by_section_id(section_id, db_path):
     conn.close()
     return rows
 
+def get_page_by_id(page_id: int, db_path: str):
+    """Return a single page row by id, or None if not found."""
+    conn = sqlite3.connect(db_path)
+    cur = conn.cursor()
+    cur.execute("SELECT * FROM pages WHERE id = ?", (int(page_id),))
+    row = cur.fetchone()
+    conn.close()
+    return row
+
 def _get_next_page_order_index(section_id: int, db_path: str) -> int:
     conn = sqlite3.connect(db_path)
     cur = conn.cursor()

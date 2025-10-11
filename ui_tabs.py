@@ -31,6 +31,7 @@ from db_pages import (
     delete_page,
     set_pages_order,
     set_pages_parent_and_order,
+    get_page_by_id,
 )
 from settings_manager import set_last_state, get_last_state
 from PyQt5.QtGui import QIcon, QPixmap, QPainter, QColor, QKeySequence
@@ -82,6 +83,15 @@ def _ensure_attrs(window):
     if not hasattr(window, "_keep_right_tree_section_selected_once"):
         window._keep_right_tree_section_selected_once = False
 
+def _cancel_autosave(window):
+    try:
+        if hasattr(window, '_autosave_timer') and window._autosave_timer.isActive():
+            window._autosave_timer.stop()
+        window._two_col_dirty = False
+        # Preserve context; we're just cancelling pending save
+    except Exception:
+        pass
+
 def _prompt_new_section(window):
     try:
         nb_id = getattr(window, '_current_notebook_id', None)
@@ -101,6 +111,16 @@ def _prompt_new_section(window):
         pass
 
 
+def _is_two_column_ui(window) -> bool:
+    """Detect if current UI is the two-column layout: has QTextEdit named 'pageEdit' and no 'tabPages'."""
+    try:
+        te = window.findChild(QtWidgets.QTextEdit, 'pageEdit')
+        tabs = window.findChild(QtWidgets.QTabWidget, 'tabPages')
+        return te is not None and tabs is None
+    except Exception:
+        return False
+
+
 def setup_tab_sync(window):
     """Connect handlers once and use window._db_path for queries."""
     _ensure_attrs(window)
@@ -108,6 +128,11 @@ def setup_tab_sync(window):
         return
 
     tree_widget = window.findChild(QtWidgets.QTreeWidget, 'notebookName')
+    # Two-column mode: no tab widget; content is in 'pageEdit'
+    if _is_two_column_ui(window):
+        _setup_two_column(window, tree_widget)
+        window._tabs_setup_done = True
+        return
     tab_widget = window.findChild(QtWidgets.QTabWidget, 'tabPages')
     right_tree = window.findChild(QtWidgets.QTreeWidget, 'sectionPages')
     right_view = window.findChild(QtWidgets.QTreeView, 'sectionPages')
@@ -469,6 +494,21 @@ def setup_tab_sync(window):
 
 def select_tab_for_section(window, section_id):
     """Public helper: select the tab that corresponds to section_id."""
+    if _is_two_column_ui(window):
+        # In 2-column mode, just record the section; defer loading until page is selected
+        try:
+            window._current_section_id = int(section_id)
+        except Exception:
+            window._current_section_id = section_id
+        # Clear editor and keep read-only until a page is selected
+        try:
+            _set_page_edit_html(window, "")
+            te = window.findChild(QtWidgets.QTextEdit, 'pageEdit')
+            if te is not None:
+                te.setReadOnly(True)
+        except Exception:
+            pass
+        return
     tab_widget = window.findChild(QtWidgets.QTabWidget, 'tabPages')
     if not tab_widget:
         return
@@ -477,7 +517,504 @@ def select_tab_for_section(window, section_id):
 
 def load_first_page_for_current_tab(window):
     """Public helper: load the first page for the currently selected tab."""
-    _load_first_page_for_current_tab(window)
+    if _is_two_column_ui(window):
+        _load_first_page_two_column(window)
+    else:
+        _load_first_page_for_current_tab(window)
+
+def _setup_two_column(window, tree_widget):
+    """Wire up left tree and center pageEdit for two-column layout."""
+    _ensure_attrs(window)
+    # Install rich text toolbar once
+    try:
+        te = window.findChild(QtWidgets.QTextEdit, 'pageEdit')
+        title_le_found = window.findChild(QtWidgets.QLineEdit, 'pageTitleEdit')
+        if te is not None and not hasattr(window, '_two_col_toolbar_added'):
+            # Place toolbar inside the page container above the title (if present), else above the editor
+            container = te.parentWidget() or window
+            before_w = title_le_found if title_le_found is not None else te
+            add_rich_text_toolbar(container, te, before_widget=before_w)
+            window._two_col_toolbar_added = True
+            # Apply default font to document
+            from PyQt5.QtGui import QFont
+            from ui_richtext import DEFAULT_FONT_FAMILY, DEFAULT_FONT_SIZE_PT
+            te.document().setDefaultFont(QFont(DEFAULT_FONT_FAMILY, int(DEFAULT_FONT_SIZE_PT)))
+            # In two-column mode, require explicit page selection before editing
+            try:
+                te.setReadOnly(True)
+            except Exception:
+                pass
+            # Debounced autosave when typing
+            try:
+                if not hasattr(window, '_autosave_timer'):
+                    window._autosave_timer = QTimer(window)
+                    window._autosave_timer.setSingleShot(True)
+                    window._autosave_timer.setInterval(1200)
+                    def _autosave_fire():
+                        try:
+                            ctx = getattr(window, '_autosave_ctx', None)
+                            sid_now = getattr(window, '_current_section_id', None)
+                            pid_now = getattr(window, '_current_page_by_section', {}).get(int(sid_now)) if sid_now is not None else None
+                            # Only save if the page context hasn't changed since typing
+                            if isinstance(ctx, tuple) and len(ctx) == 2 and ctx[0] == sid_now and ctx[1] == pid_now:
+                                save_current_page_two_column(window)
+                        except Exception:
+                            pass
+                    window._autosave_timer.timeout.connect(_autosave_fire)
+                def _on_text_changed():
+                    try:
+                        sid = getattr(window, '_current_section_id', None)
+                        pid = getattr(window, '_current_page_by_section', {}).get(int(sid)) if sid is not None else None
+                        # Only autosave when a concrete page is selected
+                        if pid is not None:
+                            try:
+                                window._two_col_dirty = True
+                            except Exception:
+                                pass
+                            # Capture current context for autosave validation
+                            try:
+                                window._autosave_ctx = (int(sid), int(pid))
+                            except Exception:
+                                window._autosave_ctx = (sid, pid)
+                            window._autosave_timer.start()
+                    except Exception:
+                        pass
+                te.textChanged.connect(_on_text_changed)
+                # Save on focus loss as a safety net
+                class _FocusSaveFilter(QObject):
+                    def eventFilter(self, obj, event):
+                        try:
+                            if event.type() == QEvent.FocusOut:
+                                save_current_page_two_column(window)
+                        except Exception:
+                            pass
+                        return False
+                window._page_edit_focus_filter = _FocusSaveFilter(te)
+                te.installEventFilter(window._page_edit_focus_filter)
+            except Exception:
+                pass
+        # Wire up title line edit (pageTitleEdit) once
+        try:
+            title_le = window.findChild(QtWidgets.QLineEdit, 'pageTitleEdit')
+            if title_le is not None:
+                try:
+                    # Disable until a page is selected
+                    title_le.setEnabled(False)
+                except Exception:
+                    pass
+                # Make the title visually bold
+                try:
+                    from PyQt5.QtGui import QFont
+                    f = title_le.font()
+                    f.setBold(True)
+                    title_le.setFont(f)
+                except Exception:
+                    try:
+                        title_le.setStyleSheet("font-weight: 600;")
+                    except Exception:
+                        pass
+                if not hasattr(window, '_two_col_title_wired'):
+                    # Debounce timer for title saves
+                    if not hasattr(window, '_title_save_timer'):
+                        window._title_save_timer = QTimer(window)
+                        window._title_save_timer.setSingleShot(True)
+                        window._title_save_timer.setInterval(600)
+                        def _title_autosave_fire():
+                            try:
+                                _save_title_two_column(window)
+                            except Exception:
+                                pass
+                        window._title_save_timer.timeout.connect(_title_autosave_fire)
+                    def _on_title_changed(_text:str):
+                        try:
+                            sid = getattr(window, '_current_section_id', None)
+                            pid = getattr(window, '_current_page_by_section', {}).get(int(sid)) if sid is not None else None
+                            if pid is not None:
+                                window._title_save_timer.start()
+                        except Exception:
+                            pass
+                    def _on_title_commit():
+                        try:
+                            _save_title_two_column(window)
+                        except Exception:
+                            pass
+                    title_le.textChanged.connect(_on_title_changed)
+                    try:
+                        title_le.editingFinished.connect(_on_title_commit)
+                    except Exception:
+                        pass
+                    try:
+                        title_le.returnPressed.connect(_on_title_commit)
+                    except Exception:
+                        pass
+                    window._two_col_title_wired = True
+        except Exception:
+            pass
+    except Exception:
+        pass
+    # Left tree click: notebook -> ensure sections; section -> set context only (no page load yet)
+    if tree_widget is not None and not getattr(tree_widget, '_nb_left_signals_connected', False):
+        def on_tree_item_clicked(item, column):
+            if getattr(window, "_suppress_sync", False):
+                return
+            # Save current page edits
+            try:
+                save_current_page_two_column(window)
+            except Exception:
+                pass
+            kind = item.data(0, USER_ROLE_KIND)
+            if item.parent() is None and kind not in ('section','page'):
+                # Notebook
+                nb_id = item.data(0, USER_ROLE_ID)
+                if nb_id is None:
+                    return
+                window._current_notebook_id = int(nb_id)
+                try:
+                    from settings_manager import set_last_state
+                    set_last_state(notebook_id=int(nb_id))
+                except Exception:
+                    pass
+                ensure_left_tree_sections(window, int(nb_id))
+                # Do not auto-load pages in two-column mode on binder click
+                try:
+                    _set_page_edit_html(window, "")
+                    te = window.findChild(QtWidgets.QTextEdit, 'pageEdit')
+                    if te is not None:
+                        te.setReadOnly(True)
+                    title_le = window.findChild(QtWidgets.QLineEdit, 'pageTitleEdit')
+                    if title_le is not None:
+                        title_le.blockSignals(True)
+                        title_le.setEnabled(False)
+                        title_le.setText("")
+                        title_le.blockSignals(False)
+                    _cancel_autosave(window)
+                except Exception:
+                    pass
+            elif kind == 'section':
+                # Section
+                sid = item.data(0, USER_ROLE_ID)
+                if sid is None:
+                    return
+                window._current_section_id = int(sid)
+                # Expand section on name click (open behavior like binders)
+                try:
+                    if not item.isExpanded():
+                        item.setExpanded(True)
+                except Exception:
+                    pass
+                # Do not auto-load a page yet; wait for explicit page selection
+                try:
+                    _set_page_edit_html(window, "")
+                    te = window.findChild(QtWidgets.QTextEdit, 'pageEdit')
+                    if te is not None:
+                        te.setReadOnly(True)
+                    title_le = window.findChild(QtWidgets.QLineEdit, 'pageTitleEdit')
+                    if title_le is not None:
+                        title_le.blockSignals(True)
+                        title_le.setEnabled(False)
+                        title_le.setText("")
+                        title_le.blockSignals(False)
+                    _cancel_autosave(window)
+                except Exception:
+                    pass
+            elif kind == 'page':
+                # Page: load content into editor
+                pid = item.data(0, USER_ROLE_ID)
+                parent_sid = item.data(0, USER_ROLE_PARENT_SECTION)
+                if pid is None or parent_sid is None:
+                    return
+                try:
+                    window._current_section_id = int(parent_sid)
+                    if not hasattr(window, '_current_page_by_section'):
+                        window._current_page_by_section = {}
+                    window._current_page_by_section[int(parent_sid)] = int(pid)
+                except Exception:
+                    pass
+                _load_page_two_column(window, int(pid))
+                try:
+                    from settings_manager import set_last_state
+                    set_last_state(section_id=int(parent_sid), page_id=int(pid))
+                except Exception:
+                    pass
+        try:
+            tree_widget.itemClicked.disconnect()
+        except Exception:
+            pass
+        tree_widget.itemClicked.connect(on_tree_item_clicked)
+        tree_widget._nb_left_signals_connected = True
+        # Enable context menu on the left tree in two-column mode
+        try:
+            tree_widget.setContextMenuPolicy(Qt.CustomContextMenu)
+            if not hasattr(tree_widget, '_nb_left_ctx_connected'):
+                tree_widget.customContextMenuRequested.connect(lambda pos: _on_left_tree_context_menu(window, tree_widget, pos))
+                tree_widget._nb_left_ctx_connected = True
+        except Exception:
+            pass
+
+    # Ctrl+S saves current page in two-column mode as well
+    try:
+        QtWidgets.QShortcut(QKeySequence.Save, window, activated=lambda: save_current_page(window))
+    except Exception:
+        pass
+
+    # Populate sections when user expands a binder via the expander arrow
+    try:
+        def _on_item_expanded(item):
+            if item is not None and item.parent() is None:
+                nb_id = item.data(0, USER_ROLE_ID)
+                if nb_id is not None:
+                    ensure_left_tree_sections(window, int(nb_id))
+        # Avoid duplicate connections
+        try:
+            tree_widget.itemExpanded.disconnect()
+        except Exception:
+            pass
+        tree_widget.itemExpanded.connect(_on_item_expanded)
+    except Exception:
+        pass
+
+
+def _load_first_page_two_column(window):
+    """Load the first page of the current section into pageEdit in two-column mode."""
+    try:
+        sid = getattr(window, '_current_section_id', None)
+        if sid is None:
+            # If no section set yet, try the first section of current notebook
+            nb_id = getattr(window, '_current_notebook_id', None)
+            if nb_id is None:
+                return
+            sections = get_sections_by_notebook_id(nb_id, window._db_path)
+            if not sections:
+                _set_page_edit_html(window, "")
+                try:
+                    te = window.findChild(QtWidgets.QTextEdit, 'pageEdit')
+                    if te is not None:
+                        te.setReadOnly(True)
+                except Exception:
+                    pass
+                return
+            sid = sections[0][0]
+            window._current_section_id = sid
+        pages = get_pages_by_section_id(sid, window._db_path)
+        page = None
+        if pages:
+            try:
+                pages_sorted = sorted(pages, key=lambda p: (p[6], p[0]))
+            except Exception:
+                pages_sorted = pages
+            page = pages_sorted[0]
+        _load_page_two_column(window, page_id=(page[0] if page else None), html=(page[3] if page else None))
+        # Persist last state
+        try:
+            from settings_manager import set_last_state
+            if page:
+                set_last_state(section_id=int(sid), page_id=int(page[0]))
+            else:
+                set_last_state(section_id=int(sid), page_id=None)
+        except Exception:
+            pass
+    except Exception:
+        pass
+
+
+def _set_page_edit_html(window, html: str):
+    te = window.findChild(QtWidgets.QTextEdit, 'pageEdit')
+    if te is None:
+        return
+    try:
+        te.blockSignals(True)
+        if not html:
+            te.setHtml("")
+        else:
+            # Normalize default font on body
+            try:
+                from ui_richtext import DEFAULT_FONT_FAMILY, DEFAULT_FONT_SIZE_PT
+                if isinstance(html, str) and '<html' in html.lower():
+                    if '<body' in html.lower():
+                        html = html.replace('<body', f'<body style="font-family: {DEFAULT_FONT_FAMILY}; font-size: {int(DEFAULT_FONT_SIZE_PT)}pt"', 1)
+            except Exception:
+                pass
+            te.setHtml(html)
+    finally:
+        te.blockSignals(False)
+
+
+def _load_page_two_column(window, page_id: int = None, html: str = None):
+    """Load given page into pageEdit; if page_id is None, show placeholder. Also set current page context.
+    If html is not provided, fetch from DB by page_id.
+    """
+    te = window.findChild(QtWidgets.QTextEdit, 'pageEdit')
+    if te is None:
+        return
+    if page_id is None:
+        _set_page_edit_html(window, "")
+        try:
+            te.setReadOnly(True)
+        except Exception:
+            pass
+        # Disable/clear title edit when no page
+        try:
+            title_le = window.findChild(QtWidgets.QLineEdit, 'pageTitleEdit')
+            if title_le is not None:
+                title_le.blockSignals(True)
+                title_le.setEnabled(False)
+                title_le.setText("")
+                title_le.blockSignals(False)
+        except Exception:
+            pass
+        # Cancel any pending autosave and clear dirty state
+        try:
+            if hasattr(window, '_autosave_timer') and window._autosave_timer.isActive():
+                window._autosave_timer.stop()
+            window._two_col_dirty = False
+            window._autosave_ctx = None
+        except Exception:
+            pass
+        try:
+            if not hasattr(window, '_current_page_by_section'):
+                window._current_page_by_section = {}
+            sid = getattr(window, '_current_section_id', None)
+            if sid is not None:
+                window._current_page_by_section[int(sid)] = None
+        except Exception:
+            pass
+        return
+    # Fetch HTML if not provided
+    # Fetch title/html for the page
+    page_row = None
+    try:
+        page_row = get_page_by_id(int(page_id), window._db_path)
+    except Exception:
+        page_row = None
+    try:
+        if html is None:
+            html = page_row[3] if page_row else ""
+    except Exception:
+        pass
+    _set_page_edit_html(window, html or "")
+    try:
+        te.setReadOnly(False)
+    except Exception:
+        pass
+    # Populate title and enable editing
+    try:
+        title_le = window.findChild(QtWidgets.QLineEdit, 'pageTitleEdit')
+        if title_le is not None:
+            title = None
+            try:
+                title = str(page_row[2]) if page_row else None
+            except Exception:
+                title = None
+            title_le.blockSignals(True)
+            title_le.setText(title if title else "Untitled Page")
+            title_le.setEnabled(True)
+            title_le.blockSignals(False)
+    except Exception:
+        pass
+    # Cancel pending autosave and clear dirty (fresh load)
+    try:
+        if hasattr(window, '_autosave_timer') and window._autosave_timer.isActive():
+            window._autosave_timer.stop()
+        window._two_col_dirty = False
+        sid = getattr(window, '_current_section_id', None)
+        if sid is not None:
+            window._autosave_ctx = (int(sid), int(page_id))
+    except Exception:
+        pass
+    # Track current page per section
+    try:
+        sid = getattr(window, '_current_section_id', None)
+        if sid is not None:
+            if not hasattr(window, '_current_page_by_section'):
+                window._current_page_by_section = {}
+            window._current_page_by_section[int(sid)] = int(page_id)
+    except Exception:
+        pass
+
+
+def _save_title_two_column(window):
+    """Save the current page title from pageTitleEdit to the DB and update trees."""
+    try:
+        sid = getattr(window, '_current_section_id', None)
+        if sid is None:
+            return
+        pid = getattr(window, '_current_page_by_section', {}).get(int(sid))
+        if not pid:
+            return
+        title_le = window.findChild(QtWidgets.QLineEdit, 'pageTitleEdit')
+        if title_le is None:
+            return
+        new_title = (title_le.text() or "").strip() or "Untitled Page"
+        update_page_title(int(pid), new_title, window._db_path)
+        # Update left tree page label if present
+        _update_left_tree_page_title(window, int(sid), int(pid), new_title)
+        # Also persist last state (no harm)
+        try:
+            set_last_state(section_id=int(sid), page_id=int(pid))
+        except Exception:
+            pass
+    except Exception:
+        pass
+
+
+def _update_left_tree_page_title(window, section_id: int, page_id: int, new_title: str):
+    """Find and update the page item's text in the left notebook tree."""
+    try:
+        tree_widget = window.findChild(QtWidgets.QTreeWidget, 'notebookName')
+        if not tree_widget:
+            return
+        for i in range(tree_widget.topLevelItemCount()):
+            top = tree_widget.topLevelItem(i)
+            # Sections under this binder
+            for j in range(top.childCount()):
+                sec_item = top.child(j)
+                if sec_item and sec_item.data(0, USER_ROLE_KIND) == 'section' and int(sec_item.data(0, USER_ROLE_ID)) == int(section_id):
+                    for k in range(sec_item.childCount()):
+                        page_item = sec_item.child(k)
+                        if page_item and page_item.data(0, USER_ROLE_KIND) == 'page' and int(page_item.data(0, USER_ROLE_ID)) == int(page_id):
+                            page_item.setText(0, new_title)
+                            return
+    except Exception:
+        pass
+
+
+def save_current_page_two_column(window):
+    """Save current page content from pageEdit to DB in two-column mode."""
+    try:
+        sid = getattr(window, '_current_section_id', None)
+        if sid is None:
+            return
+        page_id = getattr(window, '_current_page_by_section', {}).get(int(sid))
+        if not page_id:
+            return
+        te = window.findChild(QtWidgets.QTextEdit, 'pageEdit')
+        if te is None:
+            return
+        # Don't save when read-only (no active page)
+        try:
+            if te.isReadOnly():
+                return
+        except Exception:
+            pass
+        html = te.toHtml()
+        try:
+            html = sanitize_html_for_storage(html)
+        except Exception:
+            pass
+        update_page_content(int(page_id), html, window._db_path)
+        # Reset dirty and cancel pending autosave
+        try:
+            if hasattr(window, '_autosave_timer') and window._autosave_timer.isActive():
+                window._autosave_timer.stop()
+        except Exception:
+            pass
+        try:
+            window._two_col_dirty = False
+            window._autosave_ctx = (int(sid), int(page_id))
+        except Exception:
+            pass
+    except Exception:
+        pass
 
 def ensure_left_tree_sections(window, notebook_id: int, select_section_id: int = None):
     """Public helper: ensure the left tree shows sections under the given notebook and expand it."""
@@ -1787,9 +2324,55 @@ def _on_left_tree_context_menu(window, tree_widget: QtWidgets.QTreeWidget, pos):
                 refresh_for_notebook(window, nb_id, select_section_id=new_id)
     else:
         section_id = item.data(0, USER_ROLE_ID)
+        # Add Page at the very top, then a separator, then the rest
+        act_add_page = menu.addAction("Add Page")
+        menu.addSeparator()
         act_rename = menu.addAction("Rename Section")
         act_delete = menu.addAction("Delete Section")
         action = menu.exec_(tree_widget.mapToGlobal(pos))
+        if action == act_add_page:
+            if section_id is None:
+                return
+            # Create a new page and open it
+            pid = create_page(section_id, "Untitled Page", window._db_path)
+            try:
+                if _is_two_column_ui(window):
+                    # Keep left tree focused on this section and select the new page
+                    nb_id = getattr(window, '_current_notebook_id', None)
+                    if nb_id is not None:
+                        _refresh_left_tree_children(window, int(nb_id), select_section_id=int(section_id))
+                    try:
+                        window._current_section_id = int(section_id)
+                        if not hasattr(window, '_current_page_by_section'):
+                            window._current_page_by_section = {}
+                        window._current_page_by_section[int(section_id)] = int(pid)
+                    except Exception:
+                        pass
+                    _load_page_two_column(window, int(pid))
+                    _select_left_tree_page(window, int(section_id), int(pid))
+                    try:
+                        from settings_manager import set_last_state
+                        set_last_state(section_id=int(section_id), page_id=int(pid))
+                    except Exception:
+                        pass
+                else:
+                    # Tabbed: update right pane, select tab and load the new page
+                    nb_id = getattr(window, '_current_notebook_id', None)
+                    if nb_id is not None:
+                        _build_right_tree_for_notebook(window, nb_id)
+                    tab_widget = window.findChild(QtWidgets.QTabWidget, 'tabPages')
+                    if tab_widget is not None:
+                        window._suppress_sync = True
+                        _select_tab_for_section(tab_widget, section_id)
+                        window._suppress_sync = False
+                        _load_page_for_current_tab(window, pid)
+                    try:
+                        _select_right_tree_page(window, section_id, pid)
+                    except Exception:
+                        pass
+            except Exception:
+                pass
+            return
         if action == act_rename:
             current_text = item.text(0)
             new_title, ok = QtWidgets.QInputDialog.getText(tree_widget, "Rename Section", "New title:", text=current_text)
@@ -1870,15 +2453,56 @@ def _refresh_left_tree_children(window, notebook_id: int, select_section_id: int
                 pass
             if select_section_id is not None:
                 for j in range(top.childCount()):
-                    if top.child(j).data(0, USER_ROLE_ID) == select_section_id:
-                        tree_widget.setCurrentItem(top.child(j))
+                    sec_child = top.child(j)
+                    if sec_child.data(0, USER_ROLE_ID) == select_section_id:
+                        # Ensure the section stays expanded and is selected
+                        try:
+                            if not top.isExpanded():
+                                top.setExpanded(True)
+                            if not sec_child.isExpanded():
+                                sec_child.setExpanded(True)
+                        except Exception:
+                            pass
+                        tree_widget.setCurrentItem(sec_child)
                         break
             try:
-                top.setExpanded(True)
+                # Do not force expand the binder here; caller can control expansion
                 tree_widget.setEnabled(True)
             except Exception:
                 pass
             break
+
+
+def _select_left_tree_page(window, section_id: int, page_id: int):
+    """Select the given page in the left tree and ensure its section is expanded."""
+    try:
+        tree_widget = window.findChild(QtWidgets.QTreeWidget, 'notebookName')
+        if not tree_widget:
+            return
+        for i in range(tree_widget.topLevelItemCount()):
+            top = tree_widget.topLevelItem(i)
+            # Search sections under this binder; do not expand binders unnecessarily
+            for j in range(top.childCount()):
+                sec_item = top.child(j)
+                if sec_item and sec_item.data(0, USER_ROLE_KIND) == 'section' and int(sec_item.data(0, USER_ROLE_ID)) == int(section_id):
+                    # Expand only this binder and section to reveal pages
+                    try:
+                        if not top.isExpanded():
+                            top.setExpanded(True)
+                    except Exception:
+                        pass
+                    try:
+                        if not sec_item.isExpanded():
+                            sec_item.setExpanded(True)
+                    except Exception:
+                        pass
+                    for k in range(sec_item.childCount()):
+                        page_item = sec_item.child(k)
+                        if page_item and page_item.data(0, USER_ROLE_KIND) == 'page' and int(page_item.data(0, USER_ROLE_ID)) == int(page_id):
+                            tree_widget.setCurrentItem(page_item)
+                            return
+    except Exception:
+        pass
 
 
 def _on_right_tree_context_menu(window, right_tree, pos):
@@ -2134,6 +2758,9 @@ def _save_page_for_tab_index(window, index: int):
 def save_current_page(window):
     """Save the current tab's page content to the database if available."""
     try:
+        if _is_two_column_ui(window):
+            save_current_page_two_column(window)
+            return
         tab_widget = window.findChild(QtWidgets.QTabWidget, 'tabPages')
         if tab_widget is None:
             return

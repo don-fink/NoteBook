@@ -1,15 +1,13 @@
 {
   "last_db": "C:/Python Projects/NoteBook/notes.db",
   "window_geometry": {
-    "x": 559,
-    "y": 223,
-    "w": 2190,
-    "h": 1326
+    "x": 3245,
+    "y": 182,
+    "w": 1085,
+    "h": 730
   },
   "window_maximized": false,
-  "expanded_notebooks": [
-    37
-  ],
+  "expanded_notebooks": [],
   "expanded_sections_by_notebook": {
     "51": [
       23,
@@ -31,7 +29,8 @@
       80,
       81,
       82,
-      86
+      86,
+      88
     ],
     "36": [
       64,
@@ -45,6 +44,7 @@
       51,
       52,
       55,
+      88,
       57,
       58,
       59,
@@ -100,6 +100,7 @@
       52,
       47,
       55,
+      88,
       57,
       58,
       59,
@@ -137,9 +138,11 @@
       82,
       51,
       52,
+      55,
       23,
       56,
       57,
+      60,
       61
     ],
     "1": [
@@ -186,9 +189,8 @@
     ]
   },
   "splitter_sizes": [
-    319,
-    1414,
-    415
+    240,
+    809
   ],
   "list_scheme_ordered": "classic",
   "default_paste_mode": "match-style",

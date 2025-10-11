@@ -390,6 +390,7 @@ def _full_ui_refresh(window):
         right_tv.setModel(None)
     populate_notebook_names(window, db_path)
     setup_tab_sync(window)
+    # In both legacy (tabs) and 2-column mode, restore last viewed position
     restore_last_position(window)
     # Prepare splitter stretch factors (favor center panel); apply sizes after show
     try:
@@ -405,7 +406,7 @@ def _full_ui_refresh(window):
         pass
 
 def add_page(window):
-    # Determine active section from the current tab or right pane selection
+    # Determine active section from: tabs (legacy), right pane, left pane (2-col), or current context
     tab_widget = window.findChild(QtWidgets.QTabWidget, 'tabPages')
     tab_bar = tab_widget.tabBar() if tab_widget else None
     section_id = None
@@ -413,7 +414,7 @@ def add_page(window):
         idx = tab_widget.currentIndex()
         section_id = tab_bar.tabData(idx)
     if section_id is None:
-        # Try right pane selection (QTreeWidget)
+        # Right pane selection (legacy)
         right_tw = window.findChild(QtWidgets.QTreeWidget, 'sectionPages')
         if right_tw and right_tw.currentItem() is not None:
             cur = right_tw.currentItem()
@@ -422,7 +423,7 @@ def add_page(window):
                 section_id = cur.data(0, 1000)
             elif kind == 'page':
                 section_id = cur.data(0, 1002)
-        # Try model view
+        # Model view
         if section_id is None:
             right_tv = window.findChild(QtWidgets.QTreeView, 'sectionPages')
             if right_tv and right_tv.currentIndex().isValid():
@@ -432,17 +433,115 @@ def add_page(window):
                     section_id = idx.data(1000)
                 elif kind == 'page':
                     section_id = idx.data(1002)
+    # Two-column: try left tree (notebookName)
+    if section_id is None:
+        try:
+            tree = window.findChild(QtWidgets.QTreeWidget, 'notebookName')
+            cur = tree.currentItem() if tree is not None else None
+            if cur is not None and cur.parent() is not None:
+                kind = cur.data(0, 1001)
+                if kind == 'section':
+                    section_id = cur.data(0, 1000)
+                elif kind == 'page':
+                    # Prefer explicit parent section id role, else derive from parent
+                    section_id = cur.data(0, 1002) or (cur.parent().data(0, 1000) if cur.parent() is not None else None)
+        except Exception:
+            pass
+    # Fallback to current section context in two-column mode
+    if section_id is None:
+        try:
+            from ui_tabs import _is_two_column_ui
+            if _is_two_column_ui(window):
+                section_id = getattr(window, '_current_section_id', None)
+        except Exception:
+            pass
     if section_id is None:
         QtWidgets.QMessageBox.information(window, "Add Page", "Please select or create a section first.")
         return
     db_path = getattr(window, '_db_path', None) or get_last_db() or 'notes.db'
     pid = db_create_page(int(section_id), "Untitled Page", db_path)
-    # Ensure the UI reflects the new page; selecting the section will populate and load it
+    # Update UI depending on mode
+    try:
+        from ui_tabs import _is_two_column_ui
+        if _is_two_column_ui(window):
+            # Refresh left tree under the owning binder so the new page appears
+            try:
+                # Find owning notebook for this section
+                import sqlite3
+                con = sqlite3.connect(db_path)
+                cur = con.cursor()
+                cur.execute("SELECT notebook_id FROM sections WHERE id = ?", (int(section_id),))
+                row = cur.fetchone()
+                con.close()
+                nb_id = int(row[0]) if row else None
+            except Exception:
+                nb_id = None
+            try:
+                if nb_id is not None:
+                    from ui_tabs import ensure_left_tree_sections
+                    ensure_left_tree_sections(window, nb_id, select_section_id=int(section_id))
+            except Exception:
+                pass
+            # Set current context and load the new page into the editor
+            try:
+                window._current_section_id = int(section_id)
+                if not hasattr(window, '_current_page_by_section'):
+                    window._current_page_by_section = {}
+                window._current_page_by_section[int(section_id)] = int(pid)
+            except Exception:
+                pass
+            try:
+                from ui_tabs import _load_page_two_column, _select_left_tree_page
+                _load_page_two_column(window, int(pid))
+                # Ensure left tree selects the new page and section remains expanded
+                _select_left_tree_page(window, int(section_id), int(pid))
+            except Exception:
+                pass
+            # Persist last state
+            try:
+                set_last_state(section_id=int(section_id), page_id=pid)
+            except Exception:
+                pass
+            return
+    except Exception:
+        pass
+    # Legacy tabs: persist and restore selection via tab logic
     set_last_state(section_id=int(section_id), page_id=pid)
     restore_last_position(window)
 
 def _current_page_context(window):
-    """Return (section_id, page_id) for the current tab/page if available."""
+    """Return (section_id, page_id) for the currently active context.
+
+    - In two-column UI: use window._current_section_id and window._current_page_by_section
+      and fall back to the left tree current selection if needed.
+    - In tabbed UI: use the current tab's section and tracked page id.
+    """
+    try:
+        from ui_tabs import _is_two_column_ui
+        if _is_two_column_ui(window):
+            sid = getattr(window, '_current_section_id', None)
+            pid = None
+            try:
+                if sid is not None:
+                    pid = getattr(window, '_current_page_by_section', {}).get(int(sid))
+            except Exception:
+                pid = getattr(window, '_current_page_by_section', {}).get(sid)
+            if pid is None:
+                # Try left tree selection
+                tree = window.findChild(QtWidgets.QTreeWidget, 'notebookName')
+                cur = tree.currentItem() if tree is not None else None
+                if cur is not None:
+                    kind = cur.data(0, 1001)
+                    if kind == 'page':
+                        pid = cur.data(0, 1000)
+                        sid = cur.data(0, 1002)
+                    elif kind == 'section' and sid is None:
+                        sid = cur.data(0, 1000)
+            return sid, pid
+    except Exception:
+        pass
+
+    # Legacy tabs path
     tab_widget = window.findChild(QtWidgets.QTabWidget, 'tabPages')
     if not tab_widget or tab_widget.count() == 0:
         return None, None
@@ -1037,10 +1136,53 @@ def main():
                     return
                 db_path = getattr(window, '_db_path', None) or get_last_db() or 'notes.db'
                 db_delete_page(int(page_id), db_path)
-                # Refresh current section
-                nb_id = getattr(window, '_current_notebook_id', None)
-                if nb_id is not None:
-                    refresh_for_notebook(window, int(nb_id), select_section_id=int(section_id))
+                # Refresh UI
+                try:
+                    from ui_tabs import _is_two_column_ui
+                    if _is_two_column_ui(window):
+                        # If we deleted the active page for this section, clear mapping
+                        try:
+                            sid_int = int(section_id) if section_id is not None else None
+                            if sid_int is not None:
+                                cur_pid = getattr(window, '_current_page_by_section', {}).get(sid_int)
+                                if cur_pid == int(page_id):
+                                    window._current_page_by_section[sid_int] = None
+                        except Exception:
+                            pass
+                        # Refresh left tree children for this section's notebook and load first page
+                        try:
+                            # Determine notebook id for this section
+                            import sqlite3
+                            con = sqlite3.connect(db_path)
+                            cur = con.cursor()
+                            cur.execute("SELECT notebook_id FROM sections WHERE id = ?", (int(section_id),))
+                            row = cur.fetchone()
+                            con.close()
+                            nb_id = int(row[0]) if row else getattr(window, '_current_notebook_id', None)
+                        except Exception:
+                            nb_id = getattr(window, '_current_notebook_id', None)
+                        if nb_id is not None:
+                            ensure_left_tree_sections(window, int(nb_id), select_section_id=int(section_id))
+                        try:
+                            from ui_tabs import _load_first_page_two_column
+                            # Ensure section context and load first page (or clear)
+                            try:
+                                window._current_section_id = int(section_id)
+                            except Exception:
+                                window._current_section_id = section_id
+                            _load_first_page_two_column(window)
+                        except Exception:
+                            pass
+                    else:
+                        # Legacy tabs: rebuild panes for current notebook
+                        nb_id = getattr(window, '_current_notebook_id', None)
+                        if nb_id is not None:
+                            refresh_for_notebook(window, int(nb_id), select_section_id=int(section_id))
+                except Exception:
+                    # Fallback to legacy refresh
+                    nb_id = getattr(window, '_current_notebook_id', None)
+                    if nb_id is not None:
+                        refresh_for_notebook(window, int(nb_id), select_section_id=int(section_id))
             except Exception:
                 pass
         act_del_page.triggered.connect(_del_page_from_menu)
@@ -1052,15 +1194,59 @@ def main():
                 if page_id is None:
                     QtWidgets.QMessageBox.information(window, "Rename Page", "Please select a page to rename.")
                     return
-                # Current title from right view/tab is non-trivial; just prompt empty
-                new_title, ok = QtWidgets.QInputDialog.getText(window, "Rename Page", "New title:", text="")
+                # Prefill current title
+                try:
+                    from db_pages import get_page_by_id as db_get_page_by_id
+                    row = db_get_page_by_id(int(page_id), getattr(window, '_db_path', None) or get_last_db() or 'notes.db')
+                    current_title = str(row[2]) if row else ""
+                except Exception:
+                    current_title = ""
+                new_title, ok = QtWidgets.QInputDialog.getText(window, "Rename Page", "New title:", text=current_title)
                 if not ok or not new_title.strip():
                     return
                 db_path = getattr(window, '_db_path', None) or get_last_db() or 'notes.db'
                 db_update_page_title(int(page_id), new_title.strip(), db_path)
+                # Reflect in UI: update title field (2-col) and left tree label
+                try:
+                    from ui_tabs import _is_two_column_ui
+                    if _is_two_column_ui(window):
+                        try:
+                            title_le = window.findChild(QtWidgets.QLineEdit, 'pageTitleEdit')
+                            if title_le is not None:
+                                title_le.blockSignals(True)
+                                title_le.setText(new_title.strip())
+                                title_le.blockSignals(False)
+                        except Exception:
+                            pass
+                        try:
+                            # Update left tree item text without full rebuild
+                            from ui_tabs import _update_left_tree_page_title as _upd_left_title
+                            _upd_left_title(window, int(section_id), int(page_id), new_title.strip())
+                        except Exception:
+                            # Fallback: refresh left tree for section's notebook
+                            try:
+                                from ui_tabs import ensure_left_tree_sections
+                                # Lookup notebook id for section to refresh children
+                                import sqlite3
+                                con = sqlite3.connect(db_path)
+                                cur = con.cursor()
+                                cur.execute("SELECT notebook_id FROM sections WHERE id = ?", (int(section_id),))
+                                row = cur.fetchone()
+                                con.close()
+                                nb_id = int(row[0]) if row else None
+                            except Exception:
+                                nb_id = getattr(window, '_current_notebook_id', None)
+                            if nb_id is not None:
+                                ensure_left_tree_sections(window, int(nb_id), select_section_id=int(section_id))
+                except Exception:
+                    pass
+                # Legacy/tabbed: refresh right/left as before
                 nb_id = getattr(window, '_current_notebook_id', None)
                 if nb_id is not None:
-                    refresh_for_notebook(window, int(nb_id), select_section_id=int(section_id))
+                    try:
+                        refresh_for_notebook(window, int(nb_id), select_section_id=int(section_id))
+                    except Exception:
+                        pass
             except Exception:
                 pass
         act_ren_page.triggered.connect(_ren_page_from_menu)
