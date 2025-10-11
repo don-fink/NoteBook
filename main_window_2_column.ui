@@ -136,6 +136,8 @@
     <addaction name="actionDelete_Page"/>
     <addaction name="actionRename_Page"/>
     <addaction name="separator"/>
+    <addaction name="actionPlanning_Register"/>
+    <addaction name="separator"/>
     <addaction name="actionInsert_Attachment"/>
    </widget>
    <widget class="QMenu" name="menuView">
@@ -297,6 +299,11 @@
     <string>Insert Attachment…</string>
    </property>
   </action>
+    <action name="actionPlanning_Register">
+     <property name="text">
+        <string>Planning Register</string>
+     </property>
+    </action>
   <action name="actionRich_Text_Tools">
    <property name="text">
     <string>Rich Text Tools</string>

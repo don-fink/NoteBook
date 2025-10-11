@@ -305,3 +305,71 @@ def set_theme_name(name: str):
     s = load_settings()
     s["theme_name"] = name
     save_settings(s)
+
+
+# --- Table presets (store table formats for reuse) ---
+def get_table_presets() -> dict:
+    """Return a dict mapping preset name -> preset data dict.
+
+    Schema for preset data (subject to evolution):
+    {
+      "columns": int,
+      "rows": int,
+      "width_pct": float,
+      "border": float,
+      "cell_padding": float,
+      "cell_spacing": float,
+      "column_widths_pct": [float,...],
+      "header_row_count": int,
+      "headers": [str,...]
+    }
+    """
+    s = load_settings()
+    presets = s.get("table_presets")
+    if isinstance(presets, dict):
+        return presets
+    # Attempt to read legacy key if present (user mentioned "Table Presets").
+    legacy = s.get("Table Presets")
+    if isinstance(legacy, dict):
+        return legacy
+    return {}
+
+
+def save_table_preset(name: str, data: dict):
+    if not isinstance(name, str) or not name.strip() or not isinstance(data, dict):
+        return
+    s = load_settings()
+    presets = s.get("table_presets")
+    if not isinstance(presets, dict):
+        presets = {}
+    presets[name.strip()] = data
+    s["table_presets"] = presets
+    save_settings(s)
+
+
+def delete_table_preset(name: str):
+    if not isinstance(name, str) or not name:
+        return
+    s = load_settings()
+    presets = s.get("table_presets")
+    if isinstance(presets, dict) and name in presets:
+        del presets[name]
+        s["table_presets"] = presets
+        save_settings(s)
+
+
+def rename_table_preset(old_name: str, new_name: str):
+    if not old_name or not new_name or old_name == new_name:
+        return
+    s = load_settings()
+    presets = s.get("table_presets")
+    if not isinstance(presets, dict):
+        return
+    if old_name in presets:
+        presets[new_name] = presets.pop(old_name)
+        s["table_presets"] = presets
+        save_settings(s)
+
+
+def list_table_preset_names() -> list:
+    return list(get_table_presets().keys())

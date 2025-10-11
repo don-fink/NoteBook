@@ -1,10 +1,10 @@
 {
   "last_db": "C:/Python Projects/NoteBook/notes.db",
   "window_geometry": {
-    "x": 283,
-    "y": 202,
-    "w": 2245,
-    "h": 1442
+    "x": 405,
+    "y": 212,
+    "w": 2246,
+    "h": 1443
   },
   "window_maximized": false,
   "expanded_notebooks": [],
@@ -190,7 +190,7 @@
   },
   "splitter_sizes": [
     506,
-    1703
+    1704
   ],
   "list_scheme_ordered": "classic",
   "default_paste_mode": "match-style",
@@ -199,6 +199,25 @@
   "databases_root": "C:\\Python Projects\\NoteBook",
   "theme_name": "Default",
   "last_notebook_id": 34,
-  "last_section_id": 64,
-  "last_page_id": 34
+  "last_section_id": 52,
+  "last_page_id": 31,
+  "table_presets": {
+    "First Planner": {
+      "columns": 2,
+      "rows": 1,
+      "width_pct": 100.0,
+      "border": 1.0,
+      "cell_padding": 4.0,
+      "cell_spacing": 3.0,
+      "column_widths_pct": [
+        50.0,
+        50.0
+      ],
+      "header_row_count": 0,
+      "headers": [
+        "\ufdd0Description\ufdd0Estimated Cost\ufdd0Actual Cost\ufdd0\ufdd0\ufdd0\ufdd0\ufdd0\ufdd0\ufdd0\ufdd0\ufdd0\ufdd0\ufdd0\ufdd0\ufdd0\ufdd0\ufdd0\ufdd0Total\ufdd0$0.00\ufdd0$0.00\ufdd1",
+        ""
+      ]
+    }
+  }
 }

@@ -170,6 +170,8 @@ QTabBar::tab:hover:!selected {
     <addaction name="actionDelete_Page"/>
     <addaction name="actionRename_Page"/>
     <addaction name="separator"/>
+  <addaction name="actionPlanning_Register"/>
+  <addaction name="separator"/>
     <addaction name="actionInsert_Attachment"/>
    </widget>
    <widget class="QMenu" name="menuView">
@@ -329,6 +331,11 @@ QTabBar::tab:hover:!selected {
   <action name="actionInsert_Attachment">
    <property name="text">
     <string>Insert Attachment…</string>
+   </property>
+  </action>
+  <action name="actionPlanning_Register">
+   <property name="text">
+    <string>Planning Register</string>
    </property>
   </action>
   <action name="actionRich_Text_Tools">

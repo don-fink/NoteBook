@@ -7,6 +7,7 @@ Insert image, Horizontal rule.
 """
 
 from PyQt5 import QtWidgets
+import re
 from PyQt5.QtCore import QEvent, QObject, QPoint, QRect, QSize, Qt, QUrl
 from PyQt5.QtGui import (
     QColor,
@@ -22,6 +23,8 @@ from PyQt5.QtGui import (
     QTextCursor,
     QTextList,
     QTextListFormat,
+    QTextLength,
+    QTextTableFormat,
 )
 
 
@@ -887,6 +890,91 @@ def _current_table(text_edit: QtWidgets.QTextEdit):
         return None
 
 
+def insert_table_from_preset(text_edit: QtWidgets.QTextEdit, preset_name: str, fit_width_100: bool = True):
+    """Insert a table defined by a saved preset at the current cursor position.
+
+    fit_width_100: If True, force table width to 100%% regardless of the preset's saved width.
+    """
+    if text_edit is None or not isinstance(preset_name, str) or not preset_name.strip():
+        return
+    try:
+        from settings_manager import get_table_presets
+
+        presets = get_table_presets()
+        data = presets.get(preset_name)
+    except Exception:
+        data = None
+    if not isinstance(data, dict):
+        try:
+            QtWidgets.QMessageBox.information(
+                text_edit, "Insert Preset", f"Preset '{preset_name}' not found."
+            )
+        except Exception:
+            pass
+        return
+    rows = max(1, int(data.get("rows", 3)))
+    cols = max(1, int(data.get("columns", 3)))
+    fmt = QTextTableFormat()
+    try:
+        fmt.setBorder(float(data.get("border", 1.0)))
+        fmt.setCellPadding(float(data.get("cell_padding", 2.0)))
+        fmt.setCellSpacing(float(data.get("cell_spacing", 0.0)))
+    except Exception:
+        pass
+    width_pct = float(data.get("width_pct", 100.0))
+    try:
+        fmt.setWidth(QTextLength(QTextLength.PercentageLength, 100.0 if fit_width_100 else width_pct))
+    except Exception:
+        pass
+    # Column widths (percentages)
+    col_widths = data.get("column_widths_pct") or []
+    try:
+        if isinstance(col_widths, (list, tuple)) and len(col_widths) == cols:
+            fmt.setColumnWidthConstraints(
+                [QTextLength(QTextLength.PercentageLength, float(p)) for p in col_widths]
+            )
+        else:
+            frac = 100.0 / float(cols)
+            fmt.setColumnWidthConstraints(
+                [QTextLength(QTextLength.PercentageLength, frac) for _ in range(cols)]
+            )
+    except Exception:
+        pass
+    # Header row count if provided
+    try:
+        hrc = int(data.get("header_row_count", 0))
+        if hrc > 0:
+            fmt.setHeaderRowCount(hrc)
+    except Exception:
+        pass
+    cur = text_edit.textCursor()
+    table = cur.insertTable(rows, cols, fmt)
+    # Populate headers if available
+    headers = data.get("headers") or []
+    if isinstance(headers, (list, tuple)) and headers:
+        row0 = 0
+        # Apply bold + light gray background to the header row
+        header_fmt = QTextCharFormat()
+        header_fmt.setFontWeight(QFont.Bold)
+        try:
+            bg = QColor(245, 245, 245)
+        except Exception:
+            bg = None
+        for c in range(min(cols, len(headers))):
+            cell = table.cellAt(row0, c)
+            if bg is not None:
+                cf = cell.format()
+                cf.setBackground(bg)
+                cell.setFormat(cf)
+            tcur = cell.firstCursorPosition()
+            tcur.mergeCharFormat(header_fmt)
+            try:
+                tcur.insertText(str(headers[c]))
+            except Exception:
+                pass
+    return table
+
+
 def _table_insert_or_edit(text_edit: QtWidgets.QTextEdit):
     tbl = _current_table(text_edit)
     if tbl is None:
@@ -1106,6 +1194,21 @@ class _TableContextMenu(QObject):
                 act_paste = menu.addAction("Paste")
                 sub_ins = menu.addMenu("Insert")
                 act_ins_table = sub_ins.addAction("Table…")
+                # Insert Preset submenu
+                sub_preset = menu.addMenu("Insert Preset")
+                try:
+                    from settings_manager import list_table_preset_names
+
+                    names = list_table_preset_names()
+                except Exception:
+                    names = []
+                _preset_actions = {}
+                if names:
+                    for nm in names:
+                        a = sub_preset.addAction(nm)
+                        _preset_actions[a] = nm
+                else:
+                    sub_preset.setEnabled(False)
                 chosen = menu.exec_(global_pos)
                 if chosen is None:
                     return True
@@ -1140,6 +1243,10 @@ class _TableContextMenu(QObject):
                 if chosen == act_ins_table:
                     _table_insert_dialog(self._edit)
                     return True
+                if chosen in _preset_actions:
+                    # Insert selected preset at cursor, force 100% width per user preference
+                    insert_table_from_preset(self._edit, _preset_actions[chosen], fit_width_100=True)
+                    return True
                 return True
             # Otherwise, build the full table menu
             menu = QtWidgets.QMenu(self._edit)
@@ -1148,6 +1255,25 @@ class _TableContextMenu(QObject):
             act_fit = menu.addAction("Fit Table to Width")
             act_dist = menu.addAction("Distribute Columns Evenly")
             act_set_col = menu.addAction("Set Current Column Width…")
+            menu.addSeparator()
+            act_save_preset = menu.addAction("Save Table as Preset…")
+            # Insert Preset submenu while inside a table
+            sub_insert_preset = menu.addMenu("Insert Preset")
+            try:
+                from settings_manager import list_table_preset_names
+
+                names = list_table_preset_names()
+            except Exception:
+                names = []
+            _ins_preset_actions = {}
+            if names:
+                for nm in names:
+                    a = sub_insert_preset.addAction(nm)
+                    _ins_preset_actions[a] = nm
+            else:
+                sub_insert_preset.setEnabled(False)
+            menu.addSeparator()
+            act_recalc = menu.addAction("Recalculate Formulas (SUM)")
             menu.addSeparator()
             # Determine multi-cell selection rectangle (within chosen table)
             sel_rect = _table_selection_rect(self._edit, tbl)
@@ -1195,6 +1321,66 @@ class _TableContextMenu(QObject):
                 except Exception:
                     pass
                 _table_set_current_column_width(self._edit, tbl)
+            elif chosen == act_save_preset and has_tbl:
+                try:
+                    name, ok = QtWidgets.QInputDialog.getText(
+                        self._edit, "Save Table Preset", "Preset name:", text="My Table"
+                    )
+                except Exception:
+                    ok = False
+                    name = None
+                if ok and name and name.strip():
+                    # Capture table structure and headers
+                    fmt = tbl.format()
+                    try:
+                        wlen = fmt.width()
+                        width_pct = (
+                            (wlen.rawValue() if hasattr(wlen, "rawValue") else wlen.value())
+                            if (hasattr(wlen, "type") and wlen.type() == wlen.PercentageLength)
+                            else 100.0
+                        )
+                    except Exception:
+                        width_pct = 100.0
+                    try:
+                        constraints = list(fmt.columnWidthConstraints()) or []
+                        col_widths = [
+                            (c.rawValue() if hasattr(c, "rawValue") else c.value()) for c in constraints
+                        ] if constraints else []
+                    except Exception:
+                        col_widths = []
+                    rows = tbl.rows()
+                    cols = tbl.columns()
+                    headers = []
+                    try:
+                        for c in range(cols):
+                            headers.append(_table_cell_plain_text(tbl, 0, c).strip())
+                    except Exception:
+                        headers = []
+                    preset = {
+                        "columns": int(cols),
+                        "rows": int(rows),
+                        "width_pct": float(width_pct),
+                        "border": float(fmt.border()),
+                        "cell_padding": float(fmt.cellPadding()),
+                        "cell_spacing": float(fmt.cellSpacing()),
+                        "column_widths_pct": col_widths,
+                        "header_row_count": int(fmt.headerRowCount() if hasattr(fmt, "headerRowCount") else 0),
+                        "headers": headers,
+                    }
+                    try:
+                        from settings_manager import save_table_preset
+
+                        save_table_preset(name.strip(), preset)
+                        QtWidgets.QToolTip.showText(global_pos, f"Saved preset '{name.strip()}'")
+                    except Exception:
+                        pass
+            elif chosen in _ins_preset_actions:
+                insert_table_from_preset(self._edit, _ins_preset_actions[chosen], fit_width_100=True)
+            elif chosen == act_recalc and has_tbl:
+                try:
+                    _table_recalculate_formulas(self._edit, tbl)
+                except Exception:
+                    pass
             elif has_tbl:
                 if chosen == act_row_above:
                     _table_insert_rows_from_selection(self._edit, tbl, sel_rect, above=True)
@@ -1425,6 +1611,122 @@ def _table_set_current_column_width(text_edit: QtWidgets.QTextEdit, table):
         constraints[col_idx] = QTextLength(QTextLength.PercentageLength, new_pct)
     fmt.setColumnWidthConstraints(constraints)
     table.setFormat(fmt)
+
+
+# ----------------------------- Table formulas (SUM) -----------------------------
+def _letters_to_index(letters: str) -> int:
+    """Convert spreadsheet-like column letters (A, B, ... Z, AA, AB, ...) to 0-based index."""
+    s = (letters or "").strip().upper()
+    if not s or not s.isalpha():
+        return -1
+    idx = 0
+    for ch in s:
+        idx = idx * 26 + (ord(ch) - ord('A') + 1)
+    return idx - 1
+
+
+def _parse_cell_address(addr: str):
+    """Parse like A1 -> (row_idx, col_idx) 0-based. Returns (r, c) or (None, None) if invalid."""
+    if not isinstance(addr, str):
+        return None, None
+    m = re.match(r"^\s*([A-Za-z]+)(\d+)\s*$", addr)
+    if not m:
+        return None, None
+    letters, row_str = m.group(1), m.group(2)
+    col = _letters_to_index(letters)
+    try:
+        row = int(row_str) - 1
+    except Exception:
+        row = -1
+    if row < 0 or col < 0:
+        return None, None
+    return row, col
+
+
+def _table_cell_plain_text(table, row: int, col: int) -> str:
+    try:
+        cell = table.cellAt(row, col)
+        if not cell.isValid():
+            return ""
+        c = cell.firstCursorPosition()
+        # select to last
+        last = cell.lastCursorPosition()
+        c.setPosition(last.position(), QTextCursor.KeepAnchor)
+        return c.selectedText()
+    except Exception:
+        return ""
+
+
+def _table_set_cell_plain_text(text_edit: QtWidgets.QTextEdit, table, row: int, col: int, text: str):
+    try:
+        cell = table.cellAt(row, col)
+        if not cell.isValid():
+            return
+        c = cell.firstCursorPosition()
+        last = cell.lastCursorPosition()
+        c.beginEditBlock()
+        try:
+            c.setPosition(last.position(), QTextCursor.KeepAnchor)
+            try:
+                c.removeSelectedText()
+            except Exception:
+                pass
+            c.insertText(str(text))
+        finally:
+            c.endEditBlock()
+    except Exception:
+        pass
+
+
+def _sum_range_in_table(table, start_addr: str, end_addr: str) -> float:
+    r0, c0 = _parse_cell_address(start_addr)
+    r1, c1 = _parse_cell_address(end_addr)
+    if r0 is None or c0 is None or r1 is None or c1 is None:
+        return 0.0
+    r0, r1 = min(r0, r1), max(r0, r1)
+    c0, c1 = min(c0, c1), max(c0, c1)
+    total = 0.0
+    for r in range(r0, r1 + 1):
+        for c in range(c0, c1 + 1):
+            txt = _table_cell_plain_text(table, r, c).strip()
+            # If a referenced cell contains a formula, ignore it during SUM
+            if txt.startswith("="):
+                continue
+            # Try parsing as float, permissive of commas
+            try:
+                num = float(txt.replace(",", "")) if txt else 0.0
+                total += num
+            except Exception:
+                # ignore non-numeric
+                pass
+    return total
+
+
+_SUM_RE = re.compile(r"^\s*=\s*SUM\(\s*([A-Za-z]+\d+)\s*:\s*([A-Za-z]+\d+)\s*\)\s*$")
+
+
+def _table_recalculate_formulas(text_edit: QtWidgets.QTextEdit, table):
+    """Scan table for cells that contain '=SUM(A1:B10)' (case-insensitive) and replace with the computed sum.
+    Note: formulas are not persisted to storage; this is an in-session convenience feature.
+    """
+    try:
+        rows = table.rows()
+        cols = table.columns()
+        for r in range(rows):
+            for c in range(cols):
+                raw = _table_cell_plain_text(table, r, c)
+                if not raw:
+                    continue
+                m = _SUM_RE.match(raw)
+                if not m:
+                    continue
+                start_addr, end_addr = m.group(1), m.group(2)
+                val = _sum_range_in_table(table, start_addr, end_addr)
+                # Format without trailing .0 for integers
+                out = ("%d" % int(val)) if abs(val - int(val)) < 1e-9 else ("%s" % val)
+                _table_set_cell_plain_text(text_edit, table, r, c, out)
+    except Exception:
+        pass
 
 
 def _apply_selection_colors(text_edit: QtWidgets.QTextEdit, bg: QColor, fg: QColor):
