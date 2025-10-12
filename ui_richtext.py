@@ -665,22 +665,30 @@ def sanitize_html_for_storage(raw_html: str) -> str:
             buffered_style = None
             for k, v in attrs:
                 lk = k.lower()
-                if lk in ("class", "bgcolor", "color", "face", "size"):
+                if lk in ("class", "color", "face", "size"):
+                    continue
+                if lk == "bgcolor":
+                    # Preserve bgcolor on table elements to retain shading
+                    if tag_l in ("td", "th", "tr"):
+                        allowed.append((k, v))
                     continue
                 if lk == "style":
-                    # Keep only Qt list-related declarations to preserve indent/numbering across reloads
-                    # Also keep paragraph left margin to support Tab/Shift+Tab indent for plain text
-                    if tag_l in ("ol", "ul", "li", "p"):
+                    # Keep only safe styles:
+                    # - list-related (-qt-list-*, -qt-paragraph-type)
+                    # - paragraph margin-left and text-align
+                    # - table cell/row background-color and text-align
+                    if tag_l in ("ol", "ul", "li", "p", "td", "th", "tr"):
                         try:
                             decls = [d.strip() for d in str(v).split(";") if d.strip()]
                             kept = []
                             for d in decls:
-                                key = d.split(":", 1)[0].strip().lower()
-                                if (
-                                    key.startswith("-qt-list-")
-                                    or key == "-qt-paragraph-type"
-                                    or (tag_l == "p" and key in ("margin-left",))
-                                ):
+                                parts = d.split(":", 1)
+                                key = parts[0].strip().lower() if len(parts) == 2 else ""
+                                if key.startswith("-qt-list-") or key == "-qt-paragraph-type":
+                                    kept.append(d)
+                                elif tag_l == "p" and key in ("margin-left", "text-align"):
+                                    kept.append(d)
+                                elif tag_l in ("td", "th", "tr") and key in ("background", "background-color", "text-align"):
                                     kept.append(d)
                             if kept:
                                 buffered_style = "; ".join(kept)
@@ -709,6 +717,8 @@ def sanitize_html_for_storage(raw_html: str) -> str:
                     "border",
                 ) and tag_l in ("table", "td", "th", "tr"):
                     allowed.append((k, v))
+                elif tag_l in ("td", "th") and lk in ("colspan", "rowspan", "align", "valign"):
+                    allowed.append((k, v))
                 # drop everything else
             if buffered_style:
                 allowed.append(("style", buffered_style))
@@ -732,20 +742,25 @@ def sanitize_html_for_storage(raw_html: str) -> str:
             buffered_style = None
             for k, v in attrs:
                 lk = k.lower()
-                if lk in ("class", "bgcolor", "color", "face", "size"):
+                if lk in ("class", "color", "face", "size"):
+                    continue
+                if lk == "bgcolor":
+                    if tag_l in ("td", "th", "tr"):
+                        allowed.append((k, v))
                     continue
                 if lk == "style":
-                    if tag_l in ("ol", "ul", "li", "p"):
+                    if tag_l in ("ol", "ul", "li", "p", "td", "th", "tr"):
                         try:
                             decls = [d.strip() for d in str(v).split(";") if d.strip()]
                             kept = []
                             for d in decls:
-                                key = d.split(":", 1)[0].strip().lower()
-                                if (
-                                    key.startswith("-qt-list-")
-                                    or key == "-qt-paragraph-type"
-                                    or (tag_l == "p" and key in ("margin-left",))
-                                ):
+                                parts = d.split(":", 1)
+                                key = parts[0].strip().lower() if len(parts) == 2 else ""
+                                if key.startswith("-qt-list-") or key == "-qt-paragraph-type":
+                                    kept.append(d)
+                                elif tag_l == "p" and key in ("margin-left", "text-align"):
+                                    kept.append(d)
+                                elif tag_l in ("td", "th", "tr") and key in ("background", "background-color", "text-align"):
                                     kept.append(d)
                             if kept:
                                 buffered_style = "; ".join(kept)
@@ -753,6 +768,8 @@ def sanitize_html_for_storage(raw_html: str) -> str:
                             pass
                     continue
                 if tag_l == "img" and lk in ("src", "alt", "title"):
+                    allowed.append((k, v))
+                elif tag_l in ("td", "th") and lk in ("colspan", "rowspan", "align", "valign"):
                     allowed.append((k, v))
             if buffered_style:
                 allowed.append(("style", buffered_style))
@@ -893,7 +910,13 @@ def _current_table(text_edit: QtWidgets.QTextEdit):
 def insert_table_from_preset(text_edit: QtWidgets.QTextEdit, preset_name: str, fit_width_100: bool = True):
     """Insert a table defined by a saved preset at the current cursor position.
 
-    fit_width_100: If True, force table width to 100%% regardless of the preset's saved width.
+    Supports two schemas:
+    - v2 (preferred): {"version": 2, "html": "<table>...</table>"}
+      Creates an outer 1x2 container (100% width), inserts the saved HTML into the left cell,
+      and inserts a blank 2-column Cost list into the right cell.
+    - legacy: structural fields (rows/columns/width/etc.). Inserts a single table as before.
+
+    fit_width_100: For legacy presets only, force table width to 100%% regardless of saved width.
     """
     if text_edit is None or not isinstance(preset_name, str) or not preset_name.strip():
         return
@@ -912,67 +935,281 @@ def insert_table_from_preset(text_edit: QtWidgets.QTextEdit, preset_name: str, f
         except Exception:
             pass
         return
-    rows = max(1, int(data.get("rows", 3)))
-    cols = max(1, int(data.get("columns", 3)))
-    fmt = QTextTableFormat()
-    try:
-        fmt.setBorder(float(data.get("border", 1.0)))
-        fmt.setCellPadding(float(data.get("cell_padding", 2.0)))
-        fmt.setCellSpacing(float(data.get("cell_spacing", 0.0)))
-    except Exception:
-        pass
-    width_pct = float(data.get("width_pct", 100.0))
-    try:
-        fmt.setWidth(QTextLength(QTextLength.PercentageLength, 100.0 if fit_width_100 else width_pct))
-    except Exception:
-        pass
-    # Column widths (percentages)
-    col_widths = data.get("column_widths_pct") or []
-    try:
-        if isinstance(col_widths, (list, tuple)) and len(col_widths) == cols:
-            fmt.setColumnWidthConstraints(
-                [QTextLength(QTextLength.PercentageLength, float(p)) for p in col_widths]
-            )
-        else:
-            frac = 100.0 / float(cols)
-            fmt.setColumnWidthConstraints(
-                [QTextLength(QTextLength.PercentageLength, frac) for _ in range(cols)]
-            )
-    except Exception:
-        pass
-    # Header row count if provided
-    try:
-        hrc = int(data.get("header_row_count", 0))
-        if hrc > 0:
-            fmt.setHeaderRowCount(hrc)
-    except Exception:
-        pass
-    cur = text_edit.textCursor()
-    table = cur.insertTable(rows, cols, fmt)
-    # Populate headers if available
-    headers = data.get("headers") or []
-    if isinstance(headers, (list, tuple)) and headers:
-        row0 = 0
-        # Apply bold + light gray background to the header row
-        header_fmt = QTextCharFormat()
-        header_fmt.setFontWeight(QFont.Bold)
-        try:
-            bg = QColor(245, 245, 245)
-        except Exception:
-            bg = None
-        for c in range(min(cols, len(headers))):
-            cell = table.cellAt(row0, c)
-            if bg is not None:
-                cf = cell.format()
-                cf.setBackground(bg)
-                cell.setFormat(cf)
-            tcur = cell.firstCursorPosition()
-            tcur.mergeCharFormat(header_fmt)
+
+    # v2 HTML-based preset path (now the only supported format)
+    html = data.get("html") if isinstance(data, dict) else None
+    if isinstance(html, str) and html.strip():
+        cur = text_edit.textCursor()
+        # If we're already inside an outer 1x2 container, reuse it to avoid nesting
+        reuse_outer = False
+        existing_table = cur.currentTable()
+        if existing_table is not None:
             try:
-                tcur.insertText(str(headers[c]))
+                if existing_table.rows() == 1 and existing_table.columns() == 2:
+                    reuse_outer = True
+                    outer = existing_table
+                else:
+                    reuse_outer = False
+            except Exception:
+                reuse_outer = False
+
+        if not reuse_outer:
+            # Build outer 1x2 container at 100% width
+            outer_fmt = QTextTableFormat()
+            outer_fmt.setCellPadding(4)
+            outer_fmt.setCellSpacing(3)
+            outer_fmt.setBorder(1.0)
+            try:
+                outer_fmt.setWidth(QTextLength(QTextLength.PercentageLength, 100.0))
+                outer_fmt.setColumnWidthConstraints(
+                    [
+                        QTextLength(QTextLength.PercentageLength, 50.0),
+                        QTextLength(QTextLength.PercentageLength, 50.0),
+                    ]
+                )
             except Exception:
                 pass
-    return table
+            outer = cur.insertTable(1, 2, outer_fmt)
+        else:
+            # Ensure the existing container is full width with 50/50 columns
+            try:
+                fmt = outer.format()
+                fmt.setWidth(QTextLength(QTextLength.PercentageLength, 100.0))
+                fmt.setColumnWidthConstraints(
+                    [
+                        QTextLength(QTextLength.PercentageLength, 50.0),
+                        QTextLength(QTextLength.PercentageLength, 50.0),
+                    ]
+                )
+                outer.setFormat(fmt)
+            except Exception:
+                pass
+
+        # Insert saved HTML into the left cell
+        try:
+            left_cur = outer.cellAt(0, 0).firstCursorPosition()
+            left_cur.insertHtml(html)
+            # Ensure the inserted left table fills the cell and uses 50/25/25 columns
+            try:
+                from PyQt5.QtGui import QTextLength
+                from ui_planning_register import _is_planning_register_table
+
+                # Find first table inside the left cell range
+                left_cell = outer.cellAt(0, 0)
+                s_pos = left_cell.firstCursorPosition().position()
+                e_pos = left_cell.lastCursorPosition().position()
+                scan = QTextCursor(text_edit.document())
+                scan.setPosition(s_pos)
+                found_tbl = None
+                iters = 0
+                while scan.position() < e_pos and iters < 20000:
+                    t = scan.currentTable()
+                    if t is not None:
+                        found_tbl = t
+                        break
+                    scan.movePosition(QTextCursor.NextCharacter)
+                    iters += 1
+                if found_tbl is not None and _is_planning_register_table(text_edit, found_tbl):
+                    fmt = found_tbl.format()
+                    fmt.setWidth(QTextLength(QTextLength.PercentageLength, 100.0))
+                    fmt.setColumnWidthConstraints(
+                        [
+                            QTextLength(QTextLength.PercentageLength, 50.0),
+                            QTextLength(QTextLength.PercentageLength, 25.0),
+                            QTextLength(QTextLength.PercentageLength, 25.0),
+                        ]
+                    )
+                    found_tbl.setFormat(fmt)
+            except Exception:
+                pass
+        except Exception:
+            pass
+
+        # Insert blank right-side Costs table
+        try:
+            from ui_planning_register import (
+                _insert_right_cost_table_in_cursor,
+                ensure_planning_register_watcher,
+                refresh_planning_register_styles,
+                _is_planning_register_table,
+                _recalc_planning_totals,
+                _is_cost_list_table,
+            )
+
+            right_cell = outer.cellAt(0, 1)
+            right_cur = right_cell.firstCursorPosition()
+            # Scan the right cell for an inner table; only insert if a cost list table is not present
+            s_pos = right_cell.firstCursorPosition().position()
+            e_pos = right_cell.lastCursorPosition().position()
+            scan = QTextCursor(text_edit.document())
+            scan.setPosition(s_pos)
+            found_inner = None
+            iters = 0
+            while scan.position() < e_pos and iters < 20000:
+                t = scan.currentTable()
+                if t is not None:
+                    found_inner = t
+                    break
+                scan.movePosition(QTextCursor.NextCharacter)
+                iters += 1
+            if not (found_inner is not None and _is_cost_list_table(text_edit, found_inner)):
+                _insert_right_cost_table_in_cursor(right_cur)
+            # Ensure watcher active so cost formatting applies immediately
+            ensure_planning_register_watcher(text_edit)
+            # Reapply planning register visuals (header/totals shading, right alignment)
+            try:
+                refresh_planning_register_styles(text_edit)
+            except Exception:
+                pass
+            # If left table is a planning register, ensure totals are correct now
+            try:
+                # Find the first table in the left cell and recalc if it matches
+                left_tbl = left_cur.currentTable()
+                if left_tbl is not None and _is_planning_register_table(text_edit, left_tbl):
+                    _recalc_planning_totals(text_edit, left_tbl)
+            except Exception:
+                pass
+        except Exception:
+            pass
+
+        # Place caret at end of right cell content
+        try:
+            after_right = outer.cellAt(0, 1).lastCursorPosition()
+            text_edit.setTextCursor(after_right)
+        except Exception:
+            pass
+        return outer
+    # No HTML present -> preset unsupported
+    try:
+        QtWidgets.QMessageBox.information(
+            text_edit,
+            "Insert Preset",
+            "This preset is from an older version and doesn't include table HTML. Please re-save it.",
+        )
+    except Exception:
+        pass
+    return None
+
+
+def choose_and_insert_preset(text_edit: QtWidgets.QTextEdit, fit_width_100: bool = True):
+    """Prompt for a preset name and insert it into the editor at the cursor."""
+    if text_edit is None:
+        return
+    try:
+        from settings_manager import list_table_preset_names
+
+        names = list_table_preset_names()
+    except Exception:
+        names = []
+    if not names:
+        try:
+            QtWidgets.QMessageBox.information(text_edit, "Insert Preset", "No presets saved yet.")
+        except Exception:
+            pass
+        return
+    try:
+        name, ok = QtWidgets.QInputDialog.getItem(
+            text_edit, "Insert Preset", "Preset:", names, 0, False
+        )
+    except Exception:
+        ok = False
+        name = None
+    if ok and name:
+        insert_table_from_preset(text_edit, name, fit_width_100=fit_width_100)
+
+
+def save_current_table_as_preset(text_edit: QtWidgets.QTextEdit):
+    """Capture the current table's full HTML and save as an HTML-based preset (v2).
+
+    The saved preset schema is: {"version": 2, "html": "<table>...</table>"}
+    Falls back to a friendly message if no table is selected.
+    """
+    if text_edit is None:
+        return
+    tbl = _current_table(text_edit)
+    if tbl is None:
+        try:
+            QtWidgets.QMessageBox.information(text_edit, "Save Table as Preset", "Place the caret inside a table first.")
+        except Exception:
+            pass
+        return
+    # If the user is in the outer 1x2 container, try to descend to the inner left table
+    try:
+        if tbl.rows() == 1 and tbl.columns() == 2:
+            # Search for the first table inside the left cell range
+            cell = tbl.cellAt(0, 0)
+            start = cell.firstCursorPosition().position()
+            end = cell.lastCursorPosition().position()
+
+            def _first_table_in_range(doc, s_pos, e_pos):
+                cur = QTextCursor(doc)
+                cur.setPosition(s_pos)
+                safe_iters = 0
+                while cur.position() < e_pos and safe_iters < 20000:
+                    t = cur.currentTable()
+                    if t is not None:
+                        return t
+                    # Move by character to enter table blocks reliably
+                    cur.movePosition(QTextCursor.NextCharacter)
+                    safe_iters += 1
+                return None
+
+            inner_tbl = _first_table_in_range(text_edit.document(), start, end)
+            if inner_tbl is not None:
+                tbl = inner_tbl
+    except Exception:
+        pass
+
+    try:
+        name, ok = QtWidgets.QInputDialog.getText(
+            text_edit, "Save Table Preset", "Preset name:", text="My Table"
+        )
+    except Exception:
+        ok = False
+        name = None
+    if not (ok and name and name.strip()):
+        return
+
+    # Extract HTML for just this table (not the whole document)
+    def _extract_table_fragment(html_text: str) -> str:
+        try:
+            low = html_text.lower()
+            start = low.find("<table")
+            if start < 0:
+                return html_text.strip()
+            end = low.rfind("</table>")
+            if end >= 0:
+                end += len("</table>")
+            else:
+                end = len(html_text)
+            return html_text[start:end].strip()
+        except Exception:
+            return html_text
+
+    try:
+        doc = text_edit.document()
+        cur = QTextCursor(doc)
+        cur.setPosition(tbl.firstPosition())
+        cur.setPosition(tbl.lastPosition(), QTextCursor.KeepAnchor)
+        raw_html = cur.selection().toHtml()
+        table_html = _extract_table_fragment(raw_html)
+    except Exception:
+        table_html = ""
+    if not table_html:
+        try:
+            QtWidgets.QMessageBox.information(text_edit, "Save Table as Preset", "Couldn't capture table HTML.")
+        except Exception:
+            pass
+        return
+
+    preset = {"version": 2, "html": table_html}
+    try:
+        from settings_manager import save_table_preset
+
+        save_table_preset(name.strip(), preset)
+        QtWidgets.QToolTip.showText(text_edit.mapToGlobal(text_edit.rect().center()), f"Saved preset '{name.strip()}'")
+    except Exception:
+        pass
 
 
 def _table_insert_or_edit(text_edit: QtWidgets.QTextEdit):
@@ -1322,58 +1559,11 @@ class _TableContextMenu(QObject):
                     pass
                 _table_set_current_column_width(self._edit, tbl)
             elif chosen == act_save_preset and has_tbl:
+                # Use the centralized HTML-based saver so data and styles are preserved
                 try:
-                    name, ok = QtWidgets.QInputDialog.getText(
-                        self._edit, "Save Table Preset", "Preset name:", text="My Table"
-                    )
+                    save_current_table_as_preset(self._edit)
                 except Exception:
-                    ok = False
-                    name = None
-                if ok and name and name.strip():
-                    # Capture table structure and headers
-                    fmt = tbl.format()
-                    try:
-                        wlen = fmt.width()
-                        width_pct = (
-                            (wlen.rawValue() if hasattr(wlen, "rawValue") else wlen.value())
-                            if (hasattr(wlen, "type") and wlen.type() == wlen.PercentageLength)
-                            else 100.0
-                        )
-                    except Exception:
-                        width_pct = 100.0
-                    try:
-                        constraints = list(fmt.columnWidthConstraints()) or []
-                        col_widths = [
-                            (c.rawValue() if hasattr(c, "rawValue") else c.value()) for c in constraints
-                        ] if constraints else []
-                    except Exception:
-                        col_widths = []
-                    rows = tbl.rows()
-                    cols = tbl.columns()
-                    headers = []
-                    try:
-                        for c in range(cols):
-                            headers.append(_table_cell_plain_text(tbl, 0, c).strip())
-                    except Exception:
-                        headers = []
-                    preset = {
-                        "columns": int(cols),
-                        "rows": int(rows),
-                        "width_pct": float(width_pct),
-                        "border": float(fmt.border()),
-                        "cell_padding": float(fmt.cellPadding()),
-                        "cell_spacing": float(fmt.cellSpacing()),
-                        "column_widths_pct": col_widths,
-                        "header_row_count": int(fmt.headerRowCount() if hasattr(fmt, "headerRowCount") else 0),
-                        "headers": headers,
-                    }
-                    try:
-                        from settings_manager import save_table_preset
-
-                        save_table_preset(name.strip(), preset)
-                        QtWidgets.QToolTip.showText(global_pos, f"Saved preset '{name.strip()}'")
-                    except Exception:
-                        pass
+                    pass
             elif chosen in _ins_preset_actions:
                 insert_table_from_preset(self._edit, _ins_preset_actions[chosen], fit_width_100=True)
             elif chosen == act_recalc and has_tbl:
@@ -1483,8 +1673,35 @@ def _table_insert_rows_from_selection(text_edit: QtWidgets.QTextEdit, table, rec
         r0, _c0, r1, _c1 = rect
         count = max(1, r1 - r0 + 1)
         base_row = r0 if above else (r1 + 1)
+    # Capture context about header/totals position before insert
+    try:
+        rows_before = table.rows()
+    except Exception:
+        rows_before = None
+    totals_before = (rows_before - 1) if rows_before is not None and rows_before > 0 else None
     try:
         table.insertRows(base_row, count)
+        # If inserting immediately before header (row 0) or immediately before previous totals row,
+        # clear background on the newly inserted rows so they appear as normal data rows.
+        if base_row == 0 or (totals_before is not None and base_row == totals_before):
+            try:
+                cols = table.columns()
+                for rr in range(base_row, base_row + count):
+                    for cc in range(cols):
+                        c = table.cellAt(rr, cc)
+                        if c.isValid():
+                            cf = c.format()
+                            try:
+                                # Clear background to transparent so the row looks like an interior data row
+                                cf.setBackground(QColor(0, 0, 0, 0))
+                            except Exception:
+                                try:
+                                    cf.setBackground(Qt.transparent)
+                                except Exception:
+                                    pass
+                            c.setFormat(cf)
+            except Exception:
+                pass
     except Exception:
         pass
 

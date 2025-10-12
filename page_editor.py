@@ -19,13 +19,20 @@ from typing import Optional
 from ui_tabs import (
     _cancel_autosave as cancel_autosave,  # noqa: F401
     _is_two_column_ui as is_two_column_ui,  # noqa: F401
-    _load_first_page_two_column as load_first_page_two_column,  # noqa: F401
-    _load_page_two_column as load_page_two_column,  # noqa: F401
+    _load_first_page_two_column as _ui_load_first_page_two_column,  # internal alias
+    _load_page_two_column as _ui_load_page_two_column,  # noqa: F401
     _save_title_two_column as save_title_two_column,  # noqa: F401
-    _set_page_edit_html as set_page_edit_html,  # noqa: F401
+    _set_page_edit_html as _ui_set_page_edit_html,  # noqa: F401
     save_current_page_two_column,  # noqa: F401
     save_current_page as _save_current_page_generic,
 )
+
+from PyQt5 import QtWidgets
+try:
+    from ui_planning_register import refresh_planning_register_styles
+except Exception:  # pragma: no cover - optional import guard
+    def refresh_planning_register_styles(_te):
+        return
 
 
 def save_current_page(window) -> None:
@@ -40,7 +47,37 @@ def save_current_page(window) -> None:
 def load_page(window, page_id: Optional[int] = None, html: Optional[str] = None) -> None:
     """Load a page into the editor in two‑pane mode. If page_id is None, clears the editor.
 
-    This is a convenience wrapper matching the future API we want to expose.
+    After loading, re-apply Planning Register styles (header/totals shading, numeric alignment).
     """
+    _ui_load_page_two_column(window, page_id=page_id, html=html)
+    try:
+        te = window.findChild(QtWidgets.QTextEdit, "pageEdit")
+        if te is not None:
+            refresh_planning_register_styles(te)
+    except Exception:
+        pass
 
-    load_page_two_column(window, page_id=page_id, html=html)
+
+def set_page_edit_html(window, html: Optional[str]) -> None:
+    """Set the editor HTML and apply Planning Register styles immediately after.
+
+    This function replaces direct calls into ui_tabs to avoid modifying ui_tabs further.
+    """
+    _ui_set_page_edit_html(window, html)
+    try:
+        te = window.findChild(QtWidgets.QTextEdit, "pageEdit")
+        if te is not None:
+            refresh_planning_register_styles(te)
+    except Exception:
+        pass
+
+
+def load_first_page_two_column(window) -> None:
+    """Load the first page for the current section in two‑pane mode and restyle PR tables."""
+    _ui_load_first_page_two_column(window)
+    try:
+        te = window.findChild(QtWidgets.QTextEdit, "pageEdit")
+        if te is not None:
+            refresh_planning_register_styles(te)
+    except Exception:
+        pass

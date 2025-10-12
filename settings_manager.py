@@ -311,27 +311,12 @@ def set_theme_name(name: str):
 def get_table_presets() -> dict:
     """Return a dict mapping preset name -> preset data dict.
 
-    Schema for preset data (subject to evolution):
-    {
-      "columns": int,
-      "rows": int,
-      "width_pct": float,
-      "border": float,
-      "cell_padding": float,
-      "cell_spacing": float,
-      "column_widths_pct": [float,...],
-      "header_row_count": int,
-      "headers": [str,...]
-    }
+    Supported schema: {"version": 2, "html": "<table>...</table>"}
     """
     s = load_settings()
     presets = s.get("table_presets")
     if isinstance(presets, dict):
         return presets
-    # Attempt to read legacy key if present (user mentioned "Table Presets").
-    legacy = s.get("Table Presets")
-    if isinstance(legacy, dict):
-        return legacy
     return {}
 
 

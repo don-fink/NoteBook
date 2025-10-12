@@ -91,6 +91,57 @@ def _insert_inner_table_in_cursor(cursor):
     return inner
 
 
+def _insert_right_cost_table_in_cursor(cursor):
+    """Insert a 2-column table with a shaded header row: headers 'Description' and 'Costs'.
+
+    Column widths ~70%/30%. Right column is right-aligned. No totals row.
+    """
+    fmt = QTextTableFormat()
+    fmt.setCellPadding(4)
+    fmt.setCellSpacing(2)
+    fmt.setBorder(0.8)
+    fmt.setHeaderRowCount(1)
+    fmt.setColumnWidthConstraints(
+        [
+            QTextLength(QTextLength.PercentageLength, 70.0),
+            QTextLength(QTextLength.PercentageLength, 30.0),
+        ]
+    )
+    table = cursor.insertTable(7, 2, fmt)
+
+    headers = ["Description", "Costs"]
+    header_fmt = QTextCharFormat()
+    header_fmt.setFontWeight(QFont.Bold)
+    header_bg = QBrush(QColor(245, 245, 245))
+
+    for col, label in enumerate(headers):
+        hcell = table.cellAt(0, col)
+        cfmt = hcell.format()
+        cfmt.setBackground(header_bg)
+        hcell.setFormat(cfmt)
+        hcur = hcell.firstCursorPosition()
+        hcur.mergeCharFormat(header_fmt)
+        hcur.insertText(label)
+        # Right-align numeric header for 'Costs'
+        if col == 1:
+            bfmt = QTextBlockFormat()
+            bfmt.setAlignment(Qt.AlignRight)
+            hcur = hcell.firstCursorPosition()
+            hcur.mergeBlockFormat(bfmt)
+
+    # Right-align all rows in the cost column
+    try:
+        bfmt = QTextBlockFormat()
+        bfmt.setAlignment(Qt.AlignRight)
+        for r in range(table.rows()):
+            ccur = table.cellAt(r, 1).firstCursorPosition()
+            ccur.mergeBlockFormat(bfmt)
+    except Exception:
+        pass
+
+    return table
+
+
 def _cell_plain_text(text_edit: QtWidgets.QTextEdit, table, row: int, col: int) -> str:
     cell = table.cellAt(row, col)
     if not cell.isValid():
@@ -184,6 +235,18 @@ def _is_planning_register_table(text_edit: QtWidgets.QTextEdit, table) -> bool:
         return False
 
 
+def _is_cost_list_table(text_edit: QtWidgets.QTextEdit, table) -> bool:
+    """Detect the right-cell 2-column cost list table by headers."""
+    try:
+        if table.columns() != 2 or table.rows() < 2:
+            return False
+        h0 = _cell_plain_text(text_edit, table, 0, 0).lower()
+        h1 = _cell_plain_text(text_edit, table, 0, 1).lower()
+        return ("description" in h0) and ("cost" in h1)
+    except Exception:
+        return False
+
+
 def _recalc_planning_totals(text_edit: QtWidgets.QTextEdit, table):
     try:
         rows = table.rows()
@@ -258,6 +321,19 @@ class _PlanningRegisterWatcher(QtCore.QObject):
                             _recalc_planning_totals(self._edit, table)
                         finally:
                             self._updating = False
+                    elif table is not None and _is_cost_list_table(self._edit, table):
+                        # For cost list tables, just format the cost column on exit
+                        if col == 1 and row != 0:  # protect header row
+                            self._updating = True
+                            try:
+                                raw = _cell_plain_text(self._edit, table, row, col)
+                                val, is_num = _try_parse_number(raw)
+                                if is_num:
+                                    fmt_val = _format_currency(val)
+                                    if raw != fmt_val:
+                                        _cell_set_plain_text(self._edit, table, row, col, fmt_val)
+                            finally:
+                                self._updating = False
             elif et == QtCore.QEvent.KeyPress:
                 key = event.key()
                 mods = event.modifiers()
@@ -331,6 +407,18 @@ class _PlanningRegisterWatcher(QtCore.QObject):
                                 self._updating = False
                             # Keep totals intact (they'll recalc on exit later); consume the key
                             return True
+                elif table is not None and _is_cost_list_table(self._edit, table):
+                    cell = table.cellAt(cur)
+                    row, col = cell.row(), cell.column()
+                    # Protect header row from edits/paste/enter
+                    if row == 0:
+                        if (
+                            key in (Qt.Key_Backspace, Qt.Key_Delete, Qt.Key_Return, Qt.Key_Enter)
+                            or (event.text() and event.text().strip())
+                            or ((mods & Qt.ControlModifier) and key in (Qt.Key_V, Qt.Key_X, Qt.Key_Insert))
+                            or ((mods & Qt.ShiftModifier) and key == Qt.Key_Insert)
+                        ):
+                            return True
         return super().eventFilter(obj, event)
 
     def _current_cell(self):
@@ -364,6 +452,26 @@ class _PlanningRegisterWatcher(QtCore.QObject):
                         try:
                             _format_cost_cell_on_exit(self._edit, prev_table, prev_row, prev_col)
                             _recalc_planning_totals(self._edit, prev_table)
+                        finally:
+                            self._updating = False
+                elif prev_table is not None and _is_cost_list_table(self._edit, prev_table):
+                    left_prev_cell = False
+                    if now is None:
+                        left_prev_cell = True
+                    else:
+                        now_table, now_row, now_col = now
+                        left_prev_cell = (
+                            now_table != prev_table or now_row != prev_row or now_col != prev_col
+                        )
+                    if left_prev_cell and (prev_col == 1) and prev_row != 0:
+                        self._updating = True
+                        try:
+                            raw = _cell_plain_text(self._edit, prev_table, prev_row, prev_col)
+                            val, is_num = _try_parse_number(raw)
+                            if is_num:
+                                fmt_val = _format_currency(val)
+                                if raw != fmt_val:
+                                    _cell_set_plain_text(self._edit, prev_table, prev_row, prev_col, fmt_val)
                         finally:
                             self._updating = False
             # Update previous reference after handling
@@ -413,13 +521,143 @@ def insert_planning_register(window: QtWidgets.QMainWindow):
     # Initialize totals once (will be kept up-to-date by watcher)
     _recalc_planning_totals(te, inner)
 
-    # Optional: place the caret after the outer table so user can continue typing
-    after_outer = outer.cellAt(0, 1).lastCursorPosition()
-    te.setTextCursor(after_outer)
+    # Insert cost list table into right cell (row 0, col 1)
+    right_cell_cursor = outer.cellAt(0, 1).firstCursorPosition()
+    _insert_right_cost_table_in_cursor(right_cell_cursor)
+
+    # Optional: place the caret at the end of the right cell content (after the inserted table)
+    try:
+        after_outer = outer.cellAt(0, 1).lastCursorPosition()
+        te.setTextCursor(after_outer)
+    except Exception:
+        pass
 
     # Install a single watcher per editor to keep totals dynamic on cell exit
     if not hasattr(te, "_planning_register_watcher"):
         te._planning_register_watcher = _PlanningRegisterWatcher(te)
+
+
+def refresh_planning_register_styles(text_edit: QtWidgets.QTextEdit):
+    """Reapply header/totals background and numeric right alignment for Planning Register tables in the editor.
+
+    This is useful after loading HTML from storage to restore expected visuals
+    in case a previous save stripped some styles.
+    """
+    if text_edit is None:
+        return
+    doc = text_edit.document()
+    cur = QTextCursor(doc)
+    seen = set()
+    try:
+        bg = QColor(245, 245, 245)
+    except Exception:
+        bg = None
+    # Iterate blocks and collect unique tables by firstPosition
+    while True:
+        tbl = cur.currentTable()
+        if tbl is not None:
+            key = (tbl.firstPosition(), tbl.lastPosition())
+            if key not in seen:
+                seen.add(key)
+                # If this is an outer 1x2 container, enforce 100% width with 50/50 split as well
+                try:
+                    if tbl.rows() == 1 and tbl.columns() == 2:
+                        fmt_o = tbl.format()
+                        fmt_o.setWidth(QTextLength(QTextLength.PercentageLength, 100.0))
+                        fmt_o.setColumnWidthConstraints(
+                            [
+                                QTextLength(QTextLength.PercentageLength, 50.0),
+                                QTextLength(QTextLength.PercentageLength, 50.0),
+                            ]
+                        )
+                        tbl.setFormat(fmt_o)
+                except Exception:
+                    pass
+                if _is_planning_register_table(text_edit, tbl):
+                    try:
+                        rows, cols = tbl.rows(), tbl.columns()
+                    except Exception:
+                        rows, cols = 0, 0
+                    # Ensure table fills its container and column widths are 50/25/25
+                    try:
+                        from PyQt5.QtGui import QTextLength, QTextTableFormat
+
+                        fmt = tbl.format()
+                        fmt.setWidth(QTextLength(QTextLength.PercentageLength, 100.0))
+                        if cols >= 3:
+                            fmt.setColumnWidthConstraints(
+                                [
+                                    QTextLength(QTextLength.PercentageLength, 50.0),
+                                    QTextLength(QTextLength.PercentageLength, 25.0),
+                                    QTextLength(QTextLength.PercentageLength, 25.0),
+                                ]
+                            )
+                        tbl.setFormat(fmt)
+                    except Exception:
+                        pass
+                    # Header row background and bold stays as-is; set background if missing
+                    if rows >= 1 and cols >= 1 and bg is not None:
+                        for c in range(cols):
+                            cell = tbl.cellAt(0, c)
+                            cf = cell.format()
+                            cf.setBackground(bg)
+                            cell.setFormat(cf)
+                    # Totals row background
+                    if rows >= 2 and bg is not None:
+                        tr = rows - 1
+                        for c in range(cols):
+                            cell = tbl.cellAt(tr, c)
+                            cf = cell.format()
+                            cf.setBackground(bg)
+                            cell.setFormat(cf)
+                    # Right-align numeric columns across all rows
+                    try:
+                        bf = QTextBlockFormat()
+                        bf.setAlignment(Qt.AlignRight)
+                        for r in range(rows):
+                            for c in (1, 2):
+                                if c < cols:
+                                    tcur = tbl.cellAt(r, c).firstCursorPosition()
+                                    tcur.mergeBlockFormat(bf)
+                    except Exception:
+                        pass
+                elif _is_cost_list_table(text_edit, tbl):
+                    # For the right-side cost list tables, ensure width 100% and columns 70/30
+                    try:
+                        from PyQt5.QtGui import QTextLength
+
+                        rows, cols = tbl.rows(), tbl.columns()
+                        fmt = tbl.format()
+                        fmt.setWidth(QTextLength(QTextLength.PercentageLength, 100.0))
+                        if cols >= 2:
+                            fmt.setColumnWidthConstraints(
+                                [
+                                    QTextLength(QTextLength.PercentageLength, 70.0),
+                                    QTextLength(QTextLength.PercentageLength, 30.0),
+                                ]
+                            )
+                        tbl.setFormat(fmt)
+                    except Exception:
+                        pass
+                    # Ensure header background and right alignment on the numeric column
+                    try:
+                        if bg is not None and tbl.rows() >= 1:
+                            for c in range(tbl.columns()):
+                                cell = tbl.cellAt(0, c)
+                                cf = cell.format()
+                                cf.setBackground(bg)
+                                cell.setFormat(cf)
+                        bf = QTextBlockFormat()
+                        bf.setAlignment(Qt.AlignRight)
+                        for r in range(tbl.rows()):
+                            if tbl.columns() >= 2:
+                                tcur = tbl.cellAt(r, 1).firstCursorPosition()
+                                tcur.mergeBlockFormat(bf)
+                    except Exception:
+                        pass
+        # Move to next block; stop at end
+        if not cur.movePosition(QTextCursor.NextBlock):
+            break
 
 
 def ensure_planning_register_watcher(text_edit: QtWidgets.QTextEdit):
