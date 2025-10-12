@@ -1642,7 +1642,130 @@ def main():
     # Insert menu: Planning Register
     act_plan_reg = window.findChild(QtWidgets.QAction, "actionPlanning_Register")
     if act_plan_reg:
-        act_plan_reg.triggered.connect(lambda: insert_planning_register(window))
+        def _insert_planning_register_via_dialog():
+            try:
+                te = window.findChild(QtWidgets.QTextEdit, "pageEdit")
+                if te is None or not te.isEnabled():
+                    QtWidgets.QMessageBox.information(window, "Insert Planning Register", "Please open or create a page first.")
+                    return
+                # Build options: first 'New Planning Register', then saved presets (if any)
+                try:
+                    from settings_manager import list_table_preset_names
+                    preset_names = list_table_preset_names()
+                except Exception:
+                    preset_names = []
+                options = ["New Planning Register"] + preset_names
+                choice, ok = QtWidgets.QInputDialog.getItem(
+                    window, "Insert Planning Register", "Choose:", options, 0, False
+                )
+                if not (ok and choice):
+                    return
+                if choice == "New Planning Register":
+                    insert_planning_register(window)
+                else:
+                    insert_table_from_preset(te, choice, fit_width_100=True)
+            except Exception:
+                pass
+        act_plan_reg.triggered.connect(_insert_planning_register_via_dialog)
+    # Save Planning Register as Preset (Insert menu)
+    try:
+        act_save_reg_preset = window.findChild(QtWidgets.QAction, "actionSave_Planning_Register_as_Preset")
+        act_rename_reg_preset = window.findChild(QtWidgets.QAction, "actionRename_Planning_Register_Preset")
+        act_delete_reg_preset = window.findChild(QtWidgets.QAction, "actionDelete_Planning_Register_Preset")
+        if act_save_reg_preset is not None:
+            def _save_planning_register_as_preset():
+                te = window.findChild(QtWidgets.QTextEdit, "pageEdit")
+                if te is None:
+                    return
+                cur = te.textCursor()
+                tbl = cur.currentTable()
+                if tbl is None:
+                    QtWidgets.QMessageBox.information(window, "Save Planning Register as Preset", "Place the caret inside the left Planning Register table.")
+                    return
+                # If the caret is on the outer container, try to descend into the left cell's inner table
+                try:
+                    if tbl.rows() == 1 and tbl.columns() == 2:
+                        left_cell = tbl.cellAt(0, 0)
+                        s_pos = left_cell.firstCursorPosition().position()
+                        e_pos = left_cell.lastCursorPosition().position()
+                        from PyQt5.QtGui import QTextCursor as _QTextCursor
+                        scan = _QTextCursor(te.document())
+                        scan.setPosition(s_pos)
+                        inner = None
+                        iters = 0
+                        while scan.position() < e_pos and iters < 20000:
+                            t = scan.currentTable()
+                            if t is not None:
+                                inner = t
+                                break
+                            scan.movePosition(_QTextCursor.NextCharacter)
+                            iters += 1
+                        if inner is not None:
+                            te.setTextCursor(inner.firstCursorPosition())
+                            tbl = inner
+                except Exception:
+                    pass
+                # Verify this looks like a Planning Register table (left table)
+                try:
+                    from ui_planning_register import _is_planning_register_table
+                    if not _is_planning_register_table(te, tbl):
+                        QtWidgets.QMessageBox.information(window, "Save Planning Register as Preset", "Please place the caret inside the left Planning Register table.")
+                        return
+                except Exception:
+                    pass
+                # Use the centralized HTML preset saver
+                from ui_richtext import save_current_table_as_preset
+                save_current_table_as_preset(te)
+
+            act_save_reg_preset.triggered.connect(_save_planning_register_as_preset)
+
+        # Helper to choose a preset name
+        def _choose_preset_name(parent, title: str) -> str:
+            try:
+                from settings_manager import list_table_preset_names
+                names = list_table_preset_names()
+            except Exception:
+                names = []
+            if not names:
+                QtWidgets.QMessageBox.information(parent, title, "No presets saved yet.")
+                return None
+            item, ok = QtWidgets.QInputDialog.getItem(parent, title, "Preset:", names, 0, False)
+            return item if ok and item else None
+
+        if act_rename_reg_preset is not None:
+            def _rename_planning_register_preset():
+                name = _choose_preset_name(window, "Rename Planning Register Preset")
+                if not name:
+                    return
+                new_name, ok = QtWidgets.QInputDialog.getText(window, "Rename Preset", "New name:", text=name)
+                if not ok or not new_name or new_name == name:
+                    return
+                try:
+                    from settings_manager import rename_table_preset
+                    rename_table_preset(name, new_name)
+                except Exception:
+                    pass
+            act_rename_reg_preset.triggered.connect(_rename_planning_register_preset)
+
+        if act_delete_reg_preset is not None:
+            def _delete_planning_register_preset():
+                name = _choose_preset_name(window, "Delete Planning Register Preset")
+                if not name:
+                    return
+                if QtWidgets.QMessageBox.question(
+                    window, "Delete Preset", f"Delete preset '{name}'?",
+                    QtWidgets.QMessageBox.Yes | QtWidgets.QMessageBox.No,
+                ) != QtWidgets.QMessageBox.Yes:
+                    return
+                try:
+                    from settings_manager import delete_table_preset
+                    delete_table_preset(name)
+                except Exception:
+                    pass
+            act_delete_reg_preset.triggered.connect(_delete_planning_register_preset)
+
+    except Exception:
+        pass
     action_exit = window.findChild(QtWidgets.QAction, "actionExit")
     if action_exit:
         action_exit.triggered.connect(window.close)

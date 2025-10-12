@@ -1118,6 +1118,35 @@ def choose_and_insert_preset(text_edit: QtWidgets.QTextEdit, fit_width_100: bool
         insert_table_from_preset(text_edit, name, fit_width_100=fit_width_100)
 
 
+def insert_planning_register_via_dialog(window: QtWidgets.QMainWindow):
+    """Open a picker: 'New Planning Register' + saved presets; insert based on choice."""
+    try:
+        te = window.findChild(QtWidgets.QTextEdit, "pageEdit")
+        if te is None or not te.isEnabled():
+            QtWidgets.QMessageBox.information(window, "Insert Planning Register", "Please open or create a page first.")
+            return
+        try:
+            from settings_manager import list_table_preset_names
+
+            preset_names = list_table_preset_names()
+        except Exception:
+            preset_names = []
+        options = ["New Planning Register"] + preset_names
+        choice, ok = QtWidgets.QInputDialog.getItem(
+            window, "Insert Planning Register", "Choose:", options, 0, False
+        )
+        if not (ok and choice):
+            return
+        if choice == "New Planning Register":
+            from ui_planning_register import insert_planning_register
+
+            insert_planning_register(window)
+        else:
+            insert_table_from_preset(te, choice, fit_width_100=True)
+    except Exception:
+        pass
+
+
 def save_current_table_as_preset(text_edit: QtWidgets.QTextEdit):
     """Capture the current table's full HTML and save as an HTML-based preset (v2).
 
@@ -1431,21 +1460,8 @@ class _TableContextMenu(QObject):
                 act_paste = menu.addAction("Paste")
                 sub_ins = menu.addMenu("Insert")
                 act_ins_table = sub_ins.addAction("Table…")
-                # Insert Preset submenu
-                sub_preset = menu.addMenu("Insert Preset")
-                try:
-                    from settings_manager import list_table_preset_names
-
-                    names = list_table_preset_names()
-                except Exception:
-                    names = []
-                _preset_actions = {}
-                if names:
-                    for nm in names:
-                        a = sub_preset.addAction(nm)
-                        _preset_actions[a] = nm
-                else:
-                    sub_preset.setEnabled(False)
+                # Insert Planning Register (dialog)
+                act_ins_pr_dialog = menu.addAction("Insert Planning Register…")
                 chosen = menu.exec_(global_pos)
                 if chosen is None:
                     return True
@@ -1480,9 +1496,15 @@ class _TableContextMenu(QObject):
                 if chosen == act_ins_table:
                     _table_insert_dialog(self._edit)
                     return True
-                if chosen in _preset_actions:
-                    # Insert selected preset at cursor, force 100% width per user preference
-                    insert_table_from_preset(self._edit, _preset_actions[chosen], fit_width_100=True)
+                if chosen == act_ins_pr_dialog:
+                    try:
+                        from ui_richtext import insert_planning_register_via_dialog
+
+                        # window is parent of the editor; walk up to QMainWindow
+                        w = self._edit.window()
+                        insert_planning_register_via_dialog(w)
+                    except Exception:
+                        pass
                     return True
                 return True
             # Otherwise, build the full table menu
@@ -1494,21 +1516,8 @@ class _TableContextMenu(QObject):
             act_set_col = menu.addAction("Set Current Column Width…")
             menu.addSeparator()
             act_save_preset = menu.addAction("Save Table as Preset…")
-            # Insert Preset submenu while inside a table
-            sub_insert_preset = menu.addMenu("Insert Preset")
-            try:
-                from settings_manager import list_table_preset_names
-
-                names = list_table_preset_names()
-            except Exception:
-                names = []
-            _ins_preset_actions = {}
-            if names:
-                for nm in names:
-                    a = sub_insert_preset.addAction(nm)
-                    _ins_preset_actions[a] = nm
-            else:
-                sub_insert_preset.setEnabled(False)
+            # Insert Planning Register (dialog) while inside a table
+            act_ins_pr_dialog = menu.addAction("Insert Planning Register…")
             menu.addSeparator()
             act_recalc = menu.addAction("Recalculate Formulas (SUM)")
             menu.addSeparator()
@@ -1545,6 +1554,14 @@ class _TableContextMenu(QObject):
                 return True
             if chosen == act_ins:
                 _table_insert_dialog(self._edit)
+            elif chosen == act_ins_pr_dialog:
+                try:
+                    from ui_richtext import insert_planning_register_via_dialog
+
+                    w = self._edit.window()
+                    insert_planning_register_via_dialog(w)
+                except Exception:
+                    pass
             elif chosen == act_prop and has_tbl:
                 _table_properties_dialog(self._edit, tbl)
             elif chosen == act_fit and has_tbl:
@@ -1564,8 +1581,6 @@ class _TableContextMenu(QObject):
                     save_current_table_as_preset(self._edit)
                 except Exception:
                     pass
-            elif chosen in _ins_preset_actions:
-                insert_table_from_preset(self._edit, _ins_preset_actions[chosen], fit_width_100=True)
             elif chosen == act_recalc and has_tbl:
                 try:
                     _table_recalculate_formulas(self._edit, tbl)

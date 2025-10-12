@@ -139,6 +139,9 @@
     <addaction name="actionInsert_Attachment"/>
     <addaction name="separator"/>
     <addaction name="actionPlanning_Register"/>
+   <addaction name="actionSave_Planning_Register_as_Preset"/>
+   <addaction name="actionRename_Planning_Register_Preset"/>
+   <addaction name="actionDelete_Planning_Register_Preset"/>
     <addaction name="separator"/>
    </widget>
    <widget class="QMenu" name="menuView">
@@ -439,9 +442,24 @@
   </action>
   <action name="actionPlanning_Register">
    <property name="text">
-    <string>New Planning Register</string>
+    <string>Insert Planning Register</string>
    </property>
   </action>
+    <action name="actionSave_Planning_Register_as_Preset">
+     <property name="text">
+        <string>Save Planning Register as Preset…</string>
+     </property>
+    </action>
+   <action name="actionRename_Planning_Register_Preset">
+    <property name="text">
+      <string>Rename Planning Register Preset…</string>
+    </property>
+   </action>
+   <action name="actionDelete_Planning_Register_Preset">
+    <property name="text">
+      <string>Delete Planning Register Preset…</string>
+    </property>
+   </action>
  </widget>
  <resources/>
  <connections/>

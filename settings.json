@@ -1,9 +1,9 @@
 {
   "last_db": "C:/Python Projects/NoteBook/notes.db",
   "window_geometry": {
-    "x": 224,
-    "y": 313,
-    "w": 2225,
+    "x": 249,
+    "y": 173,
+    "w": 2197,
     "h": 1443
   },
   "window_maximized": false,
@@ -189,8 +189,8 @@
     ]
   },
   "splitter_sizes": [
-    343,
-    1846
+    339,
+    1822
   ],
   "list_scheme_ordered": "classic",
   "default_paste_mode": "match-style",
@@ -198,17 +198,13 @@
   "list_scheme_unordered": "disc-circle-square",
   "databases_root": "C:\\Python Projects\\NoteBook",
   "theme_name": "Default",
-  "last_notebook_id": 34,
-  "last_section_id": 64,
-  "last_page_id": 34,
   "table_presets": {
-    "First Table Preset for Testing": {
-      "version": 2,
-      "html": "<table border=\"0.8\" style=\" margin-top:0px; margin-bottom:0px; margin-left:0px; margin-right:0px;\" cellspacing=\"2\" cellpadding=\"4\"><thead>\n<tr>\n<td bgcolor=\"#f5f5f5\">\n<p style=\" margin-top:12px; margin-bottom:12px; margin-left:0px; margin-right:0px; -qt-block-indent:0; text-indent:0px;\"><span style=\" font-family:'Arial'; font-size:12pt;\">Description</span></p></td>\n<td bgcolor=\"#f5f5f5\">\n<p style=\" margin-top:12px; margin-bottom:12px; margin-left:0px; margin-right:0px; -qt-block-indent:0; text-indent:0px;\"><span style=\" font-family:'Arial'; font-size:12pt;\">Estimated Cost</span></p></td>\n<td bgcolor=\"#f5f5f5\">\n<p style=\" margin-top:12px; margin-bottom:12px; margin-left:0px; margin-right:0px; -qt-block-indent:0; text-indent:0px;\"><span style=\" font-family:'Arial'; font-size:12pt;\">Actual Cost</span></p></td></tr></thead>\n<tr>\n<td>\n<p style=\" margin-top:12px; margin-bottom:12px; margin-left:0px; margin-right:0px; -qt-block-indent:0; text-indent:0px;\"><span style=\" font-family:'Arial'; font-size:12pt;\">Fuel</span></p></td>\n<td>\n<p style=\" margin-top:12px; margin-bottom:12px; margin-left:0px; margin-right:0px; -qt-block-indent:0; text-indent:0px;\"><span style=\" font-family:'Arial'; font-size:12pt;\">$1,500.00</span></p></td>\n<td>\n<p style=\" margin-top:12px; margin-bottom:12px; margin-left:0px; margin-right:0px; -qt-block-indent:0; text-indent:0px;\"><span style=\" font-family:'Arial'; font-size:12pt;\">$872.00</span></p></td></tr>\n<tr>\n<td>\n<p style=\" margin-top:12px; margin-bottom:12px; margin-left:0px; margin-right:0px; -qt-block-indent:0; text-indent:0px;\"><span style=\" font-family:'Arial'; font-size:12pt;\">Adding some things here</span></p></td>\n<td>\n<p style=\" margin-top:12px; margin-bottom:12px; margin-left:0px; margin-right:0px; -qt-block-indent:0; text-indent:0px;\"><span style=\" font-family:'Arial'; font-size:12pt;\">$150.00</span></p></td>\n<td>\n<p style=\" margin-top:12px; margin-bottom:12px; margin-left:0px; margin-right:0px; -qt-block-indent:0; text-indent:0px;\"><span style=\" font-family:'Arial'; font-size:12pt;\">$182.53</span></p></td></tr>\n<tr>\n<td>\n<p style=\" margin-top:12px; margin-bottom:12px; margin-left:0px; margin-right:0px; -qt-block-indent:0; text-indent:0px;\"><span style=\" font-family:'Arial'; font-size:12pt;\">Pirate Lands RV Park</span></p></td>\n<td>\n<p style=\" margin-top:12px; margin-bottom:12px; margin-left:0px; margin-right:0px; -qt-block-indent:0; text-indent:0px;\"><span style=\" font-family:'Arial'; font-size:12pt;\">$1,253.00</span></p></td>\n<td>\n<p style=\" margin-top:12px; margin-bottom:12px; margin-left:0px; margin-right:0px; -qt-block-indent:0; text-indent:0px;\"><span style=\" font-family:'Arial'; font-size:12pt;\">$1,253.00</span></p></td></tr>\n<tr>\n<td></td>\n<td></td>\n<td></td></tr>\n<tr>\n<td></td>\n<td></td>\n<td></td></tr>\n<tr>\n<td bgcolor=\"#f5f5f5\">\n<p style=\" margin-top:12px; margin-bottom:12px; margin-left:0px; margin-right:0px; -qt-block-indent:0; text-indent:0px;\"><span style=\" font-family:'Arial'; font-size:12pt;\">Total</span></p></td>\n<td bgcolor=\"#f5f5f5\">\n<p style=\" margin-top:12px; margin-bottom:12px; margin-left:0px; margin-right:0px; -qt-block-indent:0; text-indent:0px;\"><span style=\" font-family:'Arial'; font-size:12pt;\">$2,903.00</span></p></td>\n<td bgcolor=\"#f5f5f5\">\n<p style=\" margin-top:12px; margin-bottom:12px; margin-left:0px; margin-right:0px; -qt-block-indent:0; text-indent:0px;\"><span style=\" font-family:'Arial'; font-size:12pt;\">$2,307.53</span></p></td></tr></table>"
-    },
     "Second Preset for Testing": {
       "version": 2,
       "html": "<table border=\"0.8\" style=\" margin-top:0px; margin-bottom:0px; margin-left:0px; margin-right:0px;\" cellspacing=\"2\" cellpadding=\"4\"><thead>\n<tr>\n<td bgcolor=\"#f5f5f5\">\n<p style=\" margin-top:12px; margin-bottom:12px; margin-left:0px; margin-right:0px; -qt-block-indent:0; text-indent:0px;\"><span style=\" font-family:'Arial'; font-size:12pt;\">Description</span></p></td>\n<td bgcolor=\"#f5f5f5\">\n<p align=\"right\" style=\" margin-top:12px; margin-bottom:12px; margin-left:0px; margin-right:0px; -qt-block-indent:0; text-indent:0px;\"><span style=\" font-family:'Arial'; font-size:12pt;\">Estimated Cost</span></p></td>\n<td bgcolor=\"#f5f5f5\">\n<p align=\"right\" style=\" margin-top:12px; margin-bottom:12px; margin-left:0px; margin-right:0px; -qt-block-indent:0; text-indent:0px;\"><span style=\" font-family:'Arial'; font-size:12pt;\">Actual Cost</span></p></td></tr></thead>\n<tr>\n<td>\n<p style=\" margin-top:12px; margin-bottom:12px; margin-left:0px; margin-right:0px; -qt-block-indent:0; text-indent:0px;\"><span style=\" font-family:'Arial'; font-size:12pt;\">Fuel</span></p></td>\n<td>\n<p align=\"right\" style=\" margin-top:12px; margin-bottom:12px; margin-left:0px; margin-right:0px; -qt-block-indent:0; text-indent:0px;\"><span style=\" font-family:'Arial'; font-size:12pt;\">$1,500.00</span></p></td>\n<td>\n<p align=\"right\" style=\" margin-top:12px; margin-bottom:12px; margin-left:0px; margin-right:0px; -qt-block-indent:0; text-indent:0px;\"><span style=\" font-family:'Arial'; font-size:12pt;\">$872.00</span></p></td></tr>\n<tr>\n<td>\n<p style=\" margin-top:12px; margin-bottom:12px; margin-left:0px; margin-right:0px; -qt-block-indent:0; text-indent:0px;\"><span style=\" font-family:'Arial'; font-size:12pt;\">Adding some things here</span></p></td>\n<td>\n<p align=\"right\" style=\" margin-top:12px; margin-bottom:12px; margin-left:0px; margin-right:0px; -qt-block-indent:0; text-indent:0px;\"><span style=\" font-family:'Arial'; font-size:12pt;\">$150.00</span></p></td>\n<td>\n<p align=\"right\" style=\" margin-top:12px; margin-bottom:12px; margin-left:0px; margin-right:0px; -qt-block-indent:0; text-indent:0px;\"><span style=\" font-family:'Arial'; font-size:12pt;\">$182.53</span></p></td></tr>\n<tr>\n<td>\n<p style=\" margin-top:12px; margin-bottom:12px; margin-left:0px; margin-right:0px; -qt-block-indent:0; text-indent:0px;\"><span style=\" font-family:'Arial'; font-size:12pt;\">Pirate Lands RV Park</span></p></td>\n<td>\n<p align=\"right\" style=\" margin-top:12px; margin-bottom:12px; margin-left:0px; margin-right:0px; -qt-block-indent:0; text-indent:0px;\"><span style=\" font-family:'Arial'; font-size:12pt;\">$1,253.00</span></p></td>\n<td>\n<p align=\"right\" style=\" margin-top:12px; margin-bottom:12px; margin-left:0px; margin-right:0px; -qt-block-indent:0; text-indent:0px;\"><span style=\" font-family:'Arial'; font-size:12pt;\">$1,253.00</span></p></td></tr>\n<tr>\n<td></td>\n<td></td>\n<td></td></tr>\n<tr>\n<td></td>\n<td></td>\n<td></td></tr>\n<tr>\n<td bgcolor=\"#f5f5f5\">\n<p style=\" margin-top:12px; margin-bottom:12px; margin-left:0px; margin-right:0px; -qt-block-indent:0; text-indent:0px;\"><span style=\" font-family:'Arial'; font-size:12pt;\">Total</span></p></td>\n<td bgcolor=\"#f5f5f5\">\n<p align=\"right\" style=\" margin-top:12px; margin-bottom:12px; margin-left:0px; margin-right:0px; -qt-block-indent:0; text-indent:0px;\"><span style=\" font-family:'Arial'; font-size:12pt;\">$2,903.00</span></p></td>\n<td bgcolor=\"#f5f5f5\">\n<p align=\"right\" style=\" margin-top:12px; margin-bottom:12px; margin-left:0px; margin-right:0px; -qt-block-indent:0; text-indent:0px;\"><span style=\" font-family:'Arial'; font-size:12pt;\">$2,307.53</span></p></td></tr></table>"
     }
-  }
+  },
+  "last_notebook_id": 37,
+  "last_section_id": 59,
+  "last_page_id": 77
 }
