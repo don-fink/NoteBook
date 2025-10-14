@@ -358,3 +358,63 @@ def rename_table_preset(old_name: str, new_name: str):
 
 def list_table_preset_names() -> list:
     return list(get_table_presets().keys())
+
+
+# --- Default inserted image long side (px) ---
+def get_image_insert_long_side() -> int:
+    """Return the default long side in pixels for newly inserted images. Default 400, clamped [100, 8000]."""
+    s = load_settings()
+    try:
+        val = int(s.get("image_insert_long_side", 400))
+    except Exception:
+        val = 400
+    # Clamp to sensible bounds
+    if val < 100:
+        val = 100
+    elif val > 8000:
+        val = 8000
+    return val
+
+
+def set_image_insert_long_side(pixels: int):
+    try:
+        px = int(pixels)
+    except Exception:
+        return
+    # Clamp
+    if px < 100:
+        px = 100
+    elif px > 8000:
+        px = 8000
+    s = load_settings()
+    s["image_insert_long_side"] = px
+    save_settings(s)
+
+
+# --- Default inserted video thumbnail long side (px) ---
+def get_video_insert_long_side() -> int:
+    """Return default long side (px) for newly inserted video thumbnails. Defaults to image setting if absent; clamp [100,8000]."""
+    s = load_settings()
+    try:
+        val = int(s.get("video_insert_long_side", s.get("image_insert_long_side", 400)))
+    except Exception:
+        val = 400
+    if val < 100:
+        val = 100
+    elif val > 8000:
+        val = 8000
+    return val
+
+
+def set_video_insert_long_side(pixels: int):
+    try:
+        px = int(pixels)
+    except Exception:
+        return
+    if px < 100:
+        px = 100
+    elif px > 8000:
+        px = 8000
+    s = load_settings()
+    s["video_insert_long_side"] = px
+    save_settings(s)

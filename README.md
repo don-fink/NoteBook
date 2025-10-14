@@ -1,3 +1,21 @@
+Troubleshooting crashes
+-----------------------
+
+If the app crashes intermittently, try running in Safe Mode to disable the image resize overlay and some heavy event hooks temporarily.
+
+Windows PowerShell example:
+
+```
+$env:NOTEBOOK_SAFE_MODE='1'; & ./.venv/Scripts/python.exe ./main.py
+```
+
+Diagnostics will be written to two files in the project folder:
+
+- `crash.log`: Unhandled Python exceptions and Qt messages (warnings/errors)
+- `native_crash.log`: Low-level backtraces from Python faulthandler (e.g., segfaults)
+
+You can share the recent contents of those files to help pinpoint the issue.
+
 # NoteBook
 
 A PyQt5 desktop notebook app with binders, sections, and pages.

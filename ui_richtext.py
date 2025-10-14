@@ -8,7 +8,8 @@ Insert image, Horizontal rule.
 
 from PyQt5 import QtWidgets
 import re
-from PyQt5.QtCore import QEvent, QObject, QPoint, QRect, QSize, Qt, QUrl
+import os
+from PyQt5.QtCore import QEvent, QObject, QPoint, QRect, QSize, Qt, QUrl, QTimer
 from PyQt5.QtGui import (
     QColor,
     QDesktopServices,
@@ -16,16 +17,433 @@ from PyQt5.QtGui import (
     QIcon,
     QKeySequence,
     QPainter,
+    QBrush,
     QPalette,
     QPen,
+    QImage,
     QPixmap,
+    QCursor,
     QTextCharFormat,
     QTextCursor,
+    QTextImageFormat,
     QTextList,
     QTextListFormat,
+    QTextFormat,
     QTextLength,
     QTextTableFormat,
+    QSyntaxHighlighter,
+    QTextCharFormat as _QTextCharFormat,
 )
+
+# ----------------------------- Image helpers -----------------------------
+def _qimage_dims(text_edit: QtWidgets.QTextEdit, name: str):
+    try:
+        if not name:
+            return None, None
+        base = getattr(text_edit.window(), "_media_root", None)
+        path = name
+        if base and name and not os.path.isabs(name):
+            path = os.path.join(base, name)
+        img = QImage(path)
+        if not img.isNull():
+            return img.width(), img.height()
+    except Exception:
+        pass
+    return None, None
+
+
+def _image_info_at_cursor(text_edit: QtWidgets.QTextEdit):
+    cur = text_edit.textCursor()
+    # Check char under cursor
+    fmt = cur.charFormat()
+    if fmt is not None and (
+        (hasattr(fmt, "isImageFormat") and fmt.isImageFormat())
+        or fmt.objectType() == QTextFormat.ImageObject
+    ):
+        imgf = QTextImageFormat(fmt)
+        w = float(imgf.width() or 0.0)
+        h = float(imgf.height() or 0.0)
+        iw, ih = _qimage_dims(text_edit, imgf.name())
+        return {"cursor_pos": cur.position(), "name": imgf.name(), "w": w, "h": h, "iw": iw, "ih": ih}
+    # Try selecting next char (caret just before image)
+    c2 = QTextCursor(cur)
+    c2.movePosition(QTextCursor.Right, QTextCursor.KeepAnchor, 1)
+    fmt2 = c2.charFormat()
+    if fmt2 is not None and (
+        (hasattr(fmt2, "isImageFormat") and fmt2.isImageFormat())
+        or fmt2.objectType() == QTextFormat.ImageObject
+    ):
+        imgf = QTextImageFormat(fmt2)
+        w = float(imgf.width() or 0.0)
+        h = float(imgf.height() or 0.0)
+        iw, ih = _qimage_dims(text_edit, imgf.name())
+        return {"cursor_pos": cur.position(), "name": imgf.name(), "w": w, "h": h, "iw": iw, "ih": ih}
+    # Try selecting previous char (caret just after image)
+    c3 = QTextCursor(cur)
+    c3.movePosition(QTextCursor.Left, QTextCursor.KeepAnchor, 1)
+    fmt3 = c3.charFormat()
+    if fmt3 is not None and (
+        (hasattr(fmt3, "isImageFormat") and fmt3.isImageFormat())
+        or fmt3.objectType() == QTextFormat.ImageObject
+    ):
+        imgf = QTextImageFormat(fmt3)
+        w = float(imgf.width() or 0.0)
+        h = float(imgf.height() or 0.0)
+        iw, ih = _qimage_dims(text_edit, imgf.name())
+        # Use the start of the selection as the image position
+        pos = min(c3.position(), c3.anchor())
+        return {"cursor_pos": pos, "name": imgf.name(), "w": w, "h": h, "iw": iw, "ih": ih}
+    return None
+
+
+def _image_info_at_view_pos(text_edit: QtWidgets.QTextEdit, view_pos: QPoint):
+    try:
+        cur = text_edit.cursorForPosition(view_pos)
+        cands = [QTextCursor(cur)]
+        c1 = QTextCursor(cur)
+        c1.movePosition(QTextCursor.Left)
+        cands.append(c1)
+        c2 = QTextCursor(cur)
+        c2.movePosition(QTextCursor.Right)
+        cands.append(c2)
+        for c in cands:
+            fmt = c.charFormat()
+            if fmt is not None and (
+                (hasattr(fmt, "isImageFormat") and fmt.isImageFormat())
+                or fmt.objectType() == QTextFormat.ImageObject
+            ):
+                imgf = QTextImageFormat(fmt)
+                w = float(imgf.width() or 0.0)
+                h = float(imgf.height() or 0.0)
+                iw, ih = _qimage_dims(text_edit, imgf.name())
+                return {"cursor_pos": c.position(), "name": imgf.name(), "w": w, "h": h, "iw": iw, "ih": ih}
+            csel = QTextCursor(c)
+            csel.movePosition(QTextCursor.Right, QTextCursor.KeepAnchor, 1)
+            fmt2 = csel.charFormat()
+            if fmt2 is not None and (
+                (hasattr(fmt2, "isImageFormat") and fmt2.isImageFormat())
+                or fmt2.objectType() == QTextFormat.ImageObject
+            ):
+                imgf = QTextImageFormat(fmt2)
+                w = float(imgf.width() or 0.0)
+                h = float(imgf.height() or 0.0)
+                iw, ih = _qimage_dims(text_edit, imgf.name())
+                return {"cursor_pos": c.position(), "name": imgf.name(), "w": w, "h": h, "iw": iw, "ih": ih}
+    except Exception:
+        pass
+    return None
+
+
+def _open_image_properties(text_edit: QtWidgets.QTextEdit, info: dict = None):
+    if info is None:
+        info = _image_info_at_cursor(text_edit)
+    if not info:
+        return
+    _image_properties_dialog_apply(text_edit, info)
+
+
+def _install_image_context_menu(text_edit: QtWidgets.QTextEdit):
+    # Defined later in the file using a robust handler class; this stub remains for
+    # backward compatibility if referenced before the full definition is parsed.
+    try:
+        pass
+    except Exception:
+        pass
+
+
+# Public installer: enable image support (menu, shortcuts, disable drops)
+def install_image_support(text_edit: QtWidgets.QTextEdit):
+    if text_edit is None:
+        return
+    try:
+        text_edit.setAcceptDrops(False)
+        if hasattr(text_edit, "viewport") and text_edit.viewport() is not None:
+            text_edit.viewport().setAcceptDrops(False)
+    except Exception:
+        pass
+    try:
+        _install_image_context_menu(text_edit)
+    except Exception:
+        pass
+    try:
+        _install_image_shortcuts(text_edit)
+    except Exception:
+        pass
+
+
+# ----------------------------- Image insertion -----------------------------
+
+
+def _install_image_shortcuts(text_edit: QtWidgets.QTextEdit):
+    # Ctrl+Shift+I opens Image Properties; F2 as backup
+    sc1 = QtWidgets.QShortcut(QKeySequence("Ctrl+Shift+I"), text_edit)
+    sc1.setContext(Qt.WidgetWithChildrenShortcut)
+    sc1.activated.connect(lambda: _open_image_properties(text_edit))
+    sc2 = QtWidgets.QShortcut(QKeySequence("F2"), text_edit)
+    sc2.setContext(Qt.WidgetWithChildrenShortcut)
+    sc2.activated.connect(lambda: _open_image_properties(text_edit))
+
+
+# ----------------------------- HTML Source dialog -----------------------------
+class _HtmlHighlighter(QSyntaxHighlighter):
+    def __init__(self, doc):
+        super().__init__(doc)
+        self._fmt_tag = _QTextCharFormat()
+        self._fmt_tag.setForeground(QColor("#0033aa"))
+        self._fmt_attr = _QTextCharFormat()
+        self._fmt_attr.setForeground(QColor("#aa5500"))
+        self._fmt_str = _QTextCharFormat()
+        self._fmt_str.setForeground(QColor("#228822"))
+
+    def highlightBlock(self, text: str):
+        # Tags
+        for m in re.finditer(r"<[^>]+>", text):
+            self.setFormat(m.start(), m.end() - m.start(), self._fmt_tag)
+            inner = text[m.start():m.end()]
+            # Attributes inside tag
+            for a in re.finditer(r"\b([A-Za-z_:][-A-Za-z0-9_:.]*)\s*=\s*(\"[^\"]*\"|'[^']*')", inner):
+                a_start = m.start() + a.start(1)
+                a_len = len(a.group(1))
+                self.setFormat(a_start, a_len, self._fmt_attr)
+                s_start = m.start() + a.start(2)
+                s_len = len(a.group(2))
+                self.setFormat(s_start, s_len, self._fmt_str)
+
+
+def _reapply_base_url(text_edit: QtWidgets.QTextEdit):
+    try:
+        media_root = getattr(text_edit.window(), "_media_root", None)
+        if isinstance(media_root, str) and media_root:
+            base = media_root if media_root.endswith(os.sep) else media_root + os.sep
+            text_edit.document().setBaseUrl(QUrl.fromLocalFile(base))
+    except Exception:
+        pass
+
+
+def _open_html_source_dialog(text_edit: QtWidgets.QTextEdit):
+    dlg = QtWidgets.QDialog(text_edit)
+    dlg.setWindowTitle("HTML Source")
+    dlg.resize(800, 600)
+    v = QtWidgets.QVBoxLayout(dlg)
+    edit = QtWidgets.QPlainTextEdit(dlg)
+    try:
+        f = edit.font(); f.setFamily("Consolas"); f.setPointSize(10); edit.setFont(f)
+    except Exception:
+        pass
+    # Load current HTML
+    try:
+        html = text_edit.document().toHtml()
+    except Exception:
+        html = ""
+    edit.setPlainText(html)
+    # Syntax highlighting
+    try:
+        _HtmlHighlighter(edit.document())
+    except Exception:
+        pass
+    v.addWidget(edit)
+    btns = QtWidgets.QDialogButtonBox(QtWidgets.QDialogButtonBox.Ok | QtWidgets.QDialogButtonBox.Cancel, parent=dlg)
+    v.addWidget(btns)
+
+    def _apply():
+        new_html = edit.toPlainText()
+        try:
+            text_edit.setHtml(new_html)
+        except Exception:
+            pass
+        _reapply_base_url(text_edit)
+        dlg.accept()
+
+    btns.accepted.connect(_apply)
+    btns.rejected.connect(dlg.reject)
+    dlg.exec_()
+class _ImagePropertiesDialog(QtWidgets.QDialog):
+    def __init__(self, parent, src_name: str, current_w: float, current_h: float, intrinsic_w: int, intrinsic_h: int, current_align: str):
+        super().__init__(parent)
+        self.setWindowTitle("Image Properties")
+        layout = QtWidgets.QFormLayout(self)
+        self.sp_width = QtWidgets.QDoubleSpinBox(self)
+        self.sp_width.setRange(16.0, 10000.0)
+        self.sp_width.setDecimals(1)
+        self.sp_width.setValue(float(current_w or intrinsic_w or 400))
+        self.cb_keep = QtWidgets.QCheckBox("Keep aspect ratio", self)
+        self.cb_keep.setChecked(True)
+        self.lbl_height = QtWidgets.QLabel(self)
+        # Alt / Title
+        self.le_alt = QtWidgets.QLineEdit(self)
+        try:
+            base = os.path.basename(src_name) if src_name else ""
+        except Exception:
+            base = ""
+        self.le_alt.setText(base)
+        self.le_title = QtWidgets.QLineEdit(self)
+        # Alignment
+        self.combo_align = QtWidgets.QComboBox(self)
+        self.combo_align.addItems(["None", "Left", "Center", "Right"])
+        try:
+            idx = {"none":0, "left":1, "center":2, "right":3}.get((current_align or "none").lower(), 0)
+            self.combo_align.setCurrentIndex(idx)
+        except Exception:
+            pass
+        # Compute height preview
+        self._iw = float(intrinsic_w or 0)
+        self._ih = float(intrinsic_h or 0)
+        def _refresh_h():
+            w = self.sp_width.value()
+            if self.cb_keep.isChecked():
+                if self._iw > 0 and self._ih > 0:
+                    h = w * (self._ih / self._iw)
+                    self.lbl_height.setText(f"Height: {h:.0f} px (auto)")
+                else:
+                    self.lbl_height.setText("Height: (auto)")
+            else:
+                self.lbl_height.setText("")
+        self.sp_width.valueChanged.connect(lambda _v: _refresh_h())
+        self.cb_keep.toggled.connect(lambda _v: _refresh_h())
+        _refresh_h()
+        layout.addRow("Width (px):", self.sp_width)
+        layout.addRow("", self.cb_keep)
+        layout.addRow("", self.lbl_height)
+        layout.addRow("Alt:", self.le_alt)
+        layout.addRow("Title:", self.le_title)
+        layout.addRow("Alignment:", self.combo_align)
+        btns = QtWidgets.QDialogButtonBox(QtWidgets.QDialogButtonBox.Ok | QtWidgets.QDialogButtonBox.Cancel, parent=self)
+        layout.addRow(btns)
+        btns.accepted.connect(self.accept)
+        btns.rejected.connect(self.reject)
+    def values(self):
+        w = float(self.sp_width.value())
+        align_idx = self.combo_align.currentIndex()
+        align = {0:"none",1:"left",2:"center",3:"right"}.get(align_idx, "none")
+        return w, align, self.cb_keep.isChecked(), self.le_alt.text().strip(), self.le_title.text().strip()
+
+
+def _apply_block_alignment_for_image(text_edit: QtWidgets.QTextEdit, cursor_pos: int, align: str):
+    try:
+        c = QTextCursor(text_edit.document())
+        c.setPosition(int(cursor_pos))
+        blk = c.block()
+        bf = blk.blockFormat()
+        a = align.lower() if isinstance(align, str) else "none"
+        if a == "none":
+            return  # leave as-is
+        if a == "left":
+            bf.setAlignment(Qt.AlignLeft)
+        elif a == "center":
+            bf.setAlignment(Qt.AlignHCenter)
+        elif a == "right":
+            bf.setAlignment(Qt.AlignRight)
+        else:
+            bf.setAlignment(Qt.AlignLeft)
+        c.setBlockFormat(bf)
+    except Exception:
+        pass
+
+
+def _image_properties_dialog_apply(text_edit: QtWidgets.QTextEdit, info: dict):
+    # Determine current alignment from block
+    try:
+        cur = QTextCursor(text_edit.document())
+        cur.setPosition(int(info.get("cursor_pos", 0)))
+        blk = cur.block()
+        current_align = "center" if blk.blockFormat().alignment() & Qt.AlignHCenter else ("right" if blk.blockFormat().alignment() & Qt.AlignRight else "left")
+    except Exception:
+        current_align = "left"
+    dlg = _ImagePropertiesDialog(text_edit, info.get("name"), info.get("w"), info.get("h"), info.get("iw") or 0, info.get("ih") or 0, current_align)
+    if dlg.exec_() != QtWidgets.QDialog.Accepted:
+        return
+    new_w, new_align, keep, alt_txt, title_txt = dlg.values()
+    # Compute new height if keeping ratio
+    iw = info.get("iw")
+    ih = info.get("ih")
+    cur_w = float(info.get("w") or (iw or 0.0))
+    cur_h = float(info.get("h") or (ih or 0.0))
+    if keep and iw and ih and iw > 0:
+        new_h = max(1.0, float(new_w) * (float(ih) / float(iw)))
+    elif keep and cur_w and cur_h and cur_w > 0:
+        new_h = max(1.0, float(new_w) * (float(cur_h) / float(cur_w)))
+    else:
+        # If not keeping ratio, fall back to proportional based on current dims
+        ratio = (float(cur_h) / float(cur_w)) if cur_w else 1.0
+        new_h = max(1.0, float(new_w) * ratio)
+    _apply_image_properties(text_edit, info["cursor_pos"], info["name"], float(new_w), float(new_h), alt_txt, title_txt)
+    if (new_align or "none").lower() != "none":
+        _apply_block_alignment_for_image(text_edit, info["cursor_pos"], new_align)
+
+
+def _html_escape(s: str) -> str:
+    try:
+        s = s.replace("&", "&amp;")
+        s = s.replace("\"", "&quot;")
+        s = s.replace("<", "&lt;")
+        s = s.replace(">", "&gt;")
+        return s
+    except Exception:
+        return s
+
+
+def _apply_image_properties(text_edit: QtWidgets.QTextEdit, cursor_pos: int, name: str, w: float, h: float, alt_txt: str, title_txt: str):
+    try:
+        doc = text_edit.document()
+        c = QTextCursor(doc)
+        c.setPosition(int(cursor_pos))
+        # Select object replacement char if present
+        c.movePosition(QTextCursor.Right, QTextCursor.KeepAnchor, 1)
+        try:
+            c.removeSelectedText()
+        except Exception:
+            pass
+        # Build HTML img tag with attributes
+        src_attr = f'src="{_html_escape(name)}"' if name else ""
+        w_attr = f' width="{int(max(1.0, w))}"' if w else ""
+        h_attr = f' height="{int(max(1.0, h))}"' if h else ""
+        alt_attr = f' alt="{_html_escape(alt_txt)}"' if alt_txt else ""
+        title_attr = f' title="{_html_escape(title_txt)}"' if title_txt else ""
+        html = f'<img {src_attr}{w_attr}{h_attr}{(" " + alt_attr) if alt_attr else ""}{(" " + title_attr) if title_attr else ""} />'
+        c.insertHtml(html)
+    except Exception:
+        # Fallback to size-only application
+        _apply_image_size_at(text_edit, cursor_pos, name, w, h)
+import os
+import tempfile
+import imghdr
+
+# Safe checks for deleted Qt objects (helps prevent native crashes)
+def _is_alive(obj) -> bool:
+    try:
+        if obj is None:
+            return False
+        # Try to use sip.isdeleted if available, but don't hard-require sip
+        try:
+            import sip  # type: ignore
+            try:
+                return not sip.isdeleted(obj)
+            except Exception:
+                pass
+        except Exception:
+            # sip not available; assume object is alive
+            pass
+        return True
+    except Exception:
+        return False
+
+# Feature flag: allow disabling image resize overlay via environment for diagnostics
+def _is_image_resize_enabled() -> bool:
+    """Feature flag for experimental image-resize overlay.
+
+    Default: OFF (opt-in). Enable by setting NOTEBOOK_ENABLE_IMAGE_RESIZE=1.
+    You can still force-disable with NOTEBOOK_DISABLE_IMAGE_RESIZE=1.
+    """
+    try:
+        # Hard disable has priority
+        v_disable = os.environ.get("NOTEBOOK_DISABLE_IMAGE_RESIZE", "0").strip().lower()
+        if v_disable in ("1", "true", "yes"):
+            return False
+        # Opt-in enable
+        v_enable = os.environ.get("NOTEBOOK_ENABLE_IMAGE_RESIZE", "0").strip().lower()
+        return v_enable in ("1", "true", "yes")
+    except Exception:
+        return False
 
 
 def _ensure_layout(widget: QtWidgets.QWidget) -> QtWidgets.QVBoxLayout:
@@ -40,6 +458,8 @@ def _ensure_layout(widget: QtWidgets.QWidget) -> QtWidgets.QVBoxLayout:
 # Defaults you can change
 DEFAULT_FONT_FAMILY = "Arial"  # e.g., "Arial", "Calibri", "Times New Roman"
 DEFAULT_FONT_SIZE_PT = 12  # in points
+DEFAULT_IMAGE_LONG_SIDE = 400  # px; long side target when inserting images
+DEFAULT_VIDEO_LONG_SIDE = 400  # px; default long side for video thumbnails (can differ via settings)
 
 # List scheme configuration (can be changed at runtime from main menu)
 _ORDERED_SCHEME = "classic"  # 'classic' or 'decimal'
@@ -167,6 +587,17 @@ def _make_icon(kind: str, size: QSize = QSize(24, 24), fg: QColor = QColor("#303
             p.drawLine(x, 5, x, h - 5)
             y = 5 + i * (h - 10) // 3
             p.drawLine(3, y, w - 3, y)
+    elif kind == "video":
+        # simple 'play' triangle inside a rounded rectangle
+        rect = QRect(3, 5, w - 6, h - 10)
+        p.drawRoundedRect(rect, 3, 3)
+        px = rect.center().x()
+        py = rect.center().y()
+        size = int(min(rect.width(), rect.height()) * 0.5)
+        pts = [QPoint(px - size // 3, py - size // 2), QPoint(px - size // 3, py + size // 2), QPoint(px + size // 2, py)]
+        p.setBrush(QBrush(QColor(60, 60, 60)))
+        p.setPen(Qt.NoPen)
+        p.drawPolygon(*pts)
     elif kind == "color":
         _draw_text("A")
         p.drawRect(5, h - 8, w - 10, 4)
@@ -306,13 +737,13 @@ def add_rich_text_toolbar(
     btn_color = QtWidgets.QToolButton(toolbar)
     btn_color.setText("A")
     btn_color.setToolTip("Text color")
-    btn_color.clicked.connect(lambda: _pick_color_and_apply(text_edit, foreground=True))
+    btn_color.clicked.connect(lambda: _apply_text_color(text_edit, foreground=True))
     toolbar.addWidget(btn_color)
 
     btn_bg = QtWidgets.QToolButton(toolbar)
     btn_bg.setText("Bg")
     btn_bg.setToolTip("Highlight")
-    btn_bg.clicked.connect(lambda: _pick_color_and_apply(text_edit, foreground=False))
+    btn_bg.clicked.connect(lambda: _apply_text_color(text_edit, foreground=False))
     toolbar.addWidget(btn_bg)
 
     # Clear only background highlight (keep bold/italic/etc.)
@@ -374,9 +805,17 @@ def add_rich_text_toolbar(
     # Enable plain paragraph indent/outdent with Tab/Shift+Tab when not in lists/tables
     _install_plain_indent_tab_handler(text_edit)
 
+    # Disable drag-and-drop into the editor per current requirements
+    try:
+        text_edit.setAcceptDrops(False)
+        if hasattr(text_edit, "viewport") and text_edit.viewport() is not None:
+            text_edit.viewport().setAcceptDrops(False)
+    except Exception:
+        pass
+
     toolbar.addSeparator()
 
-    # Clear formatting, HR, Insert image
+    # Clear formatting, HR, Insert image/video
     act_clear = toolbar.addAction(
         _make_icon("color"), "", lambda: text_edit.setCurrentCharFormat(QTextCharFormat())
     )
@@ -385,14 +824,105 @@ def add_rich_text_toolbar(
         _make_icon("hr"), "", lambda: text_edit.textCursor().insertHtml("<hr/>")
     )
     act_hr.setToolTip("Insert horizontal rule")
-    act_img = toolbar.addAction(
-        _make_icon("image"), "", lambda: _insert_image_via_dialog(text_edit)
-    )
-    act_img.setToolTip("Insert image from file")
+    # Image insert: split-button with dropdown for sizing modes
+    btn_img = QtWidgets.QToolButton(toolbar)
+    btn_img.setIcon(_make_icon("image"))
+    btn_img.setToolTip("Insert image from file")
+    # Open the menu on any click (no direct action)
+    btn_img.setPopupMode(QtWidgets.QToolButton.InstantPopup)
+    img_menu = QtWidgets.QMenu(btn_img)
+    try:
+        act_def = img_menu.addAction(f"Use default ({int(DEFAULT_IMAGE_LONG_SIDE)} px)…")
+    except Exception:
+        act_def = img_menu.addAction("Use default size…")
+    act_fit = img_menu.addAction("Fit to editor width…")
+    act_orig = img_menu.addAction("Original size…")
+    act_cust = img_menu.addAction("Custom width…")
+
+    def _choose_custom_and_insert():
+        try:
+            w, ok = QtWidgets.QInputDialog.getInt(
+                toolbar, "Insert Image", "Width (px):", int(DEFAULT_IMAGE_LONG_SIDE), 50, 8000, 10
+            )
+            if not ok:
+                return
+            _insert_image_via_dialog(text_edit, mode="custom", custom_width=float(w))
+        except Exception:
+            pass
+
+    act_def.triggered.connect(lambda: _insert_image_via_dialog(text_edit, mode="default"))
+    act_fit.triggered.connect(lambda: _insert_image_via_dialog(text_edit, mode="fit-width"))
+    act_orig.triggered.connect(lambda: _insert_image_via_dialog(text_edit, mode="original"))
+    act_cust.triggered.connect(_choose_custom_and_insert)
+    btn_img.setMenu(img_menu)
+    toolbar.addWidget(btn_img)
+    # Video insert: split-button with options
+    btn_vid = QtWidgets.QToolButton(toolbar)
+    btn_vid.setIcon(_make_icon("video"))
+    btn_vid.setToolTip("Insert video from file")
+    btn_vid.setPopupMode(QtWidgets.QToolButton.InstantPopup)
+    vid_menu = QtWidgets.QMenu(btn_vid)
+    # Sizing section (mirrors image sizing semantics)
+    try:
+        act_vsz_def = vid_menu.addAction(f"Size: Default ({int(DEFAULT_IMAGE_LONG_SIDE)} px long side)")
+    except Exception:
+        act_vsz_def = vid_menu.addAction("Size: Default")
+    act_vsz_fit = vid_menu.addAction("Size: Fit editor width")
+    act_vsz_orig = vid_menu.addAction("Size: Original")
+    act_vsz_custom = vid_menu.addAction("Size: Custom width…")
+    vid_menu.addSeparator()
+    # Capture time section
+    act_v1 = vid_menu.addAction("Frame at 1.0s…")
+    act_v3 = vid_menu.addAction("Frame at 3.0s…")
+    act_v5 = vid_menu.addAction("Frame at 5.0s…")
+    act_vc = vid_menu.addAction("Custom time…")
+    vid_menu.addSeparator()
+    act_vs = vid_menu.addAction("Use synthetic placeholder…")
+
+    def _choose_custom_video_time():
+        try:
+            secs, ok = QtWidgets.QInputDialog.getDouble(toolbar, "Insert Video", "Capture time (seconds):", 1.0, 0.0, 36000.0, 1)
+            if not ok:
+                return
+            _insert_video_via_dialog(text_edit, capture_seconds=float(secs), force_synthetic=False)
+        except Exception:
+            pass
+
+    # Track chosen sizing mode for subsequent inserts
+    _video_size_state = {"mode": "default", "custom_width": None}
+
+    def _set_video_size(mode: str, custom_w: float = None):
+        _video_size_state["mode"] = mode
+        _video_size_state["custom_width"] = custom_w
+
+    act_vsz_def.triggered.connect(lambda: _set_video_size("default"))
+    act_vsz_fit.triggered.connect(lambda: _set_video_size("fit-width"))
+    act_vsz_orig.triggered.connect(lambda: _set_video_size("original"))
+
+    def _choose_video_custom_width():
+        try:
+            w, ok = QtWidgets.QInputDialog.getInt(toolbar, "Video width", "Width (px):", int(DEFAULT_IMAGE_LONG_SIDE), 50, 8000, 10)
+            if ok:
+                _set_video_size("custom", float(w))
+        except Exception:
+            pass
+    act_vsz_custom.triggered.connect(_choose_video_custom_width)
+
+    act_v1.triggered.connect(lambda: _insert_video_via_dialog(text_edit, capture_seconds=1.0, force_synthetic=False, size_mode=_video_size_state["mode"], custom_width=_video_size_state["custom_width"]))
+    act_v3.triggered.connect(lambda: _insert_video_via_dialog(text_edit, capture_seconds=3.0, force_synthetic=False, size_mode=_video_size_state["mode"], custom_width=_video_size_state["custom_width"]))
+    act_v5.triggered.connect(lambda: _insert_video_via_dialog(text_edit, capture_seconds=5.0, force_synthetic=False, size_mode=_video_size_state["mode"], custom_width=_video_size_state["custom_width"]))
+    act_vc.triggered.connect(_choose_custom_video_time)
+    act_vs.triggered.connect(lambda: _insert_video_via_dialog(text_edit, capture_seconds=None, force_synthetic=True, size_mode=_video_size_state["mode"], custom_width=_video_size_state["custom_width"]))
+    btn_vid.setMenu(vid_menu)
+    toolbar.addWidget(btn_vid)
 
     # Paste Text Only quick action
     act_paste_plain = toolbar.addAction(_make_icon("color"), "", lambda: paste_text_only(text_edit))
     act_paste_plain.setToolTip("Paste Text Only (Ctrl+Shift+V)")
+
+    # HTML Source editor
+    act_html = toolbar.addAction(_make_icon("code"), "", lambda: _open_html_source_dialog(text_edit))
+    act_html.setToolTip("HTML Source…")
 
     # Table: insert or edit if caret is inside a table
     toolbar.addSeparator()
@@ -402,6 +932,8 @@ def add_rich_text_toolbar(
     btn_table.setEnabled(True)
     btn_table.clicked.connect(lambda: _table_insert_or_edit(text_edit))
     toolbar.addWidget(btn_table)
+
+    # (Image Actions toolbar button removed by request)
 
     # Place toolbar in layout
     if before_widget is not None:
@@ -429,21 +961,80 @@ def add_rich_text_toolbar(
 
     text_edit.cursorPositionChanged.connect(_sync_toolbar)
 
+    # Install image context menu and shortcuts
+    try:
+        _install_image_context_menu(text_edit)
+        _install_image_shortcuts(text_edit)
+    except Exception:
+        pass
+    try:
+        text_edit.selectionChanged.connect(_sync_toolbar)
+    except Exception:
+        pass
+
     # Install Ctrl+V override to honor Default Paste Mode without relying on a window-level shortcut
     _install_default_paste_override(text_edit)
     # Enable Ctrl+Click to open links in the system browser
     _install_link_click_handler(text_edit)
     # Enable right-click table context menu
     _install_table_context_menu(text_edit)
-    # Ensure default context menu events propagate so our filter can handle them
+    # Enable right-click image resize menu (stable alternative to overlay)
+    # (Already installed above together with image shortcuts)
+    # Disable drag-and-drop to avoid accidental inserts while we focus on stable HTML-style flows
     try:
-        text_edit.setContextMenuPolicy(Qt.DefaultContextMenu)
+        text_edit.setAcceptDrops(False)
+        if text_edit.viewport() is not None:
+            text_edit.viewport().setAcceptDrops(False)
+    except Exception:
+        pass
+    # Enable mouse-based image resizing with aspect ratio preserved (can disable via env)
+    if _is_image_resize_enabled():
+        _install_image_resize_handler(text_edit)
+    # Use a custom context menu handler so we can reliably detect images
+    try:
+        text_edit.setContextMenuPolicy(Qt.CustomContextMenu)
     except Exception:
         pass
 
     # Improve selection visibility: use a clearer highlight and text color
     try:
         _apply_selection_colors(text_edit, QColor("#4d84b7"), QColor("#000000"))
+    except Exception:
+        pass
+
+    # Deterministic keyboard shortcut to open Image Properties for image at/near caret
+    def _open_image_properties_from_caret():
+        try:
+            info = _image_info_from_selection(text_edit)
+            if info is None:
+                info = _image_info_at_cursor(text_edit)
+            if info is None:
+                cur = text_edit.textCursor()
+                info = _image_info_near_doc_pos(text_edit, cur.position())
+            if info is None:
+                info = _image_info_in_block(text_edit, text_edit.textCursor().block(), prefer_pos=text_edit.textCursor().position())
+            if info is None:
+                # No image nearby, do nothing
+                return
+            _image_properties_dialog_apply(text_edit, info)
+        except Exception:
+            pass
+    try:
+        sc1 = QtWidgets.QShortcut(QKeySequence("Ctrl+Shift+I"), text_edit)
+        sc1.setContext(Qt.WidgetWithChildrenShortcut)
+        sc1.activated.connect(_open_image_properties_from_caret)
+    except Exception:
+        pass
+    try:
+        sc2 = QtWidgets.QShortcut(QKeySequence("F2"), text_edit)
+        sc2.setContext(Qt.WidgetWithChildrenShortcut)
+        sc2.activated.connect(_open_image_properties_from_caret)
+    except Exception:
+        pass
+
+    # Install a small image HUD button that appears when caret is on/near an image
+    try:
+        _install_image_hud(text_edit)
     except Exception:
         pass
     return toolbar
@@ -590,6 +1181,385 @@ def paste_match_style(text_edit: QtWidgets.QTextEdit):
     text_edit.setTextCursor(cursor)
 
 
+def _image_info_at_position(text_edit: QtWidgets.QTextEdit, pos_or_posint):
+    """Detect image info at a specific document position (int) or viewport QPoint.
+    Returns {cursor_pos,name,w,h,iw,ih} or None.
+    """
+    try:
+        # Map from viewport QPoint to document position if needed
+        if isinstance(pos_or_posint, QPoint):
+            cur = text_edit.cursorForPosition(pos_or_posint)
+        else:
+            cur = QTextCursor(text_edit.document())
+            cur.setPosition(int(pos_or_posint))
+
+        def _mk(imgf: QTextImageFormat, c: QTextCursor):
+            try:
+                name = imgf.name() if hasattr(imgf, "name") else imgf.property(QTextFormat.ImageName)
+            except Exception:
+                name = ""
+            w = float(imgf.width() or 0.0)
+            h = float(imgf.height() or 0.0)
+            iw = ih = None
+            try:
+                base = getattr(text_edit.window(), "_media_root", None)
+                path = name
+                if base and name and not os.path.isabs(name):
+                    path = os.path.join(base, name)
+                img = QImage(path)
+                if not img.isNull():
+                    iw, ih = img.width(), img.height()
+            except Exception:
+                pass
+            return {"cursor_pos": c.position(), "name": name, "w": w, "h": h, "iw": iw, "ih": ih}
+
+        # Check current, previous, and next positions
+        candidates = []
+        for offset in (0, -1, +1):
+            c = QTextCursor(cur)
+            if offset < 0:
+                c.movePosition(QTextCursor.Left)
+            elif offset > 0:
+                c.movePosition(QTextCursor.Right)
+            candidates.append(c)
+        for c in candidates:
+            fmt = c.charFormat()
+            if fmt is not None and (
+                (hasattr(fmt, "isImageFormat") and fmt.isImageFormat())
+                or fmt.objectType() == QTextFormat.ImageObject
+            ):
+                return _mk(QTextImageFormat(fmt), QTextCursor(c))
+            # Try selecting the char at this position to fetch the actual object format
+            try:
+                csel = QTextCursor(c)
+                csel.movePosition(QTextCursor.Right, QTextCursor.KeepAnchor, 1)
+                fmt2 = csel.charFormat()
+                if fmt2 is not None and (
+                    (hasattr(fmt2, "isImageFormat") and fmt2.isImageFormat())
+                    or fmt2.objectType() == QTextFormat.ImageObject
+                ):
+                    return _mk(QTextImageFormat(fmt2), QTextCursor(c))
+            except Exception:
+                pass
+    except Exception:
+        return None
+    return None
+
+
+def _image_info_at_cursor(text_edit: QtWidgets.QTextEdit):
+    """Robustly detect an image under/near the caret or selection start.
+    Strategy:
+    1) Check current pos and neighbors
+    2) Check selection start and neighbors
+    3) Scan left/right within a small radius of positions
+    4) Sample viewport points around the caret rect center
+    """
+    try:
+        cur = text_edit.textCursor()
+        # Try current pos and neighbors
+        info = _image_info_at_position(text_edit, cur.position())
+        if info:
+            return info
+        # Try selection anchor/start if available
+        try:
+            start_pos = min(cur.anchor(), cur.position())
+        except Exception:
+            start_pos = cur.position()
+        if start_pos != cur.position():
+            info = _image_info_at_position(text_edit, start_pos)
+            if info:
+                return info
+            info = _image_info_at_position(text_edit, max(0, start_pos - 1))
+            if info:
+                return info
+        # Scan positions around caret within a small radius
+        try:
+            p0 = cur.position()
+            for d in (1, 2, 3, 4, 6, 8, 12, 16, 24, 32):
+                for pos_try in (max(0, p0 - d), p0 + d):
+                    info = _image_info_at_position(text_edit, pos_try)
+                    if info:
+                        return info
+        except Exception:
+            pass
+        # Sample viewport around caret rect center
+        try:
+            r = text_edit.cursorRect(cur)
+            if r is not None and r.isValid():
+                vp = text_edit.viewport()
+                cx = r.center().x()
+                cy = r.center().y()
+                # Sweep horizontally and slightly vertically
+                for dy in (0, int(r.height()/3) if r.height() > 0 else 6, -int(r.height()/3) if r.height() > 0 else -6):
+                    for dx in (-64, -48, -32, -24, -16, -8, -4, 0, 4, 8, 16, 24, 32, 48, 64):
+                        pt = QPoint(int(cx + dx), int(cy + dy))
+                        # Clamp within viewport
+                        if vp is not None:
+                            rr = vp.rect()
+                            if not rr.contains(pt):
+                                continue
+                        info = _image_info_at_position(text_edit, pt)
+                        if info:
+                            return info
+        except Exception:
+            pass
+    except Exception:
+        return None
+    return None
+
+
+def _image_info_near_doc_pos(text_edit: QtWidgets.QTextEdit, doc_pos: int, max_scan: int = 512):
+    """Find image nearest to a given document position, scanning within the current block first.
+    Returns {cursor_pos,name,w,h,iw,ih} or None.
+    """
+    try:
+        doc = text_edit.document()
+        cur = QTextCursor(doc)
+        cur.setPosition(int(doc_pos))
+        blk = cur.block()
+        # Limit search to the paragraph/block for precision
+        start = blk.position()
+        end = blk.position() + blk.length() - 1
+        # Scan outward from doc_pos within [start,end]
+        def _try_at(p):
+            if p < start or p > end:
+                return None
+            c = QTextCursor(doc)
+            c.setPosition(p)
+            # Select the char at this position to retrieve object format
+            c.movePosition(QTextCursor.Right, QTextCursor.KeepAnchor, 1)
+            fmt = c.charFormat()
+            if fmt is not None and ((hasattr(fmt, "isImageFormat") and fmt.isImageFormat()) or fmt.objectType() == QTextFormat.ImageObject):
+                imgf = QTextImageFormat(fmt)
+                name = imgf.name() if hasattr(imgf, "name") else imgf.property(QTextFormat.ImageName)
+                w = float(imgf.width() or 0.0)
+                h = float(imgf.height() or 0.0)
+                # Try to get intrinsic size
+                iw = ih = None
+                try:
+                    base = getattr(text_edit.window(), "_media_root", None)
+                    path = name
+                    if base and name and not os.path.isabs(name):
+                        path = os.path.join(base, name)
+                    img = QImage(path)
+                    if not img.isNull():
+                        iw, ih = img.width(), img.height()
+                except Exception:
+                    pass
+                return {"cursor_pos": p, "name": name, "w": w, "h": h, "iw": iw, "ih": ih}
+            return None
+        # Check exact pos and neighbors out to max_scan (capped by block length)
+        max_delta = int(min(max_scan, max(0, end - start)))
+        # Prefer exact, then +/-1, +/-2, ...
+        for d in range(0, max_delta + 1):
+            # exact
+            if d == 0:
+                info = _try_at(doc_pos)
+                if info:
+                    return info
+                continue
+            # left then right
+            info = _try_at(doc_pos - d)
+            if info:
+                return info
+            info = _try_at(doc_pos + d)
+            if info:
+                return info
+    except Exception:
+        return None
+    return None
+
+
+def _image_info_from_selection(text_edit: QtWidgets.QTextEdit):
+    """If there's a selection, scan the selected range for an image object and return its info."""
+    try:
+        cur = text_edit.textCursor()
+        a = cur.anchor()
+        p = cur.position()
+        start = min(a, p)
+        end = max(a, p)
+        if start == end:
+            return None
+        doc = text_edit.document()
+        pos = start
+        while pos <= end:
+            c = QTextCursor(doc)
+            c.setPosition(pos)
+            c.movePosition(QTextCursor.Right, QTextCursor.KeepAnchor, 1)
+            fmt = c.charFormat()
+            if fmt is not None and (
+                (hasattr(fmt, "isImageFormat") and fmt.isImageFormat())
+                or fmt.objectType() == QTextFormat.ImageObject
+            ):
+                imgf = QTextImageFormat(fmt)
+                try:
+                    name = imgf.name() if hasattr(imgf, "name") else imgf.property(QTextFormat.ImageName)
+                except Exception:
+                    name = ""
+                w = float(imgf.width() or 0.0)
+                h = float(imgf.height() or 0.0)
+                iw = ih = None
+                try:
+                    base = getattr(text_edit.window(), "_media_root", None)
+                    path = name
+                    if base and name and not os.path.isabs(name):
+                        path = os.path.join(base, name)
+                    img = QImage(path)
+                    if not img.isNull():
+                        iw, ih = img.width(), img.height()
+                except Exception:
+                    pass
+                return {"cursor_pos": c.position(), "name": name, "w": w, "h": h, "iw": iw, "ih": ih}
+            pos += 1
+    except Exception:
+        return None
+    return None
+
+
+def _image_info_in_block(text_edit: QtWidgets.QTextEdit, block, prefer_pos: int = None):
+    """Scan QTextBlock fragments to find an embedded image. If multiple, pick the one nearest prefer_pos.
+    Returns {cursor_pos,name,w,h,iw,ih} or None.
+    """
+    try:
+        # Collect all image fragments with their positions
+        imgs = []
+        it = block.begin()
+        while not it.atEnd():
+            frag = it.fragment()
+            if frag.isValid():
+                fmt = frag.charFormat()
+                if fmt is not None and ((hasattr(fmt, "isImageFormat") and fmt.isImageFormat()) or fmt.objectType() == QTextFormat.ImageObject):
+                    imgf = QTextImageFormat(fmt)
+                    try:
+                        name = imgf.name() if hasattr(imgf, "name") else imgf.property(QTextFormat.ImageName)
+                    except Exception:
+                        name = ""
+                    w = float(imgf.width() or 0.0)
+                    h = float(imgf.height() or 0.0)
+                    iw = ih = None
+                    try:
+                        base = getattr(text_edit.window(), "_media_root", None)
+                        path = name
+                        if base and name and not os.path.isabs(name):
+                            path = os.path.join(base, name)
+                        img = QImage(path)
+                        if not img.isNull():
+                            iw, ih = img.width(), img.height()
+                    except Exception:
+                        pass
+                    imgs.append({
+                        "cursor_pos": frag.position(),
+                        "name": name,
+                        "w": w,
+                        "h": h,
+                        "iw": iw,
+                        "ih": ih,
+                    })
+            it += 1
+        if not imgs:
+            return None
+        if prefer_pos is None:
+            return imgs[0]
+        # Choose the image with position closest to prefer_pos
+        imgs.sort(key=lambda d: abs(int(d.get("cursor_pos", 0)) - int(prefer_pos)))
+        return imgs[0]
+    except Exception:
+        return None
+
+
+def _apply_image_size_at(text_edit: QtWidgets.QTextEdit, cursor_pos: int, name: str, w: float, h: float):
+    try:
+        doc = text_edit.document()
+        # Ensure we target the actual image character; adjust if needed
+        info_here = _image_info_at_position(text_edit, cursor_pos)
+        if info_here is None:
+            info_here = _image_info_at_position(text_edit, max(0, cursor_pos - 1))
+        if info_here is not None:
+            target_pos = int(info_here.get("cursor_pos", cursor_pos))
+        else:
+            target_pos = int(cursor_pos)
+
+        # Preferred: replace the object with a new image fragment at the desired size
+        try:
+            c = QTextCursor(doc)
+            c.setPosition(target_pos)
+            # Select the object replacement char if present
+            c.movePosition(QTextCursor.Right, QTextCursor.KeepAnchor, 1)
+            # If selection is not an image, fall back later
+            fmt = c.charFormat()
+            is_img_sel = fmt is not None and (
+                (hasattr(fmt, "isImageFormat") and fmt.isImageFormat()) or fmt.objectType() == QTextFormat.ImageObject
+            )
+            if is_img_sel:
+                try:
+                    c.removeSelectedText()
+                except Exception:
+                    pass
+                imgf = QTextImageFormat()
+                if name:
+                    imgf.setName(name)
+                imgf.setWidth(float(max(1.0, w)))
+                imgf.setHeight(float(max(1.0, h)))
+                c.insertImage(imgf)
+                return
+        except Exception:
+            pass
+
+        # Fallback: setCharFormat on a 1-char selection at the requested position
+        try:
+            c = QTextCursor(doc)
+            c.setPosition(target_pos)
+            c.movePosition(QTextCursor.Right, QTextCursor.KeepAnchor, 1)
+            imgf = QTextImageFormat()
+            if name:
+                imgf.setName(name)
+            imgf.setWidth(float(max(1.0, w)))
+            imgf.setHeight(float(max(1.0, h)))
+            c.setCharFormat(imgf)
+        except Exception:
+            pass
+    except Exception:
+        pass
+
+
+def _fit_image_to_width_at(text_edit: QtWidgets.QTextEdit, cursor_pos: int, name: str, iw: int, ih: int):
+    try:
+        if not (iw and ih):
+            return
+        vp = text_edit.viewport()
+        avail = max(16.0, float(vp.width() - 24)) if vp is not None else float(iw)
+        scale = avail / float(iw)
+        _apply_image_size_at(text_edit, cursor_pos, name, avail, max(1.0, ih * scale))
+    except Exception:
+        pass
+
+
+def _reset_image_size_at(text_edit: QtWidgets.QTextEdit, cursor_pos: int, name: str, iw: int, ih: int):
+    try:
+        if iw and ih:
+            _apply_image_size_at(text_edit, cursor_pos, name, float(iw), float(ih))
+    except Exception:
+        pass
+
+
+def _prompt_resize_image(text_edit: QtWidgets.QTextEdit, cursor_pos: int, name: str, cur_w: float, cur_h: float, iw: int, ih: int):
+    try:
+        aspect = (float(iw) / float(ih)) if (iw and ih and ih != 0) else (float(cur_w) / float(cur_h) if cur_h else 1.0)
+        w_default = int(cur_w or (iw or 400))
+        w_txt, ok = QtWidgets.QInputDialog.getText(text_edit, "Resize Image", "Width (px):", text=str(w_default))
+        if not (ok and w_txt and w_txt.strip()):
+            return
+        try:
+            new_w = float(int(w_txt.strip()))
+        except Exception:
+            return
+        new_w = max(16.0, new_w)
+        new_h = max(1.0, new_w / (aspect if aspect else 1.0))
+        _apply_image_size_at(text_edit, cursor_pos, name, new_w, new_h)
+    except Exception:
+        pass
+
+
 def _strip_match_style_html(html: str) -> str:
     """Remove background, font-size, and font-family related styles/attributes so current style applies immediately."""
     import re
@@ -675,9 +1645,9 @@ def sanitize_html_for_storage(raw_html: str) -> str:
                 if lk == "style":
                     # Keep only safe styles:
                     # - list-related (-qt-list-*, -qt-paragraph-type)
-                    # - paragraph margin-left and text-align
+                    # - paragraph/div margin-left and text-align
                     # - table cell/row background-color and text-align
-                    if tag_l in ("ol", "ul", "li", "p", "td", "th", "tr"):
+                    if tag_l in ("ol", "ul", "li", "p", "div", "td", "th", "tr"):
                         try:
                             decls = [d.strip() for d in str(v).split(";") if d.strip()]
                             kept = []
@@ -686,7 +1656,7 @@ def sanitize_html_for_storage(raw_html: str) -> str:
                                 key = parts[0].strip().lower() if len(parts) == 2 else ""
                                 if key.startswith("-qt-list-") or key == "-qt-paragraph-type":
                                     kept.append(d)
-                                elif tag_l == "p" and key in ("margin-left", "text-align"):
+                                elif tag_l in ("p", "div") and key in ("margin-left", "text-align"):
                                     kept.append(d)
                                 elif tag_l in ("td", "th", "tr") and key in ("background", "background-color", "text-align"):
                                     kept.append(d)
@@ -695,6 +1665,9 @@ def sanitize_html_for_storage(raw_html: str) -> str:
                         except Exception:
                             pass
                     continue
+                # Preserve explicit HTML alignment on paragraphs/divs
+                if tag_l in ("p", "div") and lk == "align":
+                    allowed.append((k, v))
                 # Preserve list semantics
                 if tag_l in ("ol", "ul") and lk in (
                     "type",
@@ -705,7 +1678,7 @@ def sanitize_html_for_storage(raw_html: str) -> str:
                     allowed.append((k, v))
                 elif tag_l == "a" and lk in ("href", "title"):
                     allowed.append((k, v))
-                elif tag_l == "img" and lk in ("src", "alt", "title"):
+                elif tag_l == "img" and lk in ("src", "alt", "title", "width", "height"):
                     allowed.append((k, v))
                 elif lk.startswith("data-"):
                     continue
@@ -749,7 +1722,7 @@ def sanitize_html_for_storage(raw_html: str) -> str:
                         allowed.append((k, v))
                     continue
                 if lk == "style":
-                    if tag_l in ("ol", "ul", "li", "p", "td", "th", "tr"):
+                    if tag_l in ("ol", "ul", "li", "p", "div", "td", "th", "tr"):
                         try:
                             decls = [d.strip() for d in str(v).split(";") if d.strip()]
                             kept = []
@@ -758,7 +1731,7 @@ def sanitize_html_for_storage(raw_html: str) -> str:
                                 key = parts[0].strip().lower() if len(parts) == 2 else ""
                                 if key.startswith("-qt-list-") or key == "-qt-paragraph-type":
                                     kept.append(d)
-                                elif tag_l == "p" and key in ("margin-left", "text-align"):
+                                elif tag_l in ("p", "div") and key in ("margin-left", "text-align"):
                                     kept.append(d)
                                 elif tag_l in ("td", "th", "tr") and key in ("background", "background-color", "text-align"):
                                     kept.append(d)
@@ -767,7 +1740,9 @@ def sanitize_html_for_storage(raw_html: str) -> str:
                         except Exception:
                             pass
                     continue
-                if tag_l == "img" and lk in ("src", "alt", "title"):
+                if tag_l in ("p", "div") and lk == "align":
+                    allowed.append((k, v))
+                if tag_l == "img" and lk in ("src", "alt", "title", "width", "height"):
                     allowed.append((k, v))
                 elif tag_l in ("td", "th") and lk in ("colspan", "rowspan", "align", "valign"):
                     allowed.append((k, v))
@@ -888,14 +1863,1175 @@ def get_list_schemes():
     return _ORDERED_SCHEME, _UNORDERED_SCHEME
 
 
-def _insert_image_via_dialog(text_edit: QtWidgets.QTextEdit):
+def _insert_image_via_dialog(text_edit: QtWidgets.QTextEdit, mode: str = "default", custom_width: float = None):
+    """Open a file dialog and insert the chosen image using the specified sizing mode.
+
+    mode in {"default", "fit-width", "original", "custom"}
+    custom_width: used when mode == "custom" (pixels)
+    """
     path, _ = QtWidgets.QFileDialog.getOpenFileName(
         text_edit, "Insert Image", "", "Images (*.png *.jpg *.jpeg *.gif *.bmp);;All Files (*)"
     )
     if not path:
         return
-    cursor = text_edit.textCursor()
-    cursor.insertImage(path)
+    _insert_image_from_path(text_edit, path, mode=mode, custom_width=custom_width)
+
+
+def _insert_image_from_path(text_edit: QtWidgets.QTextEdit, src_path: str, mode: str = "default", custom_width: float = None):
+    """Insert an image scaled to DEFAULT_IMAGE_LONG_SIDE using QTextImageFormat.
+
+    - Saves into the media store when a DB is open and uses a relative src resolved via document baseUrl.
+    - Otherwise inserts from the absolute file path.
+    - Computes intrinsic dimensions and sets width/height on the image format to enforce display size.
+    """
+    try:
+        if not (isinstance(src_path, str) and src_path):
+            return
+        # Determine if it's an image; if not, just insert as-is
+        if not os.path.exists(src_path) or imghdr.what(src_path) is None:
+            try:
+                text_edit.textCursor().insertImage(src_path)
+            except Exception:
+                pass
+            return
+
+        win = text_edit.window()
+        db_path = getattr(win, "_db_path", None)
+        media_root = getattr(win, "_media_root", None)
+
+        rel_or_abs = src_path
+        # If we have a DB/media root, store and use a relative path and ensure baseUrl
+        if db_path and media_root:
+            try:
+                from media_store import save_file_into_store
+
+                _, rel_path = save_file_into_store(db_path, src_path)
+                rel_or_abs = rel_path
+                base = media_root if media_root.endswith(os.sep) else media_root + os.sep
+                text_edit.document().setBaseUrl(QUrl.fromLocalFile(base))
+            except Exception:
+                rel_or_abs = src_path
+
+        # Compute intrinsic image size
+        try:
+            # Prefer absolute path for probing dimensions
+            abs_probe = src_path
+            if db_path and media_root and rel_or_abs and not os.path.isabs(rel_or_abs):
+                abs_probe = os.path.join(media_root, rel_or_abs)
+            img = QImage(abs_probe)
+            iw = int(img.width()) if not img.isNull() else 0
+            ih = int(img.height()) if not img.isNull() else 0
+        except Exception:
+            iw = ih = 0
+
+        # Determine display size per mode
+        disp_w = disp_h = None
+        if mode == "original" and iw > 0 and ih > 0:
+            disp_w = float(iw)
+            disp_h = float(ih)
+        elif mode == "fit-width" and iw > 0 and ih > 0:
+            try:
+                vp = text_edit.viewport()
+                avail = float(vp.width() - 24) if vp is not None else float(iw)
+            except Exception:
+                avail = float(iw)
+            avail = max(16.0, avail)
+            scale = avail / float(iw) if iw > 0 else 1.0
+            disp_w = avail
+            disp_h = max(1.0, float(ih) * scale)
+        elif mode == "custom" and custom_width and iw > 0 and ih > 0:
+            disp_w = max(1.0, float(custom_width))
+            disp_h = max(1.0, disp_w * (float(ih) / float(iw)))
+        else:
+            # default mode: scale long side to DEFAULT_IMAGE_LONG_SIDE (preserve aspect)
+            target_long = float(DEFAULT_IMAGE_LONG_SIDE)
+            if iw > 0 and ih > 0:
+                scale = target_long / float(max(iw, ih)) if max(iw, ih) > 0 else 1.0
+                disp_w = max(1.0, float(iw) * scale)
+                disp_h = max(1.0, float(ih) * scale)
+            else:
+                # Unknown size: default to target width/height
+                disp_w = target_long
+                disp_h = target_long
+
+        # Insert using QTextImageFormat with width/height so size is enforced
+        try:
+            imgf = QTextImageFormat()
+            imgf.setName(rel_or_abs)
+            imgf.setWidth(disp_w)
+            imgf.setHeight(disp_h)
+            text_edit.textCursor().insertImage(imgf)
+        except Exception:
+            # Fallback to HTML if insertImage fails
+            w_attr = f' width="{int(disp_w)}"' if disp_w else ""
+            h_attr = f' height="{int(disp_h)}"' if disp_h else ""
+            html = f'<img src="{rel_or_abs}"{w_attr}{h_attr} />'
+            try:
+                text_edit.textCursor().insertHtml(html)
+            except Exception:
+                pass
+    except Exception:
+        return
+
+
+
+
+def _insert_video_via_dialog(text_edit: QtWidgets.QTextEdit, capture_seconds: float = None, force_synthetic: bool = False, size_mode: str = "default", custom_width: float = None):
+    path, _ = QtWidgets.QFileDialog.getOpenFileName(
+        text_edit,
+        "Insert Video",
+        "",
+        "Videos (*.mp4 *.webm *.mov *.avi *.mkv);;All Files (*)",
+    )
+    if not path:
+        return
+    _insert_video_from_path(
+        text_edit,
+        path,
+        capture_seconds=capture_seconds,
+        force_synthetic=force_synthetic,
+        size_mode=size_mode,
+        custom_width=custom_width,
+    )
+
+
+def _insert_video_from_path(
+    text_edit: QtWidgets.QTextEdit,
+    src_path: str,
+    capture_seconds: float = None,
+    force_synthetic: bool = False,
+    size_mode: str = "default",
+    custom_width: float = None,
+):
+    try:
+        if not os.path.exists(src_path):
+            return
+        win = text_edit.window()
+        db_path = getattr(win, "_db_path", None)
+        media_root = getattr(win, "_media_root", None)
+        if db_path and media_root:
+            try:
+                from media_store import save_file_into_store
+
+                # Save the video into the media store
+                _, rel_video = save_file_into_store(db_path, src_path)
+                # Ensure baseUrl so relative src/href resolve
+                try:
+                    base = media_root if media_root.endswith(os.sep) else media_root + os.sep
+                    text_edit.document().setBaseUrl(QUrl.fromLocalFile(base))
+                except Exception:
+                    pass
+
+                # Attempt a real frame thumbnail via OpenCV at configurable seconds; fallback to synthetic
+                def _video_thumb_seconds() -> float:
+                    try:
+                        v = os.environ.get("NOTEBOOK_VIDEO_THUMB_SECONDS", "1.0").strip()
+                        return float(v)
+                    except Exception:
+                        return 1.0
+
+                def _opencv_available() -> bool:
+                    try:
+                        import cv2  # type: ignore
+                        _ = cv2.__version__
+                        return True
+                    except Exception:
+                        return False
+
+                def _extract_frame_with_opencv(source: str, out_png: str, t_sec: float) -> bool:
+                    try:
+                        import cv2  # type: ignore
+                        cap = cv2.VideoCapture(source)
+                        if not cap.isOpened():
+                            return False
+                        # Seek by time when supported
+                        ok_seek = cap.set(cv2.CAP_PROP_POS_MSEC, max(0.0, float(t_sec)) * 1000.0)
+                        if not ok_seek:
+                            # Fallback: estimate frame index by FPS
+                            fps = cap.get(cv2.CAP_PROP_FPS) or 30.0
+                            idx = int(max(0.0, float(t_sec)) * float(fps))
+                            cap.set(cv2.CAP_PROP_POS_FRAMES, idx)
+                        ret, frame = cap.read()
+                        cap.release()
+                        if not ret or frame is None:
+                            return False
+                        # Write PNG
+                        ok = cv2.imwrite(out_png, frame)
+                        return bool(ok and os.path.exists(out_png))
+                    except Exception:
+                        return False
+
+                tmp_dir = tempfile.gettempdir()
+                tmp_thumb = os.path.join(tmp_dir, f"nb_thumb_{os.getpid()}_{abs(hash(src_path))}.png")
+                made_real = False
+                # Prefer OpenCV if available
+                use_sec = float(capture_seconds) if capture_seconds is not None else _video_thumb_seconds()
+                if (not force_synthetic) and _opencv_available():
+                    if _extract_frame_with_opencv(src_path, tmp_thumb, use_sec):
+                        made_real = True
+                if not made_real:
+                    # Synthetic 16:9 thumbnail with play icon and filename
+                    thumb_w, thumb_h = 1280, 720
+                    pm = QPixmap(QSize(thumb_w, thumb_h))
+                    pm.fill(QColor(20, 20, 20))
+                    p = QPainter(pm)
+                    try:
+                        p.setRenderHint(QPainter.Antialiasing, True)
+                    except Exception:
+                        pass
+                    try:
+                        pen = QPen(QColor(0, 0, 0, 140))
+                        pen.setWidth(6)
+                        p.setPen(pen)
+                        p.drawRect(3, 3, thumb_w - 6, thumb_h - 6)
+                    except Exception:
+                        pass
+                    try:
+                        play_size = int(min(thumb_w, thumb_h) * 0.22)
+                        cx, cy = thumb_w // 2, thumb_h // 2
+                        pts = [
+                            QPoint(cx - play_size // 3, cy - play_size // 2),
+                            QPoint(cx - play_size // 3, cy + play_size // 2),
+                            QPoint(cx + play_size // 2, cy),
+                        ]
+                        p.setBrush(QBrush(QColor(255, 255, 255, 230)))
+                        p.setPen(Qt.NoPen)
+                        p.drawPolygon(*pts)
+                    except Exception:
+                        pass
+                    try:
+                        name = os.path.basename(src_path)
+                        overlay_h = int(thumb_h * 0.16)
+                        p.setPen(Qt.NoPen)
+                        p.setBrush(QBrush(QColor(0, 0, 0, 140)))
+                        p.drawRect(0, thumb_h - overlay_h, thumb_w, overlay_h)
+                        p.setPen(QColor(240, 240, 240))
+                        f = QFont()
+                        f.setPointSizeF(max(12.0, overlay_h * 0.35))
+                        f.setBold(False)
+                        p.setFont(f)
+                        p.drawText(QRect(12, thumb_h - overlay_h, thumb_w - 24, overlay_h), Qt.AlignVCenter | Qt.TextSingleLine, name)
+                    except Exception:
+                        pass
+                    try:
+                        p.end()
+                    except Exception:
+                        pass
+                    try:
+                        pm.save(tmp_thumb, "PNG")
+                    except Exception:
+                        tmp_thumb = None
+
+                rel_thumb = None
+                if tmp_thumb and os.path.exists(tmp_thumb):
+                    try:
+                        _, rel_thumb = save_file_into_store(db_path, tmp_thumb, original_filename=os.path.basename(src_path) + ".thumb.png")
+                    except Exception:
+                        rel_thumb = None
+                    try:
+                        os.remove(tmp_thumb)
+                    except Exception:
+                        pass
+
+                if rel_thumb is not None:
+                    try:
+                        # Probe intrinsic size from stored file
+                        abs_probe = os.path.join(media_root, rel_thumb) if not os.path.isabs(rel_thumb) else rel_thumb
+                        img_probe = QImage(abs_probe)
+                        iw = int(img_probe.width()) if not img_probe.isNull() else 1280
+                        ih = int(img_probe.height()) if not img_probe.isNull() else 720
+                        # Determine display size based on sizing mode (video sizing can use its own default)
+                        try:
+                            if size_mode == "original":
+                                disp_w, disp_h = iw, ih
+                            elif size_mode == "fit-width":
+                                try:
+                                    vp = text_edit.viewport()
+                                    avail = max(16, vp.width() - 32)
+                                except Exception:
+                                    avail = int(DEFAULT_IMAGE_LONG_SIDE)
+                                # Scale preserving aspect ratio to fit width
+                                scale = float(avail) / float(iw) if iw > 0 else 1.0
+                                disp_w = int(avail)
+                                disp_h = max(1, int(ih * scale))
+                            elif size_mode == "custom" and custom_width and custom_width > 0:
+                                scale = float(custom_width) / float(iw) if iw > 0 else 1.0
+                                disp_w = int(custom_width)
+                                disp_h = max(1, int(ih * scale))
+                            else:  # default long-side scaling
+                                # Prefer separate video default if defined
+                                target_long_default = float(DEFAULT_VIDEO_LONG_SIDE) if 'DEFAULT_VIDEO_LONG_SIDE' in globals() and DEFAULT_VIDEO_LONG_SIDE else float(DEFAULT_IMAGE_LONG_SIDE)
+                                target_long = float(custom_width) if (size_mode == "custom" and custom_width and custom_width > 0) else target_long_default
+                                scale = target_long / float(max(iw, ih)) if max(iw, ih) > 0 else 1.0
+                                disp_w = max(1, int(iw * scale))
+                                disp_h = max(1, int(ih * scale))
+                        except Exception:
+                            target_long = float(DEFAULT_VIDEO_LONG_SIDE) if 'DEFAULT_VIDEO_LONG_SIDE' in globals() else float(DEFAULT_IMAGE_LONG_SIDE)
+                            scale = target_long / float(max(iw, ih)) if max(iw, ih) > 0 else 1.0
+                            disp_w = max(1, int(iw * scale))
+                            disp_h = max(1, int(ih * scale))
+                    except Exception:
+                        base_long = float(DEFAULT_VIDEO_LONG_SIDE) if 'DEFAULT_VIDEO_LONG_SIDE' in globals() else float(DEFAULT_IMAGE_LONG_SIDE)
+                        disp_w = int(base_long)
+                        disp_h = int(base_long * 9 / 16)
+                    alt = os.path.basename(src_path)
+                    html = (
+                        f'<a href="{rel_video}">'
+                        f'<img src="{rel_thumb}" width="{disp_w}" height="{disp_h}" alt="{_html_escape(alt)}" /></a>'
+                    )
+                    text_edit.textCursor().insertHtml(html)
+                else:
+                    # Fallback: simple link
+                    name = os.path.basename(src_path)
+                    html = f'<a href="{rel_video}">📹 {name}</a>'
+                    text_edit.textCursor().insertHtml(html)
+                return
+            except Exception:
+                pass
+        # Fallback (no DB/media root): insert absolute-path link
+        name = os.path.basename(src_path)
+        html = f'<a href="{src_path}">📹 {name}</a>'
+        text_edit.textCursor().insertHtml(html)
+    except Exception:
+        return
+
+
+
+
+class _ImageResizeHandler(QObject):
+    def __init__(self, edit: QtWidgets.QTextEdit):
+        super().__init__(edit)
+        self._edit = edit
+        self._resizing = False
+        self._start_pos = None
+        self._cursor_pos = None
+        self._img_src = None
+        self._orig_w = None
+        self._orig_h = None
+        self._overlay = None  # type: QtWidgets.QWidget
+        # Clean up safely if the editor is destroyed while handlers/overlay are active
+        try:
+            self._edit.destroyed.connect(self._on_edit_destroyed)
+        except Exception:
+            pass
+
+    def set_overlay(self, overlay_widget: QtWidgets.QWidget):
+        self._overlay = overlay_widget
+
+    def _on_edit_destroyed(self, *args, **kwargs):
+        # Avoid operating on deleted widgets
+        try:
+            self._overlay = None
+            self._edit = None
+        except Exception:
+            pass
+
+    def _image_at(self, pos):
+        try:
+            # Helper to detect if a cursor sits on an image char and return its image format + adjusted cursor
+            def _img_info_for_cursor(cur: QTextCursor):
+                try:
+                    fmt = cur.charFormat()
+                    if fmt is None:
+                        return None
+                    if hasattr(fmt, "isImageFormat") and fmt.isImageFormat():
+                        return QTextImageFormat(fmt), QTextCursor(cur)
+                    if fmt.objectType() == QTextFormat.ImageObject:
+                        return QTextImageFormat(fmt), QTextCursor(cur)
+                    # Try previous char (common when caret is just after the image)
+                    prev = QTextCursor(cur)
+                    prev.movePosition(QTextCursor.Left)
+                    pf = prev.charFormat()
+                    if pf is not None and (
+                        (hasattr(pf, "isImageFormat") and pf.isImageFormat())
+                        or pf.objectType() == QTextFormat.ImageObject
+                    ):
+                        return QTextImageFormat(pf), QTextCursor(prev)
+                except Exception:
+                    return None
+                return None
+
+            base_cursor = self._edit.cursorForPosition(pos)
+            # Build candidates safely: base, base-1, base+1
+            candidates = []
+            try:
+                c0 = QTextCursor(base_cursor)
+                candidates.append(c0)
+                c1 = QTextCursor(base_cursor)
+                c1.movePosition(QTextCursor.Left)
+                candidates.append(c1)
+                c2 = QTextCursor(base_cursor)
+                c2.movePosition(QTextCursor.Right)
+                candidates.append(c2)
+            except Exception:
+                candidates = [QTextCursor(base_cursor)]
+
+            for candidate in candidates:
+                info = _img_info_for_cursor(candidate)
+                if info is None:
+                    continue
+                imgf, c = info
+                try:
+                    name = imgf.name() if hasattr(imgf, "name") else imgf.property(QTextFormat.ImageName)
+                except Exception:
+                    name = ""
+
+                # Prefer on-screen rect via adjacent cursor rectangles for accuracy
+                # cursorRect can crash on invalid positions; guard it
+                try:
+                    r1 = self._edit.cursorRect(c)
+                except Exception:
+                    continue
+                c_after = QTextCursor(c)
+                c_after.movePosition(QTextCursor.Right)
+                try:
+                    r2 = self._edit.cursorRect(c_after)
+                except Exception:
+                    continue
+                x_left = min(r1.left(), r2.left())
+                x_right = max(r1.left(), r2.left())
+                width_from_layout = max(0, x_right - x_left)
+                # Estimate height from line rects
+                y_top = min(r1.top(), r2.top())
+                h_from_layout = max(r1.height(), r2.height())
+
+                # Fallback to image format/intrinsic dims if layout width is zero
+                w = imgf.width() if hasattr(imgf, "width") and imgf.width() else 0
+                h = imgf.height() if hasattr(imgf, "height") and imgf.height() else 0
+                if (not w or not h):
+                    # Try intrinsic by loading image from media root
+                    abs_path = name
+                    try:
+                        base = getattr(self._edit.window(), "_media_root", None)
+                        if base and not os.path.isabs(name):
+                            abs_path = os.path.join(base, name)
+                        img = QImage(abs_path)
+                        if not img.isNull():
+                            w = img.width()
+                            h = img.height()
+                    except Exception:
+                        pass
+                try:
+                    iw = int(max(1, float(width_from_layout or w)))
+                    ih = int(max(1, float(h_from_layout if width_from_layout else h)))
+                except Exception:
+                    iw = int(width_from_layout or (w or 1))
+                    ih = int(h_from_layout if width_from_layout else (h or 1))
+
+                # If layout didn't give a width, compute left edge from the right caret position
+                if width_from_layout == 0 and iw > 0:
+                    x_left = int(r2.left() - iw)
+                    y_top = int(r1.center().y() - (ih / 2))
+
+                screen_rect = QRect(int(x_left), int(y_top), int(iw), int(ih))
+                return {"cursor": c, "format": imgf, "name": name, "rect": screen_rect, "w": iw, "h": ih}
+        except Exception:
+            return None
+        return None
+
+    def eventFilter(self, obj, event):
+        try:
+            if not _is_alive(self._edit):
+                return False
+            vp = self._edit.viewport() if _is_alive(self._edit) else None
+            if not _is_alive(vp):
+                return False
+            # Avoid acting while widgets are not yet visible/realized (early startup churn)
+            try:
+                if not (self._edit.isVisible() and vp.isVisible()):
+                    return False
+            except Exception:
+                return False
+            if obj not in (vp, self._edit):
+                return super().eventFilter(obj, event)
+            if event is None:
+                return False
+            et = event.type()
+            # Only process expected GUI events; otherwise, ignore
+            if et not in (
+                QEvent.MouseButtonPress,
+                QEvent.MouseMove,
+                QEvent.MouseButtonRelease,
+                QEvent.Leave,
+                QEvent.Wheel,
+            ):
+                return False
+            # Map position to viewport coordinates for consistent hit-testing (mouse events only)
+            pos_vp = None
+            if et in (QEvent.MouseButtonPress, QEvent.MouseMove, QEvent.MouseButtonRelease):
+                try:
+                    pos_vp = event.pos()
+                    if obj is not vp and _is_alive(vp) and hasattr(obj, "mapTo"):
+                        pos_vp = obj.mapTo(vp, pos_vp)
+                except Exception:
+                    pos_vp = None
+            if et == QEvent.MouseButtonPress and event.button() == Qt.LeftButton:
+                if pos_vp is None:
+                    return False
+                info = self._image_at(pos_vp)
+                if info is not None:
+                    rect = info["rect"]
+                    # Near right edge within 18px, allow a tiny vertical tolerance
+                    edge_x = rect.x() + rect.width()
+                    near_right = abs(pos_vp.x() - edge_x) <= 18 and QRect(rect.x(), rect.y()-4, rect.width(), rect.height()+8).contains(pos_vp, True)
+                    if near_right:
+                        self._resizing = True
+                        self._start_pos = QPoint(pos_vp)
+                        self._cursor_pos = info["cursor"].position()
+                        self._img_src = info["name"]
+                        self._orig_w = max(1, int(info["w"]))
+                        self._orig_h = max(1, int(info["h"]))
+                        try:
+                            if _is_alive(self._edit) and _is_alive(self._edit.viewport()):
+                                self._edit.viewport().setCursor(Qt.SizeHorCursor)
+                        except Exception:
+                            pass
+                        try:
+                            if _is_alive(self._overlay):
+                                self._overlay.show_for_rect(rect)
+                        except Exception:
+                            pass
+                        return True
+            elif et == QEvent.MouseMove:
+                if pos_vp is None:
+                    return False
+                if self._resizing and self._start_pos is not None and self._cursor_pos is not None:
+                    dx = pos_vp.x() - self._start_pos.x()
+                    new_w = max(16, self._orig_w + dx)
+                    new_h = int(new_w * (self._orig_h / float(self._orig_w)))
+                    # Apply new size to the image char format
+                    doc = self._edit.document() if _is_alive(self._edit) else None
+                    if doc is None or not _is_alive(doc):
+                        return False
+                    c = QTextCursor(doc)
+                    c.setPosition(self._cursor_pos)
+                    c.movePosition(QTextCursor.Right, QTextCursor.KeepAnchor, 1)
+                    imgf = QTextImageFormat()
+                    # Preserve src; for relative paths, name stays the rel path
+                    if self._img_src:
+                        imgf.setName(self._img_src)
+                    imgf.setWidth(float(new_w))
+                    imgf.setHeight(float(new_h))
+                    c.setCharFormat(imgf)
+                    try:
+                        if _is_alive(self._edit) and _is_alive(self._edit.viewport()):
+                            self._edit.viewport().setCursor(Qt.SizeHorCursor)
+                    except Exception:
+                        pass
+                    # Update overlay to follow the image rect as it changes
+                    try:
+                        if _is_alive(self._overlay):
+                            # Recompute rect from adjacent cursor rectangles for accuracy
+                            cur = QTextCursor(doc)
+                            cur.setPosition(self._cursor_pos)
+                            r1 = self._edit.cursorRect(cur)
+                            cur2 = QTextCursor(cur)
+                            cur2.movePosition(QTextCursor.Right)
+                            r2 = self._edit.cursorRect(cur2)
+                            x_left = min(r1.left(), r2.left())
+                            y_top = min(r1.top(), r2.top())
+                            self._overlay.show_for_rect(QRect(int(x_left), int(y_top), int(new_w), int(new_h)))
+                    except Exception:
+                        pass
+                    return True
+                else:
+                    # Hover feedback: show outline whenever over image; show resize cursor near right edge
+                    info = self._image_at(pos_vp)
+                    try:
+                        if info is not None:
+                            rect = info["rect"]
+                            # Loosen hover region slightly to reduce flicker
+                            hover_rect = rect.adjusted(-4, -4, 4, 4)
+                            inside = hover_rect.contains(pos_vp, True)
+                            near_right = abs(pos_vp.x() - (rect.x() + rect.width())) <= 18 and inside
+                            if _is_alive(self._overlay) and inside:
+                                self._overlay.show_for_rect(rect)
+                            if near_right:
+                                try:
+                                    if _is_alive(self._edit) and _is_alive(self._edit.viewport()):
+                                        self._edit.viewport().setCursor(Qt.SizeHorCursor)
+                                except Exception:
+                                    pass
+                            else:
+                                try:
+                                    if _is_alive(self._edit) and _is_alive(self._edit.viewport()):
+                                        self._edit.viewport().unsetCursor()
+                                except Exception:
+                                    pass
+                            return True
+                        else:
+                            try:
+                                if _is_alive(self._edit) and _is_alive(self._edit.viewport()):
+                                    self._edit.viewport().unsetCursor()
+                            except Exception:
+                                pass
+                            if _is_alive(self._overlay):
+                                self._overlay.hide_handles()
+                    except Exception:
+                        pass
+            elif et == QEvent.MouseButtonRelease and event.button() == Qt.LeftButton:
+                if pos_vp is None:
+                    # Even without pos, we can finalize a resize
+                    pass
+                if self._resizing:
+                    self._resizing = False
+                    self._start_pos = None
+                    self._cursor_pos = None
+                    self._img_src = None
+                    self._orig_w = None
+                    self._orig_h = None
+                    try:
+                        if _is_alive(self._edit) and _is_alive(self._edit.viewport()):
+                            self._edit.viewport().unsetCursor()
+                    except Exception:
+                        pass
+                    try:
+                        if _is_alive(self._overlay):
+                            self._overlay.hide_handles()
+                    except Exception:
+                        pass
+                    return True
+            elif et == QEvent.Leave:
+                try:
+                    if _is_alive(self._edit) and _is_alive(self._edit.viewport()):
+                        self._edit.viewport().unsetCursor()
+                except Exception:
+                    pass
+                try:
+                    if _is_alive(self._overlay):
+                        self._overlay.hide_handles()
+                except Exception:
+                    pass
+            elif et in (QEvent.Wheel,):
+                # On scroll, hide overlay and reset cursor to avoid stale visuals while content moves
+                try:
+                    if _is_alive(self._edit) and _is_alive(self._edit.viewport()):
+                        self._edit.viewport().unsetCursor()
+                except Exception:
+                    pass
+                try:
+                    if _is_alive(self._overlay):
+                        self._overlay.hide_handles()
+                except Exception:
+                    pass
+        except RuntimeError:
+            return False
+        return super().eventFilter(obj, event)
+
+
+class _ImageContextMenuHandler(QObject):
+    """Adds image-specific options to the context menu: Resize…, Fit to width, Reset size."""
+    def __init__(self, edit: QtWidgets.QTextEdit):
+        super().__init__(edit)
+        self._edit = edit
+
+    def _find_image_at(self, pos_vp):
+        try:
+            edit = self._edit
+            if not _is_alive(edit):
+                return None
+            # Try robust shared detector first
+            info = _image_info_at_position(edit, pos_vp)
+            if info is not None:
+                return info
+            # Expand search: scan a small neighborhood around click point
+            vp = edit.viewport()
+            rect = vp.rect() if vp is not None else None
+            for dy in (0, 4, -4, 8, -8, 12, -12):
+                for dx in (0, 4, -4, 8, -8, 12, -12, 16, -16, 24, -24):
+                    pt = QPoint(int(pos_vp.x() + dx), int(pos_vp.y() + dy))
+                    if rect is not None and not rect.contains(pt):
+                        continue
+                    info = _image_info_at_position(edit, pt)
+                    if info is not None:
+                        return info
+            # As a last resort, look at cursor at/near click position and neighbors
+            cur = edit.cursorForPosition(pos_vp)
+            for candidate in (QTextCursor(cur),):
+                fmt = candidate.charFormat()
+                if fmt is not None and ((hasattr(fmt, "isImageFormat") and fmt.isImageFormat()) or fmt.objectType() == QTextFormat.ImageObject):
+                    imgf = QTextImageFormat(fmt)
+                    return {"cursor_pos": candidate.position(), "name": imgf.name(), "w": imgf.width() or 0.0, "h": imgf.height() or 0.0}
+                prev = QTextCursor(candidate)
+                prev.movePosition(QTextCursor.Left)
+                pf = prev.charFormat()
+                if pf is not None and ((hasattr(pf, "isImageFormat") and pf.isImageFormat()) or pf.objectType() == QTextFormat.ImageObject):
+                    imgf = QTextImageFormat(pf)
+                    return {"cursor_pos": prev.position(), "name": imgf.name(), "w": imgf.width() or 0.0, "h": imgf.height() or 0.0}
+        except Exception:
+            return None
+        return None
+
+    def _intrinsic_size(self, name: str):
+        try:
+            path = name
+            base = getattr(self._edit.window(), "_media_root", None)
+            if base and name and not os.path.isabs(name):
+                path = os.path.join(base, name)
+            img = QImage(path)
+            if not img.isNull():
+                return img.width(), img.height()
+        except Exception:
+            pass
+        return None, None
+
+    def _apply_size(self, cursor_pos: int, name: str, w: float, h: float):
+        try:
+            doc = self._edit.document()
+            c = QTextCursor(doc)
+            c.setPosition(cursor_pos)
+            c.movePosition(QTextCursor.Right, QTextCursor.KeepAnchor, 1)
+            imgf = QTextImageFormat()
+            if name:
+                imgf.setName(name)
+            imgf.setWidth(float(max(1.0, w)))
+            imgf.setHeight(float(max(1.0, h)))
+            c.setCharFormat(imgf)
+        except Exception:
+            pass
+
+    def _fit_to_width(self, cursor_pos: int, name: str):
+        iw, ih = self._intrinsic_size(name)
+        if not iw or not ih:
+            return
+        try:
+            vp = self._edit.viewport()
+            avail = max(16, vp.width() - 24)
+        except Exception:
+            avail = max(16, iw)
+        scale = avail / float(iw)
+        self._apply_size(cursor_pos, name, avail, max(1.0, ih * scale))
+
+    def _reset_size(self, cursor_pos: int, name: str):
+        iw, ih = self._intrinsic_size(name)
+        if iw and ih:
+            self._apply_size(cursor_pos, name, float(iw), float(ih))
+
+    def _prompt_resize(self, cursor_pos: int, name: str, cur_w: float, cur_h: float):
+        # Ask for width in pixels; keep aspect ratio if intrinsic available
+        iw, ih = self._intrinsic_size(name)
+        aspect = (iw / ih) if (iw and ih and ih != 0) else (cur_w / cur_h if cur_h else 1.0)
+        try:
+            w_txt, ok = QtWidgets.QInputDialog.getText(self._edit, "Resize Image", "Width (px):", text=str(int(cur_w or (iw or 400))))
+        except Exception:
+            ok = False
+            w_txt = None
+        if not (ok and w_txt and w_txt.strip().isdigit()):
+            return
+        new_w = max(16.0, float(int(w_txt.strip())))
+        new_h = max(1.0, float(new_w / aspect))
+        self._apply_size(cursor_pos, name, new_w, new_h)
+
+    def eventFilter(self, obj, event):
+        try:
+            if not _is_alive(self._edit):
+                return False
+            return False
+        except Exception:
+            return False
+
+    def on_custom_menu(self, pos):
+        try:
+            if not _is_alive(self._edit):
+                return
+            vp = self._edit.viewport()
+            # Map pos (can come from editor or viewport) into viewport coords
+            if isinstance(pos, QPoint):
+                pos_vp = pos
+                if self.sender() is not vp and hasattr(self.sender(), "mapTo"):
+                    try:
+                        pos_vp = self.sender().mapTo(vp, pos)
+                    except Exception:
+                        pass
+            else:
+                # Fallback: center of cursor rect
+                cur = self._edit.textCursor()
+                r = self._edit.cursorRect(cur)
+                pos_vp = r.center()
+            # Move caret to click point to improve detection
+            try:
+                cur = self._edit.cursorForPosition(pos_vp)
+                self._edit.setTextCursor(cur)
+            except Exception:
+                pass
+            # Detect image
+            info = _image_info_at_cursor(self._edit)
+            if info is None:
+                info = self._find_image_at(pos_vp)
+            if info is None:
+                try:
+                    c_try = self._edit.cursorForPosition(pos_vp)
+                    info = _image_info_near_doc_pos(self._edit, c_try.position())
+                except Exception:
+                    pass
+            if info is None:
+                try:
+                    c_try = self._edit.cursorForPosition(pos_vp)
+                    info = _image_info_in_block(self._edit, c_try.block(), prefer_pos=c_try.position())
+                except Exception:
+                    pass
+            if info is None:
+                # No image: show default menu
+                try:
+                    menu = self._edit.createStandardContextMenu()
+                except Exception:
+                    menu = QtWidgets.QMenu(self._edit)
+                menu.exec_(self._edit.mapToGlobal(pos_vp))
+                return
+            # Show image-only menu
+            menu = QtWidgets.QMenu(self._edit)
+            cursor_pos = int(info.get("cursor_pos", 0))
+            name = info.get("name", "")
+            cur_w = float(info.get("w") or 0.0)
+            cur_h = float(info.get("h") or 0.0)
+            act_resize = menu.addAction("Image Properties…")
+            menu.addSeparator()
+            act_fit = menu.addAction("Fit to editor width")
+            act_reset = menu.addAction("Reset to original size")
+
+            # If this image is a video thumbnail (img wrapped in <a href=video>), add video actions
+            rel_video = None
+            try:
+                # First try via char format anchor
+                ctmp = QTextCursor(self._edit.document()); ctmp.setPosition(cursor_pos)
+                csel = QTextCursor(ctmp); csel.movePosition(QTextCursor.Right, QTextCursor.KeepAnchor, 1)
+                fmt = csel.charFormat()
+                href = None
+                try:
+                    if hasattr(fmt, "isAnchor") and fmt.isAnchor():
+                        href = fmt.anchorHref() if hasattr(fmt, "anchorHref") else None
+                except Exception:
+                    href = None
+                # Fallback: inspect block HTML around cursor
+                if not href:
+                    blk = ctmp.block(); bc = QTextCursor(blk); bc.select(QTextCursor.BlockUnderCursor)
+                    frag_html = bc.selection().toHtml()
+                    m = re.search(r"<a[^>]+href=\"([^\"]+)\"[^>]*>\s*<img[^>]*>\s*</a>", frag_html, re.IGNORECASE)
+                    href = m.group(1) if m else None
+                if isinstance(href, str) and href.strip():
+                    hv = href.strip()
+                    low = hv.lower()
+                    if low.endswith((".mp4", ".webm", ".mov", ".avi", ".mkv")):
+                        rel_video = hv
+            except Exception:
+                rel_video = None
+
+            if rel_video:
+                menu.addSeparator()
+                act_open_video = menu.addAction("Open linked video")
+                sub_regen = menu.addMenu("Regenerate video thumbnail")
+                act_v1 = sub_regen.addAction("Frame at 1.0s")
+                act_v3 = sub_regen.addAction("Frame at 3.0s")
+                act_v5 = sub_regen.addAction("Frame at 5.0s")
+                act_vc = sub_regen.addAction("Custom time…")
+                sub_regen.addSeparator()
+                act_vs = sub_regen.addAction("Use synthetic placeholder")
+
+            chosen = menu.exec_(self._edit.mapToGlobal(pos_vp))
+            if chosen is None:
+                return
+            if chosen == act_resize:
+                iw, ih = self._intrinsic_size(name)
+                info_d = {"cursor_pos": cursor_pos, "name": name, "w": cur_w, "h": cur_h, "iw": iw, "ih": ih}
+                _image_properties_dialog_apply(self._edit, info_d)
+            elif chosen == act_fit:
+                self._fit_to_width(cursor_pos, name)
+            elif chosen == act_reset:
+                self._reset_size(cursor_pos, name)
+            elif rel_video and 'act_open_video' in locals() and chosen == act_open_video:
+                try:
+                    base = getattr(self._edit.window(), "_media_root", None)
+                    if base and not re.match(r"^[a-zA-Z]+:|^/", rel_video):
+                        abs_path = os.path.normpath(os.path.join(base, rel_video))
+                        QDesktopServices.openUrl(QUrl.fromLocalFile(abs_path))
+                    else:
+                        QDesktopServices.openUrl(QUrl(rel_video))
+                except Exception:
+                    pass
+            elif rel_video and 'act_v1' in locals() and chosen in (act_v1, act_v3, act_v5, act_vc, act_vs):
+                def _do_regen(secs=None, synthetic=False):
+                    try:
+                        base = getattr(self._edit.window(), "_media_root", None)
+                        db_path = getattr(self._edit.window(), "_db_path", None)
+                        if not (base and db_path):
+                            return
+                        v_abs = rel_video
+                        if not os.path.isabs(v_abs):
+                            v_abs = os.path.join(base, v_abs)
+                        # Insert new thumbnail at current position
+                        cpos = int(cursor_pos)
+                        cset = QTextCursor(self._edit.document()); cset.setPosition(cpos)
+                        self._edit.setTextCursor(cset)
+                        _insert_video_from_path(self._edit, v_abs, capture_seconds=secs, force_synthetic=synthetic)
+                        # Remove the old image char
+                        cdel = QTextCursor(self._edit.document()); cdel.setPosition(cpos)
+                        cdel.movePosition(QTextCursor.Right, QTextCursor.KeepAnchor, 1)
+                        try:
+                            cdel.removeSelectedText()
+                        except Exception:
+                            pass
+                    except Exception:
+                        pass
+                if chosen == act_vs:
+                    _do_regen(secs=None, synthetic=True)
+                elif chosen == act_vc:
+                    try:
+                        secs, ok = QtWidgets.QInputDialog.getDouble(self._edit, "Thumbnail time", "Seconds:", 1.0, 0.0, 36000.0, 1)
+                        if ok:
+                            _do_regen(secs=float(secs), synthetic=False)
+                    except Exception:
+                        pass
+                else:
+                    secs = 1.0 if chosen == act_v1 else (3.0 if chosen == act_v3 else 5.0)
+                    _do_regen(secs=secs, synthetic=False)
+        except Exception:
+            try:
+                menu = self._edit.createStandardContextMenu()
+                menu.exec_(self._edit.mapToGlobal(pos if isinstance(pos, QPoint) else QPoint(0,0)))
+            except Exception:
+                pass
+
+
+class _ImageHud(QObject):
+    def __init__(self, edit: QtWidgets.QTextEdit):
+        super().__init__(edit)
+        self._edit = edit
+        self._vp = edit.viewport()
+        self._btn = QtWidgets.QToolButton(self._vp)
+        self._btn.setText("Image…")
+        try:
+            self._btn.setIcon(_make_icon("image", QSize(16, 16)))
+        except Exception:
+            pass
+        self._btn.setToolTip("Image Properties / Fit / Reset")
+        self._btn.setVisible(False)
+        self._btn.setAutoRaise(True)
+        self._btn.clicked.connect(self._on_click)
+        # Track moves/selection/scrolling
+        try:
+            edit.cursorPositionChanged.connect(self._update)
+        except Exception:
+            pass
+        try:
+            self._vp.installEventFilter(self)
+        except Exception:
+            pass
+        self._last_info = None
+
+    def eventFilter(self, obj, event):
+        if obj is self._vp and event.type() in (QEvent.Resize, QEvent.Paint, QEvent.Wheel, QEvent.Scroll, QEvent.LayoutRequest):
+            self._update()
+        return super().eventFilter(obj, event)
+
+    def _detect(self):
+        edit = self._edit
+        info = _image_info_at_cursor(edit)
+        if info is None:
+            cur = edit.textCursor()
+            info = _image_info_near_doc_pos(edit, cur.position())
+        if info is None:
+            info = _image_info_in_block(edit, edit.textCursor().block(), prefer_pos=edit.textCursor().position())
+        return info
+
+    def _update(self):
+        try:
+            info = self._detect()
+            self._last_info = info
+            if info is None:
+                self._btn.setVisible(False)
+                return
+            # Place button near the caret rect (top-right)
+            r = self._edit.cursorRect(self._edit.textCursor())
+            pt = QPoint(min(self._vp.width() - 40, r.right() + 6), max(0, r.top() - 2))
+            self._btn.move(pt)
+            self._btn.setVisible(True)
+        except Exception:
+            try:
+                self._btn.setVisible(False)
+            except Exception:
+                pass
+
+    def _on_click(self):
+        info = self._last_info or self._detect()
+        if info:
+            _image_properties_dialog_apply(self._edit, info)
+
+
+def _install_image_hud(text_edit: QtWidgets.QTextEdit):
+    try:
+        hud = _ImageHud(text_edit)
+        if not hasattr(text_edit, "_imageHud"):
+            text_edit._imageHud = []
+        text_edit._imageHud.append(hud)
+    except Exception:
+        pass
+
+
+def _install_image_context_menu(text_edit: QtWidgets.QTextEdit):
+    try:
+        if text_edit is None:
+            return
+        handler = _ImageContextMenuHandler(text_edit)
+        # Connect custom context menu signals from both editor and viewport
+        try:
+            text_edit.customContextMenuRequested.connect(handler.on_custom_menu)
+        except Exception:
+            pass
+        try:
+            if text_edit.viewport() is not None:
+                text_edit.viewport().setContextMenuPolicy(Qt.CustomContextMenu)
+                text_edit.viewport().customContextMenuRequested.connect(handler.on_custom_menu)
+        except Exception:
+            pass
+        if not hasattr(text_edit, "_imageContextHandlers"):
+            text_edit._imageContextHandlers = []
+        text_edit._imageContextHandlers.append(handler)
+    except Exception:
+        pass
+
+
+def _install_image_resize_handler(text_edit: QtWidgets.QTextEdit):
+    try:
+        if text_edit is None:
+            return
+        handler = _ImageResizeHandler(text_edit)
+
+        def _attach():
+            try:
+                if not _is_alive(text_edit):
+                    return
+                vp = text_edit.viewport()
+                if vp is None or not _is_alive(vp):
+                    return
+                # Create overlay only after viewport exists and is visible
+                overlay = _ImageResizeOverlay(text_edit)
+                overlay.setParent(vp)
+                overlay.setAttribute(Qt.WA_TransparentForMouseEvents, True)
+                try:
+                    overlay.setGeometry(vp.rect())
+                except Exception:
+                    pass
+                overlay.hide()
+                try:
+                    overlay.raise_()
+                except Exception:
+                    pass
+                handler.set_overlay(overlay)
+                # Keep overlay sized with the viewport
+                def _sync_overlay():
+                    try:
+                        overlay.setGeometry(vp.rect())
+                        overlay.update()
+                    except Exception:
+                        pass
+                try:
+                    watcher = _ResizeViewportWatcher(overlay, _sync_overlay)
+                    overlay._vpWatcher = watcher  # keep a python-side ref
+                    vp.installEventFilter(watcher)
+                except Exception:
+                    pass
+                # Ensure we get hover move events even without a button pressed
+                try:
+                    vp.setMouseTracking(True)
+                except Exception:
+                    pass
+                vp.installEventFilter(handler)
+                # Also enable tracking and filter on the editor
+                try:
+                    text_edit.setMouseTracking(True)
+                    text_edit.installEventFilter(handler)
+                except Exception:
+                    pass
+                # Drop overlay reference when viewport or editor is destroyed
+                try:
+                    vp.destroyed.connect(lambda *a: overlay.deleteLater())
+                except Exception:
+                    pass
+            except Exception:
+                pass
+
+        # Delay attaching until after the current event cycle to avoid early lifecycle churn
+        QTimer.singleShot(0, _attach)
+
+        if not hasattr(text_edit, "_imageResizeHandlers"):
+            text_edit._imageResizeHandlers = []
+        text_edit._imageResizeHandlers.append(handler)
+    except Exception:
+        pass
+
+
+class _ResizeViewportWatcher(QObject):
+    """Internal helper to keep an overlay synced with the viewport size."""
+    def __init__(self, overlay: QtWidgets.QWidget, on_change):
+        super().__init__(overlay)
+        self._overlay = overlay
+        self._on_change = on_change
+
+    def eventFilter(self, obj, event):
+        et = event.type()
+        if et in (QEvent.Resize, QEvent.Show, QEvent.Hide, QEvent.Wheel):
+            try:
+                self._on_change()
+            except Exception:
+                pass
+        return False
+
+
+class _ImageResizeOverlay(QtWidgets.QWidget):
+    """A transparent overlay that draws visual resize handles around the hovered image."""
+    def __init__(self, edit: QtWidgets.QTextEdit):
+        super().__init__(edit)
+        self._edit = edit
+        self._rect = None  # QRect in viewport coords
+        self.setAttribute(Qt.WA_NoSystemBackground, True)
+        self.setAttribute(Qt.WA_TransparentForMouseEvents, True)
+
+    def show_for_rect(self, rect: QRect):
+        try:
+            self._rect = QRect(rect)
+            if not self.isVisible():
+                self.show()
+            self.update()
+        except Exception:
+            pass
+
+    def hide_handles(self):
+        self._rect = None
+        try:
+            self.hide()
+        except Exception:
+            pass
+
+    def paintEvent(self, ev):
+        if self._rect is None:
+            return
+        try:
+            p = QPainter(self)
+            p.setRenderHint(QPainter.Antialiasing, True)
+            # Outline (thicker, dashed for visibility) + light translucent fill
+            accent = QColor(0, 120, 215)
+            pen = QPen(accent)  # Windows accent blue
+            pen.setWidth(2)
+            pen.setStyle(Qt.DashLine)
+            p.setPen(pen)
+            # Semi-transparent fill to make the bounds obvious
+            fill = QColor(accent)
+            fill.setAlpha(40)
+            p.fillRect(self._rect.adjusted(0, 0, -1, -1), fill)
+            p.drawRect(self._rect.adjusted(0, 0, -1, -1))
+            # Draw a single handle at right-middle (larger for hi-DPI)
+            handle_size = 16
+            rx = self._rect.right()
+            cy = self._rect.center().y()
+            handle_rect = QRect(rx - handle_size // 2, cy - handle_size // 2, handle_size, handle_size)
+            # Handle with outline for contrast
+            p.fillRect(handle_rect, accent)
+            p.setPen(QPen(QColor(255, 255, 255), 1))
+            p.drawRect(handle_rect.adjusted(0, 0, -1, -1))
+            # Optional corner handles for future (not interactive yet)
+            p.end()
+        except Exception:
+            pass
 
 
 # ----------------------------- Tables -----------------------------
@@ -1114,81 +3250,21 @@ def choose_and_insert_preset(text_edit: QtWidgets.QTextEdit, fit_width_100: bool
     except Exception:
         ok = False
         name = None
-    if ok and name:
-        insert_table_from_preset(text_edit, name, fit_width_100=fit_width_100)
-
-
-def insert_planning_register_via_dialog(window: QtWidgets.QMainWindow):
-    """Open a picker: 'New Planning Register' + saved presets; insert based on choice."""
-    try:
-        te = window.findChild(QtWidgets.QTextEdit, "pageEdit")
-        if te is None or not te.isEnabled():
-            QtWidgets.QMessageBox.information(window, "Insert Planning Register", "Please open or create a page first.")
-            return
-        try:
-            from settings_manager import list_table_preset_names
-
-            preset_names = list_table_preset_names()
-        except Exception:
-            preset_names = []
-        options = ["New Planning Register"] + preset_names
-        choice, ok = QtWidgets.QInputDialog.getItem(
-            window, "Insert Planning Register", "Choose:", options, 0, False
-        )
-        if not (ok and choice):
-            return
-        if choice == "New Planning Register":
-            from ui_planning_register import insert_planning_register
-
-            insert_planning_register(window)
-        else:
-            insert_table_from_preset(te, choice, fit_width_100=True)
-    except Exception:
-        pass
-
+    if not (ok and name and name.strip()):
+        return
+    insert_table_from_preset(text_edit, name.strip(), fit_width_100=fit_width_100)
 
 def save_current_table_as_preset(text_edit: QtWidgets.QTextEdit):
-    """Capture the current table's full HTML and save as an HTML-based preset (v2).
-
-    The saved preset schema is: {"version": 2, "html": "<table>...</table>"}
-    Falls back to a friendly message if no table is selected.
-    """
+    """Save the table under the caret as a reusable preset (HTML-based)."""
     if text_edit is None:
         return
     tbl = _current_table(text_edit)
     if tbl is None:
         try:
-            QtWidgets.QMessageBox.information(text_edit, "Save Table as Preset", "Place the caret inside a table first.")
+            QtWidgets.QMessageBox.information(text_edit, "Save Table as Preset", "Place the caret inside a table to save it.")
         except Exception:
             pass
         return
-    # If the user is in the outer 1x2 container, try to descend to the inner left table
-    try:
-        if tbl.rows() == 1 and tbl.columns() == 2:
-            # Search for the first table inside the left cell range
-            cell = tbl.cellAt(0, 0)
-            start = cell.firstCursorPosition().position()
-            end = cell.lastCursorPosition().position()
-
-            def _first_table_in_range(doc, s_pos, e_pos):
-                cur = QTextCursor(doc)
-                cur.setPosition(s_pos)
-                safe_iters = 0
-                while cur.position() < e_pos and safe_iters < 20000:
-                    t = cur.currentTable()
-                    if t is not None:
-                        return t
-                    # Move by character to enter table blocks reliably
-                    cur.movePosition(QTextCursor.NextCharacter)
-                    safe_iters += 1
-                return None
-
-            inner_tbl = _first_table_in_range(text_edit.document(), start, end)
-            if inner_tbl is not None:
-                tbl = inner_tbl
-    except Exception:
-        pass
-
     try:
         name, ok = QtWidgets.QInputDialog.getText(
             text_edit, "Save Table Preset", "Preset name:", text="My Table"
@@ -1199,7 +3275,6 @@ def save_current_table_as_preset(text_edit: QtWidgets.QTextEdit):
     if not (ok and name and name.strip()):
         return
 
-    # Extract HTML for just this table (not the whole document)
     def _extract_table_fragment(html_text: str) -> str:
         try:
             low = html_text.lower()
@@ -1441,6 +3516,62 @@ class _TableContextMenu(QObject):
                     global_pos = self._edit.mapToGlobal(pos)
                 except Exception:
                     return False
+            # First priority: if click is on/near an image, show image menu and consume
+            try:
+                # Move caret to click
+                try:
+                    cur = self._edit.cursorForPosition(widget_pos)
+                    self._edit.setTextCursor(cur)
+                except Exception:
+                    pass
+                # Try detection chain
+                info = _image_info_at_cursor(self._edit)
+                if info is None:
+                    info = _image_info_at_position(self._edit, widget_pos)
+                if info is None:
+                    try:
+                        c_try = self._edit.cursorForPosition(widget_pos)
+                        info = _image_info_near_doc_pos(self._edit, c_try.position())
+                    except Exception:
+                        pass
+                if info is None:
+                    try:
+                        info = _image_info_in_block(self._edit, self._edit.textCursor().block(), prefer_pos=self._edit.textCursor().position())
+                    except Exception:
+                        pass
+                if info is not None:
+                    menu = QtWidgets.QMenu(self._edit)
+                    cursor_pos = int(info.get("cursor_pos", 0))
+                    name = info.get("name", "")
+                    cur_w = float(info.get("w") or 0.0)
+                    cur_h = float(info.get("h") or 0.0)
+                    act_resize = menu.addAction("Image Properties…")
+                    menu.addSeparator()
+                    act_fit = menu.addAction("Fit to editor width")
+                    act_reset = menu.addAction("Reset to original size")
+                    chosen = menu.exec_(global_pos)
+                    if chosen is not None:
+                        if chosen == act_resize:
+                            iw, ih = (None, None)
+                            try:
+                                iw, ih = _ImageContextMenuHandler(self._edit)._intrinsic_size(name)
+                            except Exception:
+                                pass
+                            info_d = {"cursor_pos": cursor_pos, "name": name, "w": cur_w, "h": cur_h, "iw": iw, "ih": ih}
+                            _image_properties_dialog_apply(self._edit, info_d)
+                        elif chosen == act_fit:
+                            try:
+                                _ImageContextMenuHandler(self._edit)._fit_to_width(cursor_pos, name)
+                            except Exception:
+                                pass
+                        elif chosen == act_reset:
+                            try:
+                                _ImageContextMenuHandler(self._edit)._reset_size(cursor_pos, name)
+                            except Exception:
+                                pass
+                    return True
+            except Exception:
+                pass
             # Capture original selection and table
             orig_cur = self._edit.textCursor()
             orig_tbl = orig_cur.currentTable()
@@ -1982,7 +4113,7 @@ def _apply_font_family(text_edit: QtWidgets.QTextEdit, family: str):
     if not family:
         return
     fmt = QTextCharFormat()
-    fmt.setFontFamily(family)
+    fmt.setFontFamily(str(family))
     cursor = text_edit.textCursor()
     if not cursor.hasSelection():
         cursor.select(cursor.WordUnderCursor)
@@ -2006,9 +4137,13 @@ def _apply_font_size(text_edit: QtWidgets.QTextEdit, size_pt: float):
     text_edit.mergeCurrentCharFormat(fmt)
 
 
-def _pick_color_and_apply(text_edit: QtWidgets.QTextEdit, foreground: bool = True):
+def _apply_text_color(text_edit: QtWidgets.QTextEdit, foreground: bool = True):
+    """Open a color dialog and apply the chosen color to foreground or background of selection."""
     dlg = QtWidgets.QColorDialog(text_edit)
-    dlg.setOption(QtWidgets.QColorDialog.ShowAlphaChannel, False)
+    try:
+        dlg.setOption(QtWidgets.QColorDialog.ShowAlphaChannel, False)
+    except Exception:
+        pass
     if dlg.exec_() == QtWidgets.QDialog.Accepted:
         color = dlg.selectedColor()
         fmt = QTextCharFormat()
@@ -2451,6 +4586,14 @@ class _LinkClickHandler(QObject):
                     href = None
                 if href and href == self._pressed_anchor:
                     try:
+                        # Resolve relative paths (like media/...) against document base for external open
+                        if href and not re.match(r"^[a-zA-Z]+:|^/", href):
+                            base = self._edit.document().baseUrl().toLocalFile() if self._edit else ""
+                            if base:
+                                # Join using OS path, then convert to file URL
+                                abs_path = os.path.normpath(os.path.join(base, href))
+                                QDesktopServices.openUrl(QUrl.fromLocalFile(abs_path))
+                                return True
                         QDesktopServices.openUrl(QUrl(_normalize_url_scheme(href)))
                     except Exception:
                         pass

@@ -26,9 +26,13 @@ def media_root_for_db(db_path: str) -> str:
 
 
 def build_rel_path(sha256_hex: str, ext: str) -> str:
+    """Return a POSIX-style relative path for HTML/URLs (forward slashes).
+
+    Filesystem operations use os.path.join(base, rel_path), which accepts '/'.
+    """
     a = sha256_hex[:FANOUT1]
     b = sha256_hex[FANOUT1 : FANOUT1 + FANOUT2]
-    return os.path.join("media", a, b, f"{sha256_hex}.{ext}")
+    return f"media/{a}/{b}/{sha256_hex}.{ext}"
 
 
 def ensure_dir(path: str):
@@ -55,6 +59,52 @@ def _conn(db_path: str):
     return sqlite3.connect(db_path)
 
 
+def ensure_media_tables(db_path: str):
+    """Ensure media and media_refs tables (and minimal indexes) exist.
+
+    This is a safety net in case a database hasn't been migrated yet. Idempotent.
+    """
+    con = _conn(db_path)
+    try:
+        cur = con.cursor()
+        cur.executescript(
+            """
+            CREATE TABLE IF NOT EXISTS media (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                sha256 TEXT NOT NULL UNIQUE,
+                mime_type TEXT NOT NULL,
+                ext TEXT NOT NULL,
+                original_filename TEXT,
+                size_bytes INTEGER,
+                created_at TEXT NOT NULL DEFAULT (datetime('now'))
+            );
+
+            CREATE TABLE IF NOT EXISTS media_refs (
+                media_id INTEGER NOT NULL REFERENCES media(id) ON DELETE CASCADE,
+                page_id INTEGER REFERENCES pages(id) ON DELETE CASCADE,
+                section_id INTEGER REFERENCES sections(id) ON DELETE CASCADE,
+                notebook_id INTEGER REFERENCES notebooks(id) ON DELETE CASCADE,
+                role TEXT NOT NULL,
+                CHECK (
+                    (page_id IS NOT NULL AND section_id IS NULL AND notebook_id IS NULL) OR
+                    (page_id IS NULL AND section_id IS NOT NULL AND notebook_id IS NULL) OR
+                    (page_id IS NULL AND section_id IS NULL AND notebook_id IS NOT NULL)
+                )
+            );
+            CREATE INDEX IF NOT EXISTS idx_media_refs_media ON media_refs(media_id);
+            CREATE INDEX IF NOT EXISTS idx_media_refs_page ON media_refs(page_id);
+            CREATE INDEX IF NOT EXISTS idx_media_refs_section ON media_refs(section_id);
+            CREATE INDEX IF NOT EXISTS idx_media_refs_notebook ON media_refs(notebook_id);
+            """
+        )
+        con.commit()
+    finally:
+        try:
+            con.close()
+        except Exception:
+            pass
+
+
 def upsert_media_record(
     db_path: str,
     sha256_hex: str,
@@ -63,6 +113,11 @@ def upsert_media_record(
     original_filename: Optional[str],
     size_bytes: int,
 ) -> int:
+    # Ensure tables exist (in case migration hasn't run yet)
+    try:
+        ensure_media_tables(db_path)
+    except Exception:
+        pass
     con = _conn(db_path)
     try:
         cur = con.cursor()
@@ -91,6 +146,10 @@ def add_media_ref(
 ):
     if sum(x is not None for x in (page_id, section_id, notebook_id)) != 1:
         raise ValueError("Exactly one of page_id, section_id, notebook_id must be provided")
+    try:
+        ensure_media_tables(db_path)
+    except Exception:
+        pass
     con = _conn(db_path)
     try:
         cur = con.cursor()
@@ -129,6 +188,10 @@ def save_file_into_store(
     db_path: str, src_path: str, *, original_filename: Optional[str] = None
 ) -> Tuple[int, str]:
     """Copy a file into the DB's media store (content-addressed). Returns (media_id, relative_path)."""
+    try:
+        ensure_media_tables(db_path)
+    except Exception:
+        pass
     sha_hex = sha256_file(src_path)
     mime_type, ext = guess_mime_and_ext(src_path)
     rel_path = build_rel_path(sha_hex, ext)

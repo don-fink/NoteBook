@@ -2,12 +2,13 @@
 main.py
 Entry point for the NoteBook application. Handles main window setup, menu actions, database creation/opening, and application startup.
 """
+import os
 
 import sys
 import warnings
 
 from PyQt5 import QtWidgets, uic
-from PyQt5.QtCore import QProcess, Qt, QTimer
+from PyQt5.QtCore import QProcess, Qt, QTimer, QUrl
 
 from db_access import create_notebook as db_create_notebook
 from db_access import delete_notebook as db_delete_notebook
@@ -45,8 +46,105 @@ from page_editor import (
 )
 from ui_planning_register import insert_planning_register
 from ui_richtext import insert_table_from_preset
+from ui_richtext import install_image_support
 from ui_planning_register import ensure_planning_register_watcher
 
+
+def _install_global_excepthook():
+    """Install a sys.excepthook that shows a critical dialog and prints the traceback.
+
+    This helps diagnose unexpected crashes that may otherwise close the app silently.
+    """
+    import sys as _sys
+    import traceback as _traceback
+
+    def _handler(exctype, value, tb):
+        msg = "".join(_traceback.format_exception(exctype, value, tb))
+        # Write to a local crash log for diagnostics
+        try:
+            import os as _os
+            log_path = _os.path.join(_os.path.dirname(_os.path.abspath(__file__)), "crash.log")
+            with open(log_path, "a", encoding="utf-8") as _f:
+                _f.write("\n=== Unhandled exception ===\n")
+                _f.write(msg)
+        except Exception:
+            pass
+        try:
+            QtWidgets.QMessageBox.critical(None, "Unexpected Error", msg)
+        except Exception:
+            pass
+        try:
+            print(msg)
+        except Exception:
+            pass
+
+    try:
+        _sys.excepthook = _handler
+    except Exception:
+        pass
+
+
+def _enable_faulthandler(log_path: str):
+    """Enable Python faulthandler to dump tracebacks on fatal errors (e.g., segfaults).
+
+    Writes native crash backtraces for all threads to the given log file.
+    """
+    try:
+        import faulthandler as _faulthandler
+        # Keep a global reference so the file handle stays open for the lifetime of the app
+        globals().setdefault("_native_crash_log_file", None)
+        try:
+            f = open(log_path, "a", encoding="utf-8")
+            globals()["_native_crash_log_file"] = f
+        except Exception:
+            f = None
+        if f is not None:
+            try:
+                _faulthandler.enable(all_threads=True, file=f)
+            except Exception:
+                try:
+                    f.close()
+                except Exception:
+                    pass
+                globals()["_native_crash_log_file"] = None
+    except Exception:
+        pass
+
+
+def _install_qt_message_handler(log_path: str):
+    """Capture Qt warnings/errors into a log to aid diagnosing native crashes."""
+    try:
+        from PyQt5.QtCore import qInstallMessageHandler, QtMsgType
+        import datetime as _dt
+
+        level_map = {
+            QtMsgType.QtDebugMsg: "DEBUG",
+            QtMsgType.QtInfoMsg: "INFO",
+            QtMsgType.QtWarningMsg: "WARNING",
+            QtMsgType.QtCriticalMsg: "CRITICAL",
+            QtMsgType.QtFatalMsg: "FATAL",
+        }
+
+        def _qt_handler(msgType, context, message):
+            try:
+                ts = _dt.datetime.now().strftime("%Y-%m-%d %H:%M:%S.%f")
+                level = level_map.get(msgType, str(msgType))
+                with open(log_path, "a", encoding="utf-8") as _f:
+                    _f.write(f"[{ts}] [Qt {level}] {message}\n")
+                    try:
+                        file = getattr(context, "file", None)
+                        line = getattr(context, "line", None)
+                        func = getattr(context, "function", None)
+                        if file or func:
+                            _f.write(f"    at {file or '?'}:{line or '?'} ({func or '?'})\n")
+                    except Exception:
+                        pass
+            except Exception:
+                pass
+
+        qInstallMessageHandler(_qt_handler)
+    except Exception:
+        pass
 
 def create_new_database(window):
     options = QtWidgets.QFileDialog.Options()
@@ -474,13 +572,16 @@ def add_page(window):
         # Model view
         if section_id is None:
             right_tv = window.findChild(QtWidgets.QTreeView, "sectionPages")
-            if right_tv and right_tv.currentIndex().isValid():
-                idx = right_tv.currentIndex()
-                kind = idx.data(1001)
-                if kind == "section":
-                    section_id = idx.data(1000)
-                elif kind == "page":
-                    section_id = idx.data(1002)
+            try:
+                idx_obj = right_tv.currentIndex() if right_tv is not None else None
+                if idx_obj is not None and idx_obj.isValid():
+                    kind = idx_obj.data(1001)
+                    if kind == "section":
+                        section_id = idx_obj.data(1000)
+                    elif kind == "page":
+                        section_id = idx_obj.data(1002)
+            except Exception:
+                pass
     # Two-column: try left tree (notebookName)
     if section_id is None:
         try:
@@ -835,12 +936,41 @@ def restart_application():
 def main():
     # Suppress noisy SIP deprecation warning from PyQt5 about sipPyTypeDict
     warnings.filterwarnings("ignore", category=DeprecationWarning, message=".*sipPyTypeDict.*")
+    # Install a global exception hook so unexpected errors surface in a dialog instead of closing silently
+    try:
+        _install_global_excepthook()
+    except Exception:
+        pass
+    # Ensure proper High DPI behavior so images render at the requested logical size on scaled displays
+    try:
+        # These must be set BEFORE creating the QApplication instance
+        from PyQt5.QtCore import Qt as _Qt
+        try:
+            QtWidgets.QApplication.setAttribute(_Qt.AA_EnableHighDpiScaling, True)
+        except Exception:
+            pass
+        try:
+            QtWidgets.QApplication.setAttribute(_Qt.AA_UseHighDpiPixmaps, True)
+        except Exception:
+            pass
+    except Exception:
+        pass
     app = QtWidgets.QApplication(sys.argv)
+    # Prepare crash/diagnostic logs
+    try:
+        _here = os.path.dirname(os.path.abspath(__file__))
+        _crash_log = os.path.join(_here, "crash.log")
+        _native_log = os.path.join(_here, "native_crash.log")
+        _enable_faulthandler(_native_log)
+        _install_qt_message_handler(_crash_log)
+    except Exception:
+        pass
+
+    # Safe mode: disable risky UI hooks to isolate crashes quickly
+    SAFE_MODE = os.environ.get("NOTEBOOK_SAFE_MODE", "0").strip() in {"1", "true", "yes"}
     window = load_main_window()
     # Apply saved theme QSS early
     try:
-        import os
-
         from settings_manager import get_theme_name
 
         theme = get_theme_name()
@@ -885,6 +1015,25 @@ def main():
         ensure_dir(window._media_root)
     except Exception:
         window._media_root = None
+    # Defensive: initialize the rich-text document baseUrl early so relative media src resolves on first load
+    try:
+        te = window.findChild(QtWidgets.QTextEdit, "pageEdit")
+        media_root = getattr(window, "_media_root", None)
+        if te is not None and media_root:
+            # Ensure trailing separator so relative paths resolve as children of this directory
+            if not media_root.endswith(os.sep) and not media_root.endswith("/"):
+                media_root = media_root + os.sep
+            te.document().setBaseUrl(QUrl.fromLocalFile(media_root))
+            # Also optionally disable image resize overlay in safe mode
+            if SAFE_MODE:
+                os.environ["NOTEBOOK_DISABLE_IMAGE_RESIZE"] = "1"
+            # Install image context menu and keyboard shortcuts regardless of toolbar wiring
+            try:
+                install_image_support(te)
+            except Exception:
+                pass
+    except Exception:
+        pass
     populate_notebook_names(window, db_path)
     setup_tab_sync(window)
     restore_last_position(window)
@@ -895,6 +1044,14 @@ def main():
 
         ord_s, unord_s = get_list_schemes_settings()
         set_list_schemes(ordered=ord_s, unordered=unord_s)
+    except Exception:
+        pass
+    # Apply default image insert size from settings
+    try:
+        from settings_manager import get_image_insert_long_side
+        import ui_richtext as rt
+
+        rt.DEFAULT_IMAGE_LONG_SIDE = int(get_image_insert_long_side())
     except Exception:
         pass
     # Apply default paste mode to override Ctrl+V behavior
@@ -926,7 +1083,7 @@ def main():
     # formatting and totals for existing content as well.
     try:
         te = window.findChild(QtWidgets.QTextEdit, "pageEdit")
-        if te is not None:
+        if te is not None and not SAFE_MODE:
             ensure_planning_register_watcher(te)
     except Exception:
         pass
@@ -2607,6 +2764,8 @@ def main():
                             get_default_paste_mode,
                             get_list_schemes_settings,
                             get_plain_indent_px,
+                            get_image_insert_long_side,
+                            get_video_insert_long_side,
                             get_settings_file_path,
                             get_theme_name,
                         )
@@ -2654,6 +2813,20 @@ def main():
                             ed = dlg.findChild(QtWidgets.QLineEdit, "editDbRoot")
                             if ed is not None:
                                 ed.setText(get_databases_root())
+                        except Exception:
+                            pass
+                        # Default image insert size
+                        try:
+                            sp_img = dlg.findChild(QtWidgets.QSpinBox, "spinImageLong")
+                            if sp_img is not None:
+                                sp_img.setValue(int(get_image_insert_long_side()))
+                        except Exception:
+                            pass
+                        # Default video insert size
+                        try:
+                            sp_vid = dlg.findChild(QtWidgets.QSpinBox, "spinVideoLong")
+                            if sp_vid is not None:
+                                sp_vid.setValue(int(get_video_insert_long_side()))
                         except Exception:
                             pass
                         # Theme name
@@ -2720,6 +2893,8 @@ def main():
                             set_default_paste_mode,
                             set_list_schemes_settings,
                             set_plain_indent_px,
+                            set_image_insert_long_side,
+                            set_video_insert_long_side,
                             set_theme_name,
                         )
 
@@ -2747,6 +2922,33 @@ def main():
                                 rt.INDENT_STEP_PX = float(sp.value())
                             except Exception:
                                 pass
+                        # Default image insert long side
+                        try:
+                            sp_img = dlg.findChild(QtWidgets.QSpinBox, "spinImageLong")
+                            if sp_img is not None:
+                                val = int(sp_img.value())
+                                set_image_insert_long_side(val)
+                                # Apply immediately to runtime constant
+                                try:
+                                    import ui_richtext as rt
+                                    rt.DEFAULT_IMAGE_LONG_SIDE = int(val)
+                                except Exception:
+                                    pass
+                        except Exception:
+                            pass
+                        # Default video insert long side
+                        try:
+                            sp_vid = dlg.findChild(QtWidgets.QSpinBox, "spinVideoLong")
+                            if sp_vid is not None:
+                                vval = int(sp_vid.value())
+                                set_video_insert_long_side(vval)
+                                try:
+                                    import ui_richtext as rt
+                                    rt.DEFAULT_VIDEO_LONG_SIDE = int(vval)
+                                except Exception:
+                                    pass
+                        except Exception:
+                            pass
                         # List schemes
                         c_ord = dlg.findChild(QtWidgets.QComboBox, "comboOrdered")
                         c_un = dlg.findChild(QtWidgets.QComboBox, "comboUnordered")

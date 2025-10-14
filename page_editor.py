@@ -28,6 +28,8 @@ from ui_tabs import (
 )
 
 from PyQt5 import QtWidgets
+from PyQt5.QtCore import QUrl
+import os
 try:
     from ui_planning_register import refresh_planning_register_styles
 except Exception:  # pragma: no cover - optional import guard
@@ -49,10 +51,29 @@ def load_page(window, page_id: Optional[int] = None, html: Optional[str] = None)
 
     After loading, re-apply Planning Register styles (header/totals shading, numeric alignment).
     """
+    # Ensure relative media paths will resolve during the ensuing HTML load
+    try:
+        te = window.findChild(QtWidgets.QTextEdit, "pageEdit")
+        if te is not None:
+            media_root = getattr(window, "_media_root", None)
+            if isinstance(media_root, str) and media_root:
+                base = media_root if media_root.endswith(os.sep) else media_root + os.sep
+                te.document().setBaseUrl(QUrl.fromLocalFile(base))
+    except Exception:
+        pass
     _ui_load_page_two_column(window, page_id=page_id, html=html)
     try:
         te = window.findChild(QtWidgets.QTextEdit, "pageEdit")
         if te is not None:
+            # Ensure relative media paths resolve against the DB media root
+            media_root = getattr(window, "_media_root", None)
+            if isinstance(media_root, str) and media_root:
+                # Trailing separator ensures base url is treated as a folder
+                base = media_root if media_root.endswith(os.sep) else media_root + os.sep
+                try:
+                    te.document().setBaseUrl(QUrl.fromLocalFile(base))
+                except Exception:
+                    pass
             refresh_planning_register_styles(te)
     except Exception:
         pass
@@ -63,10 +84,24 @@ def set_page_edit_html(window, html: Optional[str]) -> None:
 
     This function replaces direct calls into ui_tabs to avoid modifying ui_tabs further.
     """
+    # Set baseUrl before and after applying HTML to ensure resolution
+    try:
+        te = window.findChild(QtWidgets.QTextEdit, "pageEdit")
+        if te is not None:
+            media_root = getattr(window, "_media_root", None)
+            if isinstance(media_root, str) and media_root:
+                base = media_root if media_root.endswith(os.sep) else media_root + os.sep
+                te.document().setBaseUrl(QUrl.fromLocalFile(base))
+    except Exception:
+        pass
     _ui_set_page_edit_html(window, html)
     try:
         te = window.findChild(QtWidgets.QTextEdit, "pageEdit")
         if te is not None:
+            media_root = getattr(window, "_media_root", None)
+            if isinstance(media_root, str) and media_root:
+                base = media_root if media_root.endswith(os.sep) else media_root + os.sep
+                te.document().setBaseUrl(QUrl.fromLocalFile(base))
             refresh_planning_register_styles(te)
     except Exception:
         pass
@@ -74,10 +109,27 @@ def set_page_edit_html(window, html: Optional[str]) -> None:
 
 def load_first_page_two_column(window) -> None:
     """Load the first page for the current section in two‑pane mode and restyle PR tables."""
+    # Ensure base is ready before first page load
+    try:
+        te = window.findChild(QtWidgets.QTextEdit, "pageEdit")
+        if te is not None:
+            media_root = getattr(window, "_media_root", None)
+            if isinstance(media_root, str) and media_root:
+                base = media_root if media_root.endswith(os.sep) else media_root + os.sep
+                te.document().setBaseUrl(QUrl.fromLocalFile(base))
+    except Exception:
+        pass
     _ui_load_first_page_two_column(window)
     try:
         te = window.findChild(QtWidgets.QTextEdit, "pageEdit")
         if te is not None:
+            media_root = getattr(window, "_media_root", None)
+            if isinstance(media_root, str) and media_root:
+                base = media_root if media_root.endswith(os.sep) else media_root + os.sep
+                try:
+                    te.document().setBaseUrl(QUrl.fromLocalFile(base))
+                except Exception:
+                    pass
             refresh_planning_register_styles(te)
     except Exception:
         pass

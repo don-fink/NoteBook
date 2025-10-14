@@ -14,7 +14,7 @@ import os
 import sqlite3
 
 from PyQt5 import QtWidgets, uic
-from PyQt5.QtCore import QEvent, QModelIndex, QObject, Qt, QTimer
+from PyQt5.QtCore import QEvent, QModelIndex, QObject, Qt, QTimer, QUrl
 from PyQt5.QtGui import (
     QColor,
     QIcon,

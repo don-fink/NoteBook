@@ -306,120 +306,127 @@ class _PlanningRegisterWatcher(QtCore.QObject):
         edit.installEventFilter(self)
 
     def eventFilter(self, obj, event):
-        if obj is self._edit:
-            et = event.type()
-            if et == QtCore.QEvent.FocusOut:
-                # On editor focus loss, normalize the current cost cell (if any)
-                # and recalc totals for the planning table.
-                if self._prev is not None and not self._updating:
-                    table, row, col = self._prev
-                    if table is not None and _is_planning_register_table(self._edit, table):
-                        self._updating = True
-                        try:
-                            # Format currency if leaving a cost cell
-                            _format_cost_cell_on_exit(self._edit, table, row, col)
-                            _recalc_planning_totals(self._edit, table)
-                        finally:
-                            self._updating = False
-                    elif table is not None and _is_cost_list_table(self._edit, table):
-                        # For cost list tables, just format the cost column on exit
-                        if col == 1 and row != 0:  # protect header row
+        try:
+            if obj is self._edit:
+                et = event.type()
+                if et == QtCore.QEvent.FocusOut:
+                    # On editor focus loss, normalize the current cost cell (if any)
+                    # and recalc totals for the planning table.
+                    if self._prev is not None and not self._updating:
+                        table, row, col = self._prev
+                        if table is not None and _is_planning_register_table(self._edit, table):
                             self._updating = True
                             try:
-                                raw = _cell_plain_text(self._edit, table, row, col)
-                                val, is_num = _try_parse_number(raw)
-                                if is_num:
-                                    fmt_val = _format_currency(val)
-                                    if raw != fmt_val:
-                                        _cell_set_plain_text(self._edit, table, row, col, fmt_val)
-                            finally:
-                                self._updating = False
-            elif et == QtCore.QEvent.KeyPress:
-                key = event.key()
-                mods = event.modifiers()
-                cur = self._edit.textCursor()
-                table = cur.currentTable()
-                if table is not None and _is_planning_register_table(self._edit, table):
-                    cell = table.cellAt(cur)
-                    row, col = cell.row(), cell.column()
-                    # Block editing in protected cells
-                    if _is_protected_cell(table, row, col):
-                        if (
-                            key in (Qt.Key_Backspace, Qt.Key_Delete, Qt.Key_Return, Qt.Key_Enter)
-                            or (event.text() and event.text().strip())
-                            or ((mods & Qt.ControlModifier) and key in (Qt.Key_V, Qt.Key_X, Qt.Key_Insert))
-                            or ((mods & Qt.ShiftModifier) and key == Qt.Key_Insert)
-                        ):
-                            return True  # eat the key
-                    # Tab on last editable row & right-most cost cell inserts a new row
-                    if key in (Qt.Key_Tab,):
-                        last_editable_row = table.rows() - 2
-                        if row == last_editable_row and col == 2:
-                            self._updating = True
-                            try:
-                                # First normalize the current cost cell and recalc so value is formatted immediately
-                                try:
-                                    _format_cost_cell_on_exit(self._edit, table, row, col)
-                                except Exception:
-                                    pass
-                                # Insert a new row before the total row
-                                table.insertRows(table.rows() - 1, 1)
-                                # New row index (data row just above totals)
-                                new_row = last_editable_row + 1
-                                # Move caret to first cell of the new row
-                                ncell = table.cellAt(new_row, 0)
-                                self._edit.setTextCursor(ncell.firstCursorPosition())
-                                # Ensure numeric columns are right-aligned in the new row
-                                bfmt = QTextBlockFormat()
-                                bfmt.setAlignment(Qt.AlignRight)
-                                for new_c in (1, 2):
-                                    ccur = table.cellAt(new_row, new_c).firstCursorPosition()
-                                    ccur.mergeBlockFormat(bfmt)
-                                # Clear any inherited background on the new data row
-                                for clr_c in range(table.columns()):
-                                    c = table.cellAt(new_row, clr_c)
-                                    cfmt = c.format()
-                                    cfmt.setBackground(QBrush(Qt.NoBrush))
-                                    c.setFormat(cfmt)
-                                # Re-apply background on the (new) totals row
-                                totals_bg = QBrush(QColor(245, 245, 245))
-                                total_row_index = table.rows() - 1
-                                for cidx in range(table.columns()):
-                                    tcell = table.cellAt(total_row_index, cidx)
-                                    tfmt = tcell.format()
-                                    tfmt.setBackground(totals_bg)
-                                    tcell.setFormat(tfmt)
-                                # Re-apply background on the header row to ensure it stays shaded
-                                header_bg = QBrush(QColor(245, 245, 245))
-                                for hcol in range(table.columns()):
-                                    hcell = table.cellAt(0, hcol)
-                                    hfmt = hcell.format()
-                                    hfmt.setBackground(header_bg)
-                                    hcell.setFormat(hfmt)
-                                # Recalculate totals immediately
+                                # Format currency if leaving a cost cell
+                                _format_cost_cell_on_exit(self._edit, table, row, col)
                                 _recalc_planning_totals(self._edit, table)
-                                # Update internal previous cell tracker to the new row to avoid double-format on next move
-                                try:
-                                    self._prev = (table, new_row, 0)
-                                except Exception:
-                                    pass
                             finally:
                                 self._updating = False
-                            # Keep totals intact (they'll recalc on exit later); consume the key
-                            return True
-                elif table is not None and _is_cost_list_table(self._edit, table):
-                    cell = table.cellAt(cur)
-                    row, col = cell.row(), cell.column()
-                    # Protect header row from edits/paste/enter
-                    if row == 0:
-                        if (
-                            key in (Qt.Key_Backspace, Qt.Key_Delete, Qt.Key_Return, Qt.Key_Enter)
-                            or (event.text() and event.text().strip())
-                            or ((mods & Qt.ControlModifier) and key in (Qt.Key_V, Qt.Key_X, Qt.Key_Insert))
-                            or ((mods & Qt.ShiftModifier) and key == Qt.Key_Insert)
-                        ):
-                            return True
-        return super().eventFilter(obj, event)
+                        elif table is not None and _is_cost_list_table(self._edit, table):
+                            # For cost list tables, just format the cost column on exit
+                            if col == 1 and row != 0:  # protect header row
+                                self._updating = True
+                                try:
+                                    raw = _cell_plain_text(self._edit, table, row, col)
+                                    val, is_num = _try_parse_number(raw)
+                                    if is_num:
+                                        fmt_val = _format_currency(val)
+                                        if raw != fmt_val:
+                                            _cell_set_plain_text(self._edit, table, row, col, fmt_val)
+                                finally:
+                                    self._updating = False
+                elif et == QtCore.QEvent.KeyPress:
+                    key = event.key()
+                    mods = event.modifiers()
+                    cur = self._edit.textCursor()
+                    table = cur.currentTable()
+                    if table is not None and _is_planning_register_table(self._edit, table):
+                        cell = table.cellAt(cur)
+                        row, col = cell.row(), cell.column()
+                        # Block editing in protected cells
+                        if _is_protected_cell(table, row, col):
+                            if (
+                                key in (Qt.Key_Backspace, Qt.Key_Delete, Qt.Key_Return, Qt.Key_Enter)
+                                or (event.text() and event.text().strip())
+                                or ((mods & Qt.ControlModifier) and key in (Qt.Key_V, Qt.Key_X, Qt.Key_Insert))
+                                or ((mods & Qt.ShiftModifier) and key == Qt.Key_Insert)
+                            ):
+                                return True  # eat the key
+                        # Tab on last editable row & right-most cost cell inserts a new row
+                        if key in (Qt.Key_Tab,):
+                            last_editable_row = table.rows() - 2
+                            if row == last_editable_row and col == 2:
+                                self._updating = True
+                                try:
+                                    # First normalize the current cost cell and recalc so value is formatted immediately
+                                    try:
+                                        _format_cost_cell_on_exit(self._edit, table, row, col)
+                                    except Exception:
+                                        pass
+                                    # Insert a new row before the total row
+                                    table.insertRows(table.rows() - 1, 1)
+                                    # New row index (data row just above totals)
+                                    new_row = last_editable_row + 1
+                                    # Move caret to first cell of the new row
+                                    ncell = table.cellAt(new_row, 0)
+                                    self._edit.setTextCursor(ncell.firstCursorPosition())
+                                    # Ensure numeric columns are right-aligned in the new row
+                                    bfmt = QTextBlockFormat()
+                                    bfmt.setAlignment(Qt.AlignRight)
+                                    for new_c in (1, 2):
+                                        ccur = table.cellAt(new_row, new_c).firstCursorPosition()
+                                        ccur.mergeBlockFormat(bfmt)
+                                    # Clear any inherited background on the new data row
+                                    for clr_c in range(table.columns()):
+                                        c = table.cellAt(new_row, clr_c)
+                                        cfmt = c.format()
+                                        cfmt.setBackground(QBrush(Qt.NoBrush))
+                                        c.setFormat(cfmt)
+                                    # Re-apply background on the (new) totals row
+                                    totals_bg = QBrush(QColor(245, 245, 245))
+                                    total_row_index = table.rows() - 1
+                                    for cidx in range(table.columns()):
+                                        tcell = table.cellAt(total_row_index, cidx)
+                                        tfmt = tcell.format()
+                                        tfmt.setBackground(totals_bg)
+                                        tcell.setFormat(tfmt)
+                                    # Re-apply background on the header row to ensure it stays shaded
+                                    header_bg = QBrush(QColor(245, 245, 245))
+                                    for hcol in range(table.columns()):
+                                        hcell = table.cellAt(0, hcol)
+                                        hfmt = hcell.format()
+                                        hfmt.setBackground(header_bg)
+                                        hcell.setFormat(hfmt)
+                                    # Recalculate totals immediately
+                                    _recalc_planning_totals(self._edit, table)
+                                    # Update internal previous cell tracker to the new row to avoid double-format on next move
+                                    try:
+                                        self._prev = (table, new_row, 0)
+                                    except Exception:
+                                        pass
+                                finally:
+                                    self._updating = False
+                                # Keep totals intact (they'll recalc on exit later); consume the key
+                                return True
+                    elif table is not None and _is_cost_list_table(self._edit, table):
+                        cell = table.cellAt(cur)
+                        row, col = cell.row(), cell.column()
+                        # Protect header row from edits/paste/enter
+                        if row == 0:
+                            if (
+                                key in (Qt.Key_Backspace, Qt.Key_Delete, Qt.Key_Return, Qt.Key_Enter)
+                                or (event.text() and event.text().strip())
+                                or ((mods & Qt.ControlModifier) and key in (Qt.Key_V, Qt.Key_X, Qt.Key_Insert))
+                                or ((mods & Qt.ShiftModifier) and key == Qt.Key_Insert)
+                            ):
+                                return True
+            return super().eventFilter(obj, event)
+        except KeyboardInterrupt:
+            # Swallow spurious interrupts that can be injected during debugging/interactive stops
+            return True
+        except Exception:
+            # Avoid surfacing exceptions in the event filter; default processing
+            return super().eventFilter(obj, event)
 
     def _current_cell(self):
         cur = self._edit.textCursor()
