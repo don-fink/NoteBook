@@ -5,25 +5,104 @@ Manages loading and saving application settings, such as the last opened databas
 
 import json
 import os
+import shutil
+import sys
 
-SETTINGS_FILE = "settings.json"
+# --- Settings file location strategy ---
+# We now store settings in a per-user configuration directory instead of the
+# application working directory to avoid permission issues when the app is
+# installed under Program Files (read-only for standard users) and to keep
+# user state separate from the program files.
+#
+# Windows: %LOCALAPPDATA%/NoteBook/settings.json
+# Other platforms:
+#   - macOS: ~/Library/Application Support/NoteBook/settings.json
+#   - Linux/other: ~/.config/NoteBook/settings.json
+#
+# Backwards compatibility: if an old ./settings.json exists alongside the
+# application and the new per-user settings file does not yet exist, we will
+# transparently migrate (move) the legacy file to the new location.
+
+_LEGACY_SETTINGS_FILE = "settings.json"  # in CWD / app directory
+_SETTINGS_BASENAME = "settings.json"
+_CACHED_SETTINGS_PATH = None  # memoize resolved path
+
+
+def get_settings_dir() -> str:
+    """Return the directory where settings should be stored (created if needed)."""
+    # If already computed, return
+    global _CACHED_SETTINGS_PATH
+    # Determine platform-specific base directory
+    try:
+        if os.name == "nt":  # Windows
+            base = os.environ.get("LOCALAPPDATA") or os.path.expanduser("~")
+            path = os.path.join(base, "NoteBook")
+        elif sys.platform == "darwin":  # macOS
+            path = os.path.join(os.path.expanduser("~"), "Library", "Application Support", "NoteBook")
+        else:  # Linux / other Unix
+            path = os.path.join(os.path.expanduser("~"), ".config", "NoteBook")
+    except Exception:
+        # Fallback: current working directory
+        try:
+            path = os.path.abspath(os.getcwd())
+        except Exception:
+            path = "."
+    # Ensure directory exists
+    try:
+        os.makedirs(path, exist_ok=True)
+    except Exception:
+        pass
+    return path
+
+
+def _resolve_settings_path() -> str:
+    """Compute the new settings file path, migrating legacy file if present."""
+    global _CACHED_SETTINGS_PATH
+    if _CACHED_SETTINGS_PATH:
+        return _CACHED_SETTINGS_PATH
+    target_dir = get_settings_dir()
+    new_path = os.path.join(target_dir, _SETTINGS_BASENAME)
+    # Migration: if legacy exists in CWD and new_path missing, move it
+    try:
+        if not os.path.exists(new_path) and os.path.exists(_LEGACY_SETTINGS_FILE):
+            # Attempt move; if move fails (cross-device), copy instead
+            try:
+                shutil.move(_LEGACY_SETTINGS_FILE, new_path)
+            except Exception:
+                try:
+                    shutil.copy2(_LEGACY_SETTINGS_FILE, new_path)
+                except Exception:
+                    pass
+    except Exception:
+        pass
+    _CACHED_SETTINGS_PATH = new_path
+    return new_path
+
+
+def get_settings_file_path() -> str:
+    """Return absolute path to the current settings.json file."""
+    return os.path.abspath(_resolve_settings_path())
 
 
 def load_settings():
-    if os.path.exists(SETTINGS_FILE):
-        with open(SETTINGS_FILE, "r") as f:
-            return json.load(f)
+    path = _resolve_settings_path()
+    try:
+        if os.path.exists(path):
+            with open(path, "r", encoding="utf-8") as f:
+                return json.load(f)
+    except Exception:
+        pass
     return {}
 
 
 def save_settings(settings):
-    with open(SETTINGS_FILE, "w") as f:
-        json.dump(settings, f, indent=2)
+    path = _resolve_settings_path()
+    try:
+        with open(path, "w", encoding="utf-8") as f:
+            json.dump(settings, f, indent=2)
+    except Exception:
+        pass
 
-
-def get_settings_file_path() -> str:
-    """Return absolute path to the settings.json file."""
-    return os.path.abspath(SETTINGS_FILE)
 
 
 def get_last_db():

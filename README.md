@@ -38,6 +38,7 @@ Shortcuts:
 
 Notes:
 - Legacy tabbed wiring has been removed from setup; `setup_tab_sync` configures only the two‑pane UI.
+### End‑User Installation (Windows)
 - If you use a legacy `.ui` without `pageEdit`, setup becomes a no‑op; switch to `main_window_2_column.ui` for full functionality.
 
 ## Features
