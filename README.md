@@ -38,7 +38,24 @@ Shortcuts:
 
 Notes:
 - Legacy tabbed wiring has been removed from setup; `setup_tab_sync` configures only the two‑pane UI.
-### End‑User Installation (Windows)
+## End‑User Installation (Windows)
+
+1. Download `NoteBook_Release.zip` from the latest release
+2. Extract the ZIP file to any folder (e.g., `C:\Program Files\NoteBook\`)
+3. Run `NoteBook.exe` directly - no installation required!
+4. (Optional) Run `add_to_start_menu.cmd` to add a Start Menu shortcut
+
+The app is fully portable - settings are stored in `%LOCALAPPDATA%\NoteBook\`
+
+## Building from Source
+
+If you want to build the executable yourself:
+
+1. Set up the development environment (see Dev setup below)
+2. Run `build.cmd` to create the executable
+3. Run `scripts\create_release_simple.ps1` to package for distribution
+
+### Legacy UI Notes
 - If you use a legacy `.ui` without `pageEdit`, setup becomes a no‑op; switch to `main_window_2_column.ui` for full functionality.
 
 ## Features
