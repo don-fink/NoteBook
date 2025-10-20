@@ -70,7 +70,8 @@ def _install_global_excepthook():
         except Exception:
             pass
         try:
-            QtWidgets.QMessageBox.critical(None, "Unexpected Error", msg)
+            if QtWidgets.QApplication.instance() is not None:
+                QtWidgets.QMessageBox.critical(None, "Unexpected Error", msg)
         except Exception:
             pass
         try:
@@ -739,6 +740,107 @@ def insert_attachment(window):
         QtWidgets.QMessageBox.warning(window, "Insert Attachment", f"Failed to attach file: {e}")
 
 
+def ensure_database_initialized(db_path):
+    """
+    Ensure database exists and has the required schema.
+    This should be called before any database operations.
+    """
+    import sqlite3
+    import os
+    
+    # Check if database file exists
+    if not os.path.exists(db_path):
+        create_new_database_file(db_path)
+        return
+    
+    # Database exists, check if it has the required tables
+    conn = sqlite3.connect(db_path)
+    cursor = conn.cursor()
+    
+    try:
+        # Try to query notebooks table
+        cursor.execute("SELECT COUNT(*) FROM notebooks")
+        conn.close()
+    except sqlite3.OperationalError as e:
+        if "no such table: notebooks" in str(e):
+            conn.close()
+            initialize_database_schema(db_path)
+        else:
+            conn.close()
+            raise
+
+
+def create_new_database_file(db_path):
+    """Create a new database file with proper schema"""
+    import sqlite3
+    
+    conn = sqlite3.connect(db_path)
+    cursor = conn.cursor()
+    
+    # Read schema from schema.sql file
+    try:
+        # In PyInstaller executable, schema.sql is in the same directory as the executable
+        import os
+        import sys
+        
+        if getattr(sys, 'frozen', False):
+            # Running in PyInstaller bundle
+            schema_path = os.path.join(sys._MEIPASS, 'schema.sql')
+        else:
+            # Running from source
+            schema_path = 'schema.sql'
+            
+        with open(schema_path, 'r') as f:
+            schema_sql = f.read()
+            
+        cursor.executescript(schema_sql)
+    except FileNotFoundError:
+        # Fallback to embedded schema
+        cursor.executescript('''
+            PRAGMA foreign_keys = ON;
+            
+            CREATE TABLE notebooks (
+              id            INTEGER PRIMARY KEY AUTOINCREMENT,
+              title         TEXT    NOT NULL,
+              created_at    TEXT    NOT NULL DEFAULT (datetime('now')),
+              modified_at   TEXT    NOT NULL DEFAULT (datetime('now')),
+              order_index   INTEGER NOT NULL DEFAULT 0
+            );
+            
+            CREATE TABLE sections (
+              id            INTEGER PRIMARY KEY AUTOINCREMENT,
+              notebook_id   INTEGER NOT NULL,
+              title         TEXT    NOT NULL,
+              color_hex     TEXT,
+              created_at    TEXT    NOT NULL DEFAULT (datetime('now')),
+              modified_at   TEXT    NOT NULL DEFAULT (datetime('now')),
+              order_index   INTEGER NOT NULL DEFAULT 0,
+              FOREIGN KEY (notebook_id) REFERENCES notebooks(id) ON DELETE CASCADE
+            );
+            
+            CREATE TABLE pages (
+              id            INTEGER PRIMARY KEY AUTOINCREMENT,
+              section_id    INTEGER NOT NULL,
+              title         TEXT    NOT NULL,
+              content_html  TEXT    NOT NULL,
+              created_at    TEXT    NOT NULL DEFAULT (datetime('now')),
+              modified_at   TEXT    NOT NULL DEFAULT (datetime('now')),
+              order_index   INTEGER NOT NULL DEFAULT 0,
+              FOREIGN KEY (section_id) REFERENCES sections(id) ON DELETE CASCADE
+            );
+        ''')
+    
+    # Set initial version
+    cursor.execute("PRAGMA user_version = 2")
+    conn.commit()
+    conn.close()
+
+
+def initialize_database_schema(db_path):
+    """Initialize schema for an existing but empty database"""
+    create_new_database_file(db_path)
+
+
 def migrate_database_if_needed(db_path):
     from db_version import get_db_version, set_db_version
 
@@ -936,11 +1038,6 @@ def restart_application():
 def main():
     # Suppress noisy SIP deprecation warning from PyQt5 about sipPyTypeDict
     warnings.filterwarnings("ignore", category=DeprecationWarning, message=".*sipPyTypeDict.*")
-    # Install a global exception hook so unexpected errors surface in a dialog instead of closing silently
-    try:
-        _install_global_excepthook()
-    except Exception:
-        pass
     # Ensure proper High DPI behavior so images render at the requested logical size on scaled displays
     try:
         # These must be set BEFORE creating the QApplication instance
@@ -956,6 +1053,12 @@ def main():
     except Exception:
         pass
     app = QtWidgets.QApplication(sys.argv)
+    
+    # Install a global exception hook so unexpected errors surface in a dialog instead of closing silently
+    try:
+        _install_global_excepthook()
+    except Exception:
+        pass
     # Prepare crash/diagnostic logs
     try:
         _here = os.path.dirname(os.path.abspath(__file__))
@@ -969,6 +1072,11 @@ def main():
     # Safe mode: disable risky UI hooks to isolate crashes quickly
     SAFE_MODE = os.environ.get("NOTEBOOK_SAFE_MODE", "0").strip() in {"1", "true", "yes"}
     window = load_main_window()
+    # Ensure the main window explicitly carries the app icon (improves taskbar behavior on Windows)
+    try:
+        window.setWindowIcon(app.windowIcon())
+    except Exception:
+        pass
     # Apply saved theme QSS early
     try:
         from settings_manager import get_theme_name
@@ -994,11 +1102,19 @@ def main():
     if get_window_maximized():
         window.showMaximized()
     db_path = get_last_db() or "notes.db"
-    # Ensure database is migrated before any queries
+    # Ensure database exists and is initialized before any queries
     try:
+        ensure_database_initialized(db_path)
         migrate_database_if_needed(db_path)
-    except Exception:
-        pass
+    except Exception as e:
+        # If database initialization fails, show error and create new database dialog
+        QtWidgets.QMessageBox.critical(
+            window,
+            "Database Error",
+            f"Failed to initialize database '{db_path}':\n{str(e)}\n\nPlease create a new database or select an existing one."
+        )
+        create_new_database(window)
+        return
     window._db_path = db_path
     # Show current DB in the window title (avoid duplicating in the status bar)
     try:
@@ -2843,6 +2959,7 @@ def main():
                         try:
                             edp = dlg.findChild(QtWidgets.QLineEdit, "editSettingsPath")
                             btn_open = dlg.findChild(QtWidgets.QPushButton, "btnOpenSettingsFolder")
+                            btn_browse_settings = dlg.findChild(QtWidgets.QPushButton, "btnBrowseSettingsPath")
                             spath = get_settings_file_path()
                             if edp is not None:
                                 edp.setText(spath)
@@ -2859,6 +2976,112 @@ def main():
                                         pass
 
                                 btn_open.clicked.connect(_open_settings_folder)
+                            # Browse / Change settings location
+                            if btn_browse_settings is not None and edp is not None:
+                                def _change_settings_location():
+                                    try:
+                                        from settings_manager import get_settings_dir
+                                        start_dir = os.path.dirname(spath) if os.path.isdir(os.path.dirname(spath)) else get_settings_dir()
+                                        new_dir = QtWidgets.QFileDialog.getExistingDirectory(window, "Choose Settings Folder", start_dir)
+                                        if not new_dir:
+                                            return
+                                        new_dir = os.path.abspath(new_dir)
+                                        # Validate write access
+                                        test_ok = False
+                                        try:
+                                            os.makedirs(new_dir, exist_ok=True)
+                                            test_file = os.path.join(new_dir, ".__nb_test_write__")
+                                            with open(test_file, "w", encoding="utf-8") as tf:
+                                                tf.write("ok")
+                                            os.remove(test_file)
+                                            test_ok = True
+                                        except Exception as e:
+                                            QtWidgets.QMessageBox.warning(window, "Settings", f"Selected folder is not writable:\n{e}")
+                                            return
+                                        if not test_ok:
+                                            return
+                                        # Perform migration of settings.json
+                                        src = spath
+                                        dst = os.path.join(new_dir, os.path.basename(spath))
+                                        if os.path.abspath(src) == os.path.abspath(dst):
+                                            edp.setText(dst)
+                                            return
+                                        # Confirm
+                                        resp = QtWidgets.QMessageBox.question(
+                                            window,
+                                            "Move Settings",
+                                            f"Move settings file to:\n{dst}?",
+                                            QtWidgets.QMessageBox.Yes | QtWidgets.QMessageBox.No,
+                                        )
+                                        if resp != QtWidgets.QMessageBox.Yes:
+                                            return
+                                        # Copy (not move) first, ensure integrity
+                                        import shutil
+                                        try:
+                                            shutil.copy2(src, dst)
+                                        except FileNotFoundError:
+                                            # No existing file, create empty settings.json
+                                            with open(dst, "w", encoding="utf-8") as nf:
+                                                nf.write("{}\n")
+                                        except Exception as e:
+                                            QtWidgets.QMessageBox.warning(window, "Settings", f"Failed to migrate settings:\n{e}")
+                                            return
+                                        # Tell settings_manager to start using the new location immediately and persist across restarts
+                                        try:
+                                            import settings_manager as sm
+                                            sm.set_settings_file_path(dst)
+                                        except Exception:
+                                            pass
+                                        # Replace source file with new one (optional move)
+                                        try:
+                                            # Keep original as backup; do not delete automatically
+                                            pass
+                                        except Exception:
+                                            pass
+                                        edp.setText(dst)
+                                        QtWidgets.QMessageBox.information(window, "Settings", "Settings location updated. It will be used immediately and on next launch.")
+                                    except Exception as e:
+                                        QtWidgets.QMessageBox.warning(window, "Settings", f"Failed to change settings location:\n{e}")
+
+                                btn_browse_settings.clicked.connect(_change_settings_location)
+                        except Exception:
+                            pass
+                        # Tables tab: load current table theme
+                        try:
+                            from settings_manager import get_table_theme
+                            theme = get_table_theme()
+                            ed_gc = dlg.findChild(QtWidgets.QLineEdit, "editGridColor")
+                            sp_gw = dlg.findChild(QtWidgets.QDoubleSpinBox, "spinGridWidth")
+                            ed_hb = dlg.findChild(QtWidgets.QLineEdit, "editHeaderBg")
+                            ed_tb = dlg.findChild(QtWidgets.QLineEdit, "editTotalsBg")
+                            ed_cb = dlg.findChild(QtWidgets.QLineEdit, "editCostHeaderBg")
+                            if ed_gc is not None:
+                                ed_gc.setText(theme.get("grid_color", "#000000"))
+                            if sp_gw is not None:
+                                sp_gw.setValue(float(theme.get("grid_width", 1.0)))
+                            if ed_hb is not None:
+                                ed_hb.setText(theme.get("header_bg", "#F5F5F5"))
+                            if ed_tb is not None:
+                                ed_tb.setText(theme.get("totals_bg", "#F5F5F5"))
+                            if ed_cb is not None:
+                                ed_cb.setText(theme.get("cost_header_bg", "#F5F5F5"))
+                            # Wire simple color pickers
+                            def _pick_into(line_edit):
+                                col = QtWidgets.QColorDialog.getColor(parent=dlg)
+                                if col.isValid() and line_edit is not None:
+                                    line_edit.setText(col.name())
+                            btn_gc = dlg.findChild(QtWidgets.QPushButton, "btnPickGridColor")
+                            if btn_gc is not None and ed_gc is not None:
+                                btn_gc.clicked.connect(lambda: _pick_into(ed_gc))
+                            btn_hb = dlg.findChild(QtWidgets.QPushButton, "btnPickHeaderBg")
+                            if btn_hb is not None and ed_hb is not None:
+                                btn_hb.clicked.connect(lambda: _pick_into(ed_hb))
+                            btn_tb = dlg.findChild(QtWidgets.QPushButton, "btnPickTotalsBg")
+                            if btn_tb is not None and ed_tb is not None:
+                                btn_tb.clicked.connect(lambda: _pick_into(ed_tb))
+                            btn_cb = dlg.findChild(QtWidgets.QPushButton, "btnPickCostHeaderBg")
+                            if btn_cb is not None and ed_cb is not None:
+                                btn_cb.clicked.connect(lambda: _pick_into(ed_cb))
                         except Exception:
                             pass
                         # Browse for databases root
@@ -2995,6 +3218,39 @@ def main():
                                             )
                             except Exception:
                                 pass
+                        # Tables tab: persist and apply immediately
+                        try:
+                            from settings_manager import set_table_theme, get_table_theme
+                            ed_gc = dlg.findChild(QtWidgets.QLineEdit, "editGridColor")
+                            sp_gw = dlg.findChild(QtWidgets.QDoubleSpinBox, "spinGridWidth")
+                            ed_hb = dlg.findChild(QtWidgets.QLineEdit, "editHeaderBg")
+                            ed_tb = dlg.findChild(QtWidgets.QLineEdit, "editTotalsBg")
+                            ed_cb = dlg.findChild(QtWidgets.QLineEdit, "editCostHeaderBg")
+                            kwargs = {}
+                            if ed_gc is not None:
+                                kwargs["grid_color"] = ed_gc.text().strip() or "#000000"
+                            if sp_gw is not None:
+                                kwargs["grid_width"] = float(sp_gw.value())
+                            if ed_hb is not None:
+                                kwargs["header_bg"] = ed_hb.text().strip() or "#F5F5F5"
+                            if ed_tb is not None:
+                                kwargs["totals_bg"] = ed_tb.text().strip() or "#F5F5F5"
+                            if ed_cb is not None:
+                                kwargs["cost_header_bg"] = ed_cb.text().strip() or "#F5F5F5"
+                            set_table_theme(**kwargs)
+                            # Apply immediately to current editor content
+                            try:
+                                te = window.findChild(QtWidgets.QTextEdit, "pageEdit")
+                                if te is not None:
+                                    # Re-run refresh and border enforcement with new colors/widths
+                                    from ui_planning_register import refresh_planning_register_styles
+                                    refresh_planning_register_styles(te)
+                                    from ui_richtext import _enforce_uniform_table_borders
+                                    _enforce_uniform_table_borders(te)
+                            except Exception:
+                                pass
+                        except Exception:
+                            pass
                     except Exception as e:
                         QtWidgets.QMessageBox.warning(
                             window, "Settings", f"Failed to save settings: {e}"

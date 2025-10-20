@@ -1,0 +1,54 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<ui version="4.0">
+ <class>TabPage</class>
+ <widget class="QWidget" name="TabPage">
+  <property name="geometry">
+   <rect>
+    <x>0</x>
+    <y>0</y>
+    <width>400</width>
+    <height>300</height>
+   </rect>
+  </property>
+    <layout class="QVBoxLayout" name="verticalLayout">
+     <item>
+        <widget class="QWidget" name="titleRow" native="true">
+         <layout class="QHBoxLayout" name="horizontalLayout" stretch="1,0">
+            <item>
+             <widget class="QLineEdit" name="pageTitleEdit">
+                <property name="font">
+                 <font>
+                    <pointsize>12</pointsize>
+                    <weight>75</weight>
+                    <bold>true</bold>
+                 </font>
+                </property>
+                <property name="placeholderText">
+                 <string>Page title</string>
+                </property>
+             </widget>
+            </item>
+            <item>
+             <widget class="QLabel" name="modifiedIndicator">
+                <property name="text">
+                 <string>Modified</string>
+                </property>
+                <property name="visible">
+                 <bool>false</bool>
+                </property>
+                <property name="alignment">
+                 <set>Qt::AlignRight|Qt::AlignVCenter</set>
+                </property>
+             </widget>
+            </item>
+         </layout>
+        </widget>
+     </item>
+   <item>
+    <widget class="QTextEdit" name="textEdit"/>
+   </item>
+  </layout>
+ </widget>
+ <resources/>
+ <connections/>
+</ui>

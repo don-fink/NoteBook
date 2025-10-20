@@ -25,34 +25,74 @@ import sys
 
 _LEGACY_SETTINGS_FILE = "settings.json"  # in CWD / app directory
 _SETTINGS_BASENAME = "settings.json"
+_POINTER_BASENAME = "settings.loc"  # stores absolute path to settings.json (override)
 _CACHED_SETTINGS_PATH = None  # memoize resolved path
 
 
-def get_settings_dir() -> str:
-    """Return the directory where settings should be stored (created if needed)."""
-    # If already computed, return
-    global _CACHED_SETTINGS_PATH
-    # Determine platform-specific base directory
+def _default_settings_dir() -> str:
+    """Return the platform-specific default settings directory (no overrides)."""
     try:
         if os.name == "nt":  # Windows
             base = os.environ.get("LOCALAPPDATA") or os.path.expanduser("~")
-            path = os.path.join(base, "NoteBook")
+            return os.path.join(base, "NoteBook")
         elif sys.platform == "darwin":  # macOS
-            path = os.path.join(os.path.expanduser("~"), "Library", "Application Support", "NoteBook")
+            return os.path.join(os.path.expanduser("~"), "Library", "Application Support", "NoteBook")
         else:  # Linux / other Unix
-            path = os.path.join(os.path.expanduser("~"), ".config", "NoteBook")
+            return os.path.join(os.path.expanduser("~"), ".config", "NoteBook")
     except Exception:
-        # Fallback: current working directory
         try:
-            path = os.path.abspath(os.getcwd())
+            return os.path.abspath(os.getcwd())
         except Exception:
-            path = "."
-    # Ensure directory exists
+            return "."
+
+
+def _pointer_file_path() -> str:
+    return os.path.join(_default_settings_dir(), _POINTER_BASENAME)
+
+
+def _read_settings_pointer() -> str:
+    """Return absolute path to settings.json from pointer file if present, else None."""
     try:
-        os.makedirs(path, exist_ok=True)
+        p = _pointer_file_path()
+        if os.path.exists(p):
+            with open(p, "r", encoding="utf-8") as f:
+                line = f.readline().strip()
+                if line:
+                    return line
     except Exception:
         pass
-    return path
+    return None
+
+
+def _write_settings_pointer(settings_full_path: str):
+    """Persist absolute path to settings.json in pointer file under default dir."""
+    try:
+        d = _default_settings_dir()
+        os.makedirs(d, exist_ok=True)
+        with open(_pointer_file_path(), "w", encoding="utf-8") as f:
+            f.write(os.path.abspath(settings_full_path))
+    except Exception:
+        pass
+
+
+def get_settings_dir() -> str:
+    """Return the active settings directory (override if configured), creating it if needed."""
+    # If we have an override pointer, return its directory
+    override_path = _read_settings_pointer()
+    if override_path:
+        try:
+            d = os.path.dirname(override_path)
+            os.makedirs(d, exist_ok=True)
+            return d
+        except Exception:
+            pass
+    # Otherwise use default
+    d = _default_settings_dir()
+    try:
+        os.makedirs(d, exist_ok=True)
+    except Exception:
+        pass
+    return d
 
 
 def _resolve_settings_path() -> str:
@@ -60,8 +100,18 @@ def _resolve_settings_path() -> str:
     global _CACHED_SETTINGS_PATH
     if _CACHED_SETTINGS_PATH:
         return _CACHED_SETTINGS_PATH
-    target_dir = get_settings_dir()
-    new_path = os.path.join(target_dir, _SETTINGS_BASENAME)
+    # If an override pointer exists, honor it first
+    override_path = _read_settings_pointer()
+    if override_path:
+        # Ensure parent directory exists
+        try:
+            os.makedirs(os.path.dirname(override_path), exist_ok=True)
+        except Exception:
+            pass
+        new_path = os.path.abspath(override_path)
+    else:
+        target_dir = get_settings_dir()
+        new_path = os.path.join(target_dir, _SETTINGS_BASENAME)
     # Migration: if legacy exists in CWD and new_path missing, move it
     try:
         if not os.path.exists(new_path) and os.path.exists(_LEGACY_SETTINGS_FILE):
@@ -100,6 +150,23 @@ def save_settings(settings):
     try:
         with open(path, "w", encoding="utf-8") as f:
             json.dump(settings, f, indent=2)
+    except Exception:
+        pass
+
+
+def set_settings_file_path(full_path: str):
+    """Persistently switch settings.json location to the given absolute path.
+
+    This writes a pointer file under the default settings directory so the new
+    location is honored across restarts. Also updates the in-memory cache.
+    """
+    if not isinstance(full_path, str) or not full_path:
+        return
+    try:
+        os.makedirs(os.path.dirname(full_path), exist_ok=True)
+        _write_settings_pointer(os.path.abspath(full_path))
+        global _CACHED_SETTINGS_PATH
+        _CACHED_SETTINGS_PATH = os.path.abspath(full_path)
     except Exception:
         pass
 
@@ -324,6 +391,51 @@ def set_list_schemes_settings(ordered: str = None, unordered: str = None):
         s["list_scheme_ordered"] = ordered
     if unordered in ("disc-circle-square", "disc-only"):
         s["list_scheme_unordered"] = unordered
+    save_settings(s)
+
+
+# --- Table theme (colors, grid width) ---
+def get_table_theme():
+    """Return a dict of table theme settings.
+
+    Keys:
+      - grid_color: hex string for grid/border color (default '#000000')
+      - grid_width: float border width in px (default 1.5)
+      - header_bg: hex string for Planning Register header background (default '#F5F5F5')
+      - totals_bg: hex string for Planning Register totals row background (default '#F5F5F5')
+      - cost_header_bg: hex string for right-side cost table header background (default '#F5F5F5')
+    """
+    s = load_settings()
+    theme = s.get("table_theme", {}) or {}
+    # Fill defaults without mutating saved settings
+    out = {
+        "grid_color": theme.get("grid_color", "#000000"),
+        "grid_width": float(theme.get("grid_width", 1.5)),
+        "header_bg": theme.get("header_bg", "#F5F5F5"),
+        "totals_bg": theme.get("totals_bg", "#F5F5F5"),
+        "cost_header_bg": theme.get("cost_header_bg", "#F5F5F5"),
+    }
+    return out
+
+
+def set_table_theme(**kwargs):
+    """Update one or more table theme fields and persist.
+
+    Example: set_table_theme(grid_color="#444444", grid_width=1.0)
+    """
+    s = load_settings()
+    theme = s.get("table_theme", {}) or {}
+    for k, v in kwargs.items():
+        if v is None:
+            continue
+        if k == "grid_width":
+            try:
+                theme[k] = float(v)
+            except Exception:
+                continue
+        elif k in {"grid_color", "header_bg", "totals_bg", "cost_header_bg"}:
+            theme[k] = str(v)
+    s["table_theme"] = theme
     save_settings(s)
 
 

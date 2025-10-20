@@ -24,6 +24,30 @@ from PyQt5.QtGui import (
 from PyQt5.QtCore import Qt
 
 
+def _apply_cell_borders_to_table(tbl):
+    """Set 1px solid black border on all sides for every cell in the given table."""
+    try:
+        rows, cols = tbl.rows(), tbl.columns()
+    except Exception:
+        return
+    from PyQt5.QtGui import QTextTableCellFormat, QBrush, QColor
+    black = QBrush(QColor(0, 0, 0))
+    for r in range(rows):
+        for c in range(cols):
+            try:
+                cell = tbl.cellAt(r, c)
+                cf = cell.format()
+                tcf = QTextTableCellFormat(cf)
+                tcf.setBorder(1.0)
+                try:
+                    tcf.setBorderBrush(black)
+                except Exception:
+                    pass
+                cell.setFormat(tcf)
+            except Exception:
+                pass
+
+
 def _insert_inner_table_in_cursor(cursor):
     """Insert the 3x7 inner table at the given cursor.
 
@@ -31,8 +55,8 @@ def _insert_inner_table_in_cursor(cursor):
     """
     inner_fmt = QTextTableFormat()
     inner_fmt.setCellPadding(4)
-    inner_fmt.setCellSpacing(2)
-    inner_fmt.setBorder(0.8)
+    inner_fmt.setCellSpacing(0)
+    inner_fmt.setBorder(1.0)
     inner_fmt.setHeaderRowCount(1)
     inner_fmt.setColumnWidthConstraints(
         [
@@ -47,7 +71,14 @@ def _insert_inner_table_in_cursor(cursor):
     headers = ["Description", "Estimated Cost", "Actual Cost"]
     header_fmt = QTextCharFormat()
     header_fmt.setFontWeight(QFont.Bold)
-    header_bg = QBrush(QColor(245, 245, 245))  # slight gray
+    # Theme-aware header/totals colors
+    try:
+        from settings_manager import get_table_theme
+        _theme = get_table_theme()
+        _hdr = _theme.get("header_bg", "#F5F5F5")
+        header_bg = QBrush(QColor(_hdr))
+    except Exception:
+        header_bg = QBrush(QColor(245, 245, 245))  # slight gray
 
     # Populate header cells
     for col, label in enumerate(headers):
@@ -73,7 +104,13 @@ def _insert_inner_table_in_cursor(cursor):
     total_label_cur = total_label_cell.firstCursorPosition()
     total_label_cur.insertText("Total")
     # Background for totals row
-    totals_bg = QBrush(QColor(245, 245, 245))
+    try:
+        from settings_manager import get_table_theme
+        _theme2 = get_table_theme()
+        _tot = _theme2.get("totals_bg", "#F5F5F5")
+        totals_bg = QBrush(QColor(_tot))
+    except Exception:
+        totals_bg = QBrush(QColor(245, 245, 245))
     for c in range(inner.columns()):
         tcell = inner.cellAt(total_row_index, c)
         tfmt = tcell.format()
@@ -98,8 +135,8 @@ def _insert_right_cost_table_in_cursor(cursor):
     """
     fmt = QTextTableFormat()
     fmt.setCellPadding(4)
-    fmt.setCellSpacing(2)
-    fmt.setBorder(0.8)
+    fmt.setCellSpacing(0)
+    fmt.setBorder(1.0)
     fmt.setHeaderRowCount(1)
     fmt.setColumnWidthConstraints(
         [
@@ -112,7 +149,13 @@ def _insert_right_cost_table_in_cursor(cursor):
     headers = ["Description", "Costs"]
     header_fmt = QTextCharFormat()
     header_fmt.setFontWeight(QFont.Bold)
-    header_bg = QBrush(QColor(245, 245, 245))
+    try:
+        from settings_manager import get_table_theme
+        _theme = get_table_theme()
+        _cost = _theme.get("cost_header_bg", "#F5F5F5")
+        header_bg = QBrush(QColor(_cost))
+    except Exception:
+        header_bg = QBrush(QColor(245, 245, 245))
 
     for col, label in enumerate(headers):
         hcell = table.cellAt(0, col)
@@ -292,6 +335,20 @@ def _format_cost_cell_on_exit(text_edit: QtWidgets.QTextEdit, table, row: int, c
         formatted = _format_currency(val)
         if raw != formatted:
             _cell_set_plain_text(text_edit, table, row, col, formatted)
+        # Ensure numeric cells are right-aligned (all paragraphs within the cell)
+        try:
+            bfmt = QTextBlockFormat()
+            bfmt.setAlignment(Qt.AlignRight)
+            cell = table.cellAt(row, col)
+            if cell.isValid():
+                start = cell.firstCursorPosition().position()
+                end = cell.lastCursorPosition().position()
+                tmp = QTextCursor(text_edit.document())
+                tmp.setPosition(start)
+                tmp.setPosition(end, QTextCursor.KeepAnchor)
+                tmp.mergeBlockFormat(bfmt)
+        except Exception:
+            pass
 
 
 class _PlanningRegisterWatcher(QtCore.QObject):
@@ -304,6 +361,16 @@ class _PlanningRegisterWatcher(QtCore.QObject):
         self._updating = False  # reentrancy guard to avoid recursive signal handling
         edit.cursorPositionChanged.connect(self._on_cursor_changed)
         edit.installEventFilter(self)
+        # Also watch the viewport for mouse events so we can adjust caret after clicks
+        try:
+            self._viewport = edit.viewport()
+        except Exception:
+            self._viewport = None
+        try:
+            if self._viewport is not None:
+                self._viewport.installEventFilter(self)
+        except Exception:
+            pass
 
     def eventFilter(self, obj, event):
         try:
@@ -333,6 +400,20 @@ class _PlanningRegisterWatcher(QtCore.QObject):
                                         fmt_val = _format_currency(val)
                                         if raw != fmt_val:
                                             _cell_set_plain_text(self._edit, table, row, col, fmt_val)
+                                        # Right-align all paragraphs in the cost cell
+                                        try:
+                                            bf = QTextBlockFormat()
+                                            bf.setAlignment(Qt.AlignRight)
+                                            c = table.cellAt(row, col)
+                                            if c.isValid():
+                                                s = c.firstCursorPosition().position()
+                                                e = c.lastCursorPosition().position()
+                                                t = QTextCursor(self._edit.document())
+                                                t.setPosition(s)
+                                                t.setPosition(e, QTextCursor.KeepAnchor)
+                                                t.mergeBlockFormat(bf)
+                                        except Exception:
+                                            pass
                                 finally:
                                     self._updating = False
                 elif et == QtCore.QEvent.KeyPress:
@@ -420,6 +501,19 @@ class _PlanningRegisterWatcher(QtCore.QObject):
                                 or ((mods & Qt.ShiftModifier) and key == Qt.Key_Insert)
                             ):
                                 return True
+            # Also react to mouse releases on the viewport to snap caret to right
+            if self._viewport is not None and obj is self._viewport:
+                if event.type() == QtCore.QEvent.MouseButtonRelease:
+                    try:
+                        btn = event.button()
+                    except Exception:
+                        btn = None
+                    if btn == Qt.LeftButton:
+                        try:
+                            # Defer until after the default processing so final cursor pos is established
+                            QtCore.QTimer.singleShot(0, self._snap_caret_right_if_numeric)
+                        except Exception:
+                            pass
             return super().eventFilter(obj, event)
         except KeyboardInterrupt:
             # Swallow spurious interrupts that can be injected during debugging/interactive stops
@@ -479,10 +573,93 @@ class _PlanningRegisterWatcher(QtCore.QObject):
                                 fmt_val = _format_currency(val)
                                 if raw != fmt_val:
                                     _cell_set_plain_text(self._edit, prev_table, prev_row, prev_col, fmt_val)
+                                # Right-align all paragraphs in the cost cell
+                                try:
+                                    bf = QTextBlockFormat()
+                                    bf.setAlignment(Qt.AlignRight)
+                                    c = prev_table.cellAt(prev_row, prev_col)
+                                    if c.isValid():
+                                        s = c.firstCursorPosition().position()
+                                        e = c.lastCursorPosition().position()
+                                        t = QTextCursor(self._edit.document())
+                                        t.setPosition(s)
+                                        t.setPosition(e, QTextCursor.KeepAnchor)
+                                        t.mergeBlockFormat(bf)
+                                except Exception:
+                                    pass
                         finally:
                             self._updating = False
+            # If we are entering a numeric cell, move caret to the end so it appears at the right by default
+            # (only when there's no selection to avoid overriding explicit user selections).
+            if now is not None:
+                try:
+                    now_table, now_row, now_col = now
+                except Exception:
+                    now_table = None
+                if now_table is not None:
+                    # Planning Register numeric columns
+                    if _is_planning_register_table(self._edit, now_table) and now_col in (1, 2) and not _is_protected_cell(now_table, now_row, now_col):
+                        try:
+                            cell = now_table.cellAt(now_row, now_col)
+                            if cell.isValid():
+                                cur = self._edit.textCursor()
+                                last = cell.lastCursorPosition().position()
+                                # Only adjust when there's no active selection, and caret isn't already at end
+                                if (not cur.hasSelection()) and (cur.position() != last):
+                                    self._updating = True
+                                    try:
+                                        self._edit.setTextCursor(cell.lastCursorPosition())
+                                    finally:
+                                        self._updating = False
+                        except Exception:
+                            pass
+                    # Right-side cost list numeric column
+                    elif _is_cost_list_table(self._edit, now_table) and now_col == 1 and now_row != 0:
+                        try:
+                            cell = now_table.cellAt(now_row, now_col)
+                            if cell.isValid():
+                                cur = self._edit.textCursor()
+                                last = cell.lastCursorPosition().position()
+                                if (not cur.hasSelection()) and (cur.position() != last):
+                                    self._updating = True
+                                    try:
+                                        self._edit.setTextCursor(cell.lastCursorPosition())
+                                    finally:
+                                        self._updating = False
+                        except Exception:
+                            pass
             # Update previous reference after handling
             self._prev = now
+        except Exception:
+            pass
+
+    def _snap_caret_right_if_numeric(self):
+        try:
+            cur = self._edit.textCursor()
+            if cur is None or cur.hasSelection():
+                return
+            tbl = cur.currentTable()
+            if tbl is None:
+                return
+            cell = tbl.cellAt(cur)
+            if not cell.isValid():
+                return
+            row = cell.row()
+            col = cell.column()
+            # Planning register numeric cells
+            if _is_planning_register_table(self._edit, tbl) and col in (1, 2) and not _is_protected_cell(tbl, row, col):
+                self._updating = True
+                try:
+                    self._edit.setTextCursor(cell.lastCursorPosition())
+                finally:
+                    self._updating = False
+            # Right-side cost list numeric column
+            elif _is_cost_list_table(self._edit, tbl) and col == 1 and row != 0:
+                self._updating = True
+                try:
+                    self._edit.setTextCursor(cell.lastCursorPosition())
+                finally:
+                    self._updating = False
         except Exception:
             pass
 
@@ -509,7 +686,7 @@ def insert_planning_register(window: QtWidgets.QMainWindow):
     # Outer table: 1 row x 2 columns; force full-width (100%) container
     outer_fmt = QTextTableFormat()
     outer_fmt.setCellPadding(4)
-    outer_fmt.setCellSpacing(3)
+    outer_fmt.setCellSpacing(0)
     outer_fmt.setBorder(1.0)
     outer_fmt.setWidth(QTextLength(QTextLength.PercentageLength, 100.0))
     # Evenly split the two columns
@@ -520,17 +697,37 @@ def insert_planning_register(window: QtWidgets.QMainWindow):
         ]
     )
     outer = cursor.insertTable(1, 2, outer_fmt)
+    # Draw the dividing line between left and right via per-cell borders
+    try:
+        _apply_cell_borders_to_table(outer)
+    except Exception:
+        pass
 
     # Insert inner table into left cell (row 0, col 0)
     left_cell_cursor = outer.cellAt(0, 0).firstCursorPosition()
     inner = _insert_inner_table_in_cursor(left_cell_cursor)
+    try:
+        _apply_cell_borders_to_table(inner)
+    except Exception:
+        pass
 
     # Initialize totals once (will be kept up-to-date by watcher)
     _recalc_planning_totals(te, inner)
 
     # Insert cost list table into right cell (row 0, col 1)
     right_cell_cursor = outer.cellAt(0, 1).firstCursorPosition()
-    _insert_right_cost_table_in_cursor(right_cell_cursor)
+    right_tbl = _insert_right_cost_table_in_cursor(right_cell_cursor)
+    try:
+        _apply_cell_borders_to_table(right_tbl)
+    except Exception:
+        pass
+
+    # Enforce uniform borders (1px black) across all tables in the editor
+    try:
+        from ui_richtext import _enforce_uniform_table_borders
+        _enforce_uniform_table_borders(te)
+    except Exception:
+        pass
 
     # Optional: place the caret at the end of the right cell content (after the inserted table)
     try:
@@ -556,9 +753,13 @@ def refresh_planning_register_styles(text_edit: QtWidgets.QTextEdit):
     cur = QTextCursor(doc)
     seen = set()
     try:
-        bg = QColor(245, 245, 245)
+        from settings_manager import get_table_theme
+        _t = get_table_theme()
+        bg = QColor(_t.get("header_bg", "#F5F5F5"))
+        totals_bg = QColor(_t.get("totals_bg", "#F5F5F5"))
     except Exception:
-        bg = None
+        bg = QColor(245, 245, 245)
+        totals_bg = QColor(245, 245, 245)
     # Iterate blocks and collect unique tables by firstPosition
     while True:
         tbl = cur.currentTable()
@@ -615,7 +816,7 @@ def refresh_planning_register_styles(text_edit: QtWidgets.QTextEdit):
                         for c in range(cols):
                             cell = tbl.cellAt(tr, c)
                             cf = cell.format()
-                            cf.setBackground(bg)
+                            cf.setBackground(totals_bg)
                             cell.setFormat(cf)
                     # Right-align numeric columns across all rows
                     try:

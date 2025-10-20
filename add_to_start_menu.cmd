@@ -31,6 +31,7 @@ powershell -NoProfile -Command ^
     "$s = $ws.CreateShortcut('%SHORTCUT_PATH%'); " ^
     "$s.TargetPath = '%EXE_PATH%'; " ^
     "$s.WorkingDirectory = '%~dp0'; " ^
+    "$s.IconLocation = '%EXE_PATH%'; " ^
     "$s.Description = 'NoteBook - Rich Text Note-Taking Application'; " ^
     "$s.Save()"
 

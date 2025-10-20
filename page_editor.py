@@ -75,6 +75,11 @@ def load_page(window, page_id: Optional[int] = None, html: Optional[str] = None)
                 except Exception:
                     pass
             refresh_planning_register_styles(te)
+            try:
+                from ui_richtext import _enforce_uniform_table_borders
+                _enforce_uniform_table_borders(te)
+            except Exception:
+                pass
     except Exception:
         pass
 
@@ -103,6 +108,11 @@ def set_page_edit_html(window, html: Optional[str]) -> None:
                 base = media_root if media_root.endswith(os.sep) else media_root + os.sep
                 te.document().setBaseUrl(QUrl.fromLocalFile(base))
             refresh_planning_register_styles(te)
+            try:
+                from ui_richtext import _enforce_uniform_table_borders
+                _enforce_uniform_table_borders(te)
+            except Exception:
+                pass
     except Exception:
         pass
 
@@ -131,5 +141,10 @@ def load_first_page_two_column(window) -> None:
                 except Exception:
                     pass
             refresh_planning_register_styles(te)
+            try:
+                from ui_richtext import _enforce_uniform_table_borders
+                _enforce_uniform_table_borders(te)
+            except Exception:
+                pass
     except Exception:
         pass

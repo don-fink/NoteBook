@@ -6,7 +6,8 @@ Text color/Highlight, Align L/C/R/Justify, Bullets/Numbers, Clear formatting,
 Insert image, Horizontal rule.
 """
 
-from PyQt5 import QtWidgets
+from PyQt5 import QtWidgets, QtCore, QtGui
+from PyQt5.QtGui import QTextBlockFormat
 import re
 import os
 from PyQt5.QtCore import QEvent, QObject, QPoint, QRect, QSize, Qt, QUrl, QTimer
@@ -25,12 +26,14 @@ from PyQt5.QtGui import (
     QCursor,
     QTextCharFormat,
     QTextCursor,
+    QTextFrameFormat,
     QTextImageFormat,
     QTextList,
     QTextListFormat,
     QTextFormat,
     QTextLength,
     QTextTableFormat,
+    QTextTableCellFormat,
     QSyntaxHighlighter,
     QTextCharFormat as _QTextCharFormat,
 )
@@ -598,6 +601,24 @@ def _make_icon(kind: str, size: QSize = QSize(24, 24), fg: QColor = QColor("#303
         p.setBrush(QBrush(QColor(60, 60, 60)))
         p.setPen(Qt.NoPen)
         p.drawPolygon(*pts)
+    elif kind == "code":
+        # simple HTML/code glyph: </>
+        pen2 = QPen(fg)
+        pen2.setWidth(2)
+        p.setPen(pen2)
+        # Draw '<' and '>' as angled lines and a slash in between
+        y_mid = h // 2
+        left_x = int(w * 0.22)
+        right_x = int(w * 0.78)
+        span_y = int(h * 0.22)
+        # '<'
+        p.drawLine(left_x + 8, y_mid - span_y, left_x, y_mid)
+        p.drawLine(left_x, y_mid, left_x + 8, y_mid + span_y)
+        # '/'
+        p.drawLine(w // 2 - 3, y_mid + span_y, w // 2 + 3, y_mid - span_y)
+        # '>'
+        p.drawLine(right_x - 8, y_mid - span_y, right_x, y_mid)
+        p.drawLine(right_x, y_mid, right_x - 8, y_mid + span_y)
     elif kind == "color":
         _draw_text("A")
         p.drawRect(5, h - 8, w - 10, 4)
@@ -618,17 +639,17 @@ def add_rich_text_toolbar(
         return None
     layout = _ensure_layout(parent_tab)
     toolbar = QtWidgets.QToolBar(parent_tab)
-    # Visual polish: icon-only toolbar, larger icons
-    toolbar.setIconSize(QSize(24, 24))
+    # Visual polish: icon-only toolbar, compact icons
+    toolbar.setIconSize(QSize(20, 20))
     toolbar.setStyleSheet(
         """
         QToolBar {
             background: #f6f6f6;
             border-bottom: 1px solid #d0d0d0;
-            spacing: 4px;
+            spacing: 2px;
         }
         QToolButton {
-            padding: 2px 6px;
+            padding: 1px 3px;
         }
         QToolButton:checked {
             background: #e9f3ff;
@@ -700,8 +721,8 @@ def add_rich_text_toolbar(
     font_box = QtWidgets.QFontComboBox(toolbar)
     # Make the font family control more compact horizontally
     try:
-        font_box.setMaximumWidth(200)
-        font_box.setMinimumContentsLength(10)
+        font_box.setMaximumWidth(140)
+        font_box.setMinimumContentsLength(8)
     except Exception:
         pass
     font_box.currentFontChanged.connect(lambda f: _apply_font_family(text_edit, f.family()))
@@ -712,6 +733,10 @@ def add_rich_text_toolbar(
     for sz in [8, 9, 10, 11, 12, 14, 16, 18, 20, 24, 28, 32]:
         size_box.addItem(str(sz), sz)
     size_box.setEditable(False)
+    try:
+        size_box.setMaximumWidth(72)
+    except Exception:
+        pass
     size_box.currentIndexChanged.connect(
         lambda _i: _apply_font_size(text_edit, size_box.currentData())
     )
@@ -738,12 +763,20 @@ def add_rich_text_toolbar(
     btn_color.setText("A")
     btn_color.setToolTip("Text color")
     btn_color.clicked.connect(lambda: _apply_text_color(text_edit, foreground=True))
+    try:
+        btn_color.setFixedSize(24, 24)
+    except Exception:
+        pass
     toolbar.addWidget(btn_color)
 
     btn_bg = QtWidgets.QToolButton(toolbar)
     btn_bg.setText("Bg")
     btn_bg.setToolTip("Highlight")
     btn_bg.clicked.connect(lambda: _apply_text_color(text_edit, foreground=False))
+    try:
+        btn_bg.setFixedSize(24, 24)
+    except Exception:
+        pass
     toolbar.addWidget(btn_bg)
 
     # Clear only background highlight (keep bold/italic/etc.)
@@ -751,6 +784,10 @@ def add_rich_text_toolbar(
     btn_bg_clear.setText("NoBg")
     btn_bg_clear.setToolTip("Remove highlight (background)")
     btn_bg_clear.clicked.connect(lambda: _clear_background(text_edit))
+    try:
+        btn_bg_clear.setFixedSize(28, 24)
+    except Exception:
+        pass
     toolbar.addWidget(btn_bg_clear)
 
     toolbar.addSeparator()
@@ -924,14 +961,16 @@ def add_rich_text_toolbar(
     act_html = toolbar.addAction(_make_icon("code"), "", lambda: _open_html_source_dialog(text_edit))
     act_html.setToolTip("HTML Source…")
 
-    # Table: insert or edit if caret is inside a table
+    # Table: insert or edit if caret is inside a table (as an action so it participates in overflow menu)
     toolbar.addSeparator()
-    btn_table = QtWidgets.QToolButton(toolbar)
-    btn_table.setIcon(_make_icon("table"))
-    btn_table.setToolTip("Insert/edit table")
-    btn_table.setEnabled(True)
-    btn_table.clicked.connect(lambda: _table_insert_or_edit(text_edit))
-    toolbar.addWidget(btn_table)
+    act_table = QtWidgets.QAction(_make_icon("table"), "", toolbar)
+    act_table.setToolTip("Insert/edit table")
+    try:
+        act_table.setPriority(QtWidgets.QAction.HighPriority)
+    except Exception:
+        pass
+    act_table.triggered.connect(lambda: _table_insert_or_edit(text_edit))
+    toolbar.addAction(act_table)
 
     # (Image Actions toolbar button removed by request)
 
@@ -3043,6 +3082,87 @@ def _current_table(text_edit: QtWidgets.QTextEdit):
         return None
 
 
+def _enforce_uniform_table_borders(text_edit: QtWidgets.QTextEdit):
+    """Ensure all tables in the editor use a single 1px solid black grid.
+
+    Implementation:
+    - Set table cellSpacing to 0 and table border to 0 (avoid doubling with cell borders)
+    - Set every cell's border to 1px black, solid
+    """
+    if text_edit is None:
+        return
+    doc = text_edit.document()
+    # Load theme (grid color and width)
+    try:
+        from settings_manager import get_table_theme
+        theme = get_table_theme()
+        grid_hex = theme.get("grid_color", "#000000")
+        grid_w = float(theme.get("grid_width", 1.5))
+    except Exception:
+        grid_hex = "#000000"
+        grid_w = 1.5
+    cur = QTextCursor(doc)
+    seen = set()
+    while True:
+        tbl = cur.currentTable()
+        if tbl is not None:
+            key = (tbl.firstPosition(), tbl.lastPosition())
+            if key not in seen:
+                seen.add(key)
+                # Normalize table format
+                try:
+                    fmt = tbl.format()
+                    # Remove spacing between cells for tight single-line appearance
+                    try:
+                        fmt.setCellSpacing(0.0)
+                    except Exception:
+                        pass
+                    # Use table border for the outer frame
+                    fmt.setBorder(1.0)
+                    try:
+                        from PyQt5.QtGui import QBrush, QColor
+                        fmt.setBorderBrush(QBrush(QColor(grid_hex)))
+                    except Exception:
+                        pass
+                    try:
+                        fmt.setBorderStyle(QTextFrameFormat.BorderStyle_Solid)
+                    except Exception:
+                        pass
+                    tbl.setFormat(fmt)
+                except Exception:
+                    pass
+                # Apply per-cell borders
+                try:
+                    rows, cols = tbl.rows(), tbl.columns()
+                except Exception:
+                    rows, cols = 0, 0
+                for r in range(rows):
+                    for c in range(cols):
+                        try:
+                            cell = tbl.cellAt(r, c)
+                            cf = cell.format()
+                            tcf = QTextTableCellFormat(cf)
+                            # All sides single line at configured width/color
+                            try:
+                                tcf.setBorder(float(grid_w))
+                            except Exception:
+                                tcf.setBorder(1.5)
+                            try:
+                                from PyQt5.QtGui import QBrush, QColor
+                                tcf.setBorderBrush(QBrush(QColor(grid_hex)))
+                            except Exception:
+                                pass
+                            try:
+                                tcf.setBorderStyle(QTextFrameFormat.BorderStyle_Solid)
+                            except Exception:
+                                pass
+                            cell.setFormat(tcf)
+                        except Exception:
+                            pass
+        if not cur.movePosition(QTextCursor.NextBlock):
+            break
+
+
 def insert_table_from_preset(text_edit: QtWidgets.QTextEdit, preset_name: str, fit_width_100: bool = True):
     """Insert a table defined by a saved preset at the current cursor position.
 
@@ -3093,7 +3213,7 @@ def insert_table_from_preset(text_edit: QtWidgets.QTextEdit, preset_name: str, f
             # Build outer 1x2 container at 100% width
             outer_fmt = QTextTableFormat()
             outer_fmt.setCellPadding(4)
-            outer_fmt.setCellSpacing(3)
+            outer_fmt.setCellSpacing(0)
             outer_fmt.setBorder(1.0)
             try:
                 outer_fmt.setWidth(QTextLength(QTextLength.PercentageLength, 100.0))
@@ -3106,6 +3226,19 @@ def insert_table_from_preset(text_edit: QtWidgets.QTextEdit, preset_name: str, f
             except Exception:
                 pass
             outer = cur.insertTable(1, 2, outer_fmt)
+            # Re-apply format immediately to guard against layout quirks
+            try:
+                fmt_chk = outer.format()
+                fmt_chk.setWidth(QTextLength(QTextLength.PercentageLength, 100.0))
+                fmt_chk.setColumnWidthConstraints(
+                    [
+                        QTextLength(QTextLength.PercentageLength, 50.0),
+                        QTextLength(QTextLength.PercentageLength, 50.0),
+                    ]
+                )
+                outer.setFormat(fmt_chk)
+            except Exception:
+                pass
         else:
             # Ensure the existing container is full width with 50/50 columns
             try:
@@ -3214,6 +3347,24 @@ def insert_table_from_preset(text_edit: QtWidgets.QTextEdit, preset_name: str, f
             text_edit.setTextCursor(after_right)
         except Exception:
             pass
+        # Final enforcement: make sure the outer container is full-width with 50/50 split.
+        try:
+            fmt_final = outer.format()
+            fmt_final.setWidth(QTextLength(QTextLength.PercentageLength, 100.0))
+            fmt_final.setColumnWidthConstraints(
+                [
+                    QTextLength(QTextLength.PercentageLength, 50.0),
+                    QTextLength(QTextLength.PercentageLength, 50.0),
+                ]
+            )
+            outer.setFormat(fmt_final)
+        except Exception:
+            pass
+        # Uniform borders across all tables present
+        try:
+            _enforce_uniform_table_borders(text_edit)
+        except Exception:
+            pass
         return outer
     # No HTML present -> preset unsupported
     try:
@@ -3253,6 +3404,62 @@ def choose_and_insert_preset(text_edit: QtWidgets.QTextEdit, fit_width_100: bool
     if not (ok and name and name.strip()):
         return
     insert_table_from_preset(text_edit, name.strip(), fit_width_100=fit_width_100)
+
+def insert_planning_register_via_dialog(window: QtWidgets.QMainWindow):
+    """Open a simple chooser to insert a Planning Register (new or from preset).
+
+    This is invoked from the page context menu. It looks up the main page editor
+    ('pageEdit') and then offers:
+      - New Planning Register (programmatic layout)
+      - Any saved presets (HTML-based)
+    """
+    try:
+        te = window.findChild(QtWidgets.QTextEdit, "pageEdit")
+    except Exception:
+        te = None
+    if te is None or not te.isEnabled():
+        try:
+            QtWidgets.QMessageBox.information(window, "Insert Planning Register", "Please open or create a page first.")
+        except Exception:
+            pass
+        return
+
+    # Build options: first 'New Planning Register', then saved presets (if any)
+    try:
+        from settings_manager import list_table_preset_names
+
+        preset_names = list_table_preset_names()
+    except Exception:
+        preset_names = []
+    options = ["New Planning Register"] + preset_names
+
+    try:
+        choice, ok = QtWidgets.QInputDialog.getItem(
+            window, "Insert Planning Register", "Choose:", options, 0, False
+        )
+    except Exception:
+        ok = False
+        choice = None
+    if not (ok and choice):
+        return
+
+    if choice == "New Planning Register":
+        try:
+            from ui_planning_register import insert_planning_register
+
+            insert_planning_register(window)
+        except Exception:
+            pass
+    else:
+        # Insert from preset into the current editor; ensure full-width container
+        try:
+            insert_table_from_preset(te, choice, fit_width_100=True)
+            try:
+                _enforce_uniform_table_borders(te)
+            except Exception:
+                pass
+        except Exception:
+            pass
 
 def save_current_table_as_preset(text_edit: QtWidgets.QTextEdit):
     """Save the table under the caret as a reusable preset (HTML-based)."""
@@ -3384,6 +3591,10 @@ def _table_insert_dialog(text_edit: QtWidgets.QTextEdit):
         pass
     cur = text_edit.textCursor()
     cur.insertTable(rows, cols, fmt)
+    try:
+        _enforce_uniform_table_borders(text_edit)
+    except Exception:
+        pass
 
 
 def _table_properties_dialog(text_edit: QtWidgets.QTextEdit, table):
@@ -3445,6 +3656,10 @@ def _table_properties_dialog(text_edit: QtWidgets.QTextEdit, table):
     except Exception:
         pass
     table.setFormat(fmt)
+    try:
+        _enforce_uniform_table_borders(text_edit)
+    except Exception:
+        pass
 
 
 def _table_add_remove(text_edit: QtWidgets.QTextEdit, action: str):
@@ -3516,19 +3731,18 @@ class _TableContextMenu(QObject):
                     global_pos = self._edit.mapToGlobal(pos)
                 except Exception:
                     return False
+            # Capture original selection and table BEFORE making any cursor changes
+            orig_cur = self._edit.textCursor()
+            orig_tbl = orig_cur.currentTable()
+            # Compute selection rectangle from original selection (do not disturb selection)
+            orig_rect = _table_selection_rect(self._edit, orig_tbl)
+
             # First priority: if click is on/near an image, show image menu and consume
             try:
-                # Move caret to click
-                try:
-                    cur = self._edit.cursorForPosition(widget_pos)
-                    self._edit.setTextCursor(cur)
-                except Exception:
-                    pass
-                # Try detection chain
-                info = _image_info_at_cursor(self._edit)
+                # Try detection chain (prioritize clicked position to avoid disturbing selection)
+                info = _image_info_at_position(self._edit, widget_pos)
                 if info is None:
-                    info = _image_info_at_position(self._edit, widget_pos)
-                if info is None:
+                    # Fallbacks that don't require changing the current selection
                     try:
                         c_try = self._edit.cursorForPosition(widget_pos)
                         info = _image_info_near_doc_pos(self._edit, c_try.position())
@@ -3572,11 +3786,6 @@ class _TableContextMenu(QObject):
                     return True
             except Exception:
                 pass
-            # Capture original selection and table
-            orig_cur = self._edit.textCursor()
-            orig_tbl = orig_cur.currentTable()
-            # Compute selection rectangle from original selection (do not disturb selection)
-            orig_rect = _table_selection_rect(self._edit, orig_tbl)
             # Also capture clicked cell context
             try:
                 clicked_cur = self._edit.cursorForPosition(widget_pos)
@@ -3591,8 +3800,8 @@ class _TableContextMenu(QObject):
                 act_paste = menu.addAction("Paste")
                 sub_ins = menu.addMenu("Insert")
                 act_ins_table = sub_ins.addAction("Table…")
-                # Insert Planning Register (dialog)
-                act_ins_pr_dialog = menu.addAction("Insert Planning Register…")
+                # Insert Planning Register (dialog) under Insert submenu
+                act_ins_pr_dialog = sub_ins.addAction("Planning Register…")
                 chosen = menu.exec_(global_pos)
                 if chosen is None:
                     return True
@@ -3640,15 +3849,17 @@ class _TableContextMenu(QObject):
                 return True
             # Otherwise, build the full table menu
             menu = QtWidgets.QMenu(self._edit)
-            act_ins = menu.addAction("Insert Table…")
+            # Insert submenu with Table and Planning Register
+            sub_ins = menu.addMenu("Insert")
+            act_ins = sub_ins.addAction("Table…")
             act_prop = menu.addAction("Table Properties…")
             act_fit = menu.addAction("Fit Table to Width")
             act_dist = menu.addAction("Distribute Columns Evenly")
             act_set_col = menu.addAction("Set Current Column Width…")
             menu.addSeparator()
             act_save_preset = menu.addAction("Save Table as Preset…")
-            # Insert Planning Register (dialog) while inside a table
-            act_ins_pr_dialog = menu.addAction("Insert Planning Register…")
+            # Insert Planning Register (dialog) under Insert submenu
+            act_ins_pr_dialog = sub_ins.addAction("Planning Register…")
             menu.addSeparator()
             act_recalc = menu.addAction("Recalculate Formulas (SUM)")
             menu.addSeparator()
@@ -3848,6 +4059,43 @@ def _table_insert_rows_from_selection(text_edit: QtWidgets.QTextEdit, table, rec
                             c.setFormat(cf)
             except Exception:
                 pass
+        # For Planning Register tables and Cost List tables, ensure numeric columns in the
+        # newly inserted rows are right-aligned so the caret appears on the right in empty cells.
+        try:
+            from ui_planning_register import _is_planning_register_table, _is_cost_list_table, _is_protected_cell
+
+            bf = QTextBlockFormat()
+            bf.setAlignment(Qt.AlignRight)
+            rows_total = table.rows()
+            r_start = max(0, base_row)
+            r_end = min(rows_total - 1, base_row + count - 1)
+            if _is_planning_register_table(text_edit, table):
+                # Skip header (row 0) and totals (last row)
+                for rr in range(r_start, r_end + 1):
+                    if rr == 0 or rr == (rows_total - 1):
+                        continue
+                    for cc in (1, 2):
+                        try:
+                            if _is_protected_cell(table, rr, cc):
+                                continue
+                        except Exception:
+                            pass
+                        cell = table.cellAt(rr, cc)
+                        if cell.isValid():
+                            tcur = cell.firstCursorPosition()
+                            tcur.mergeBlockFormat(bf)
+            elif _is_cost_list_table(text_edit, table):
+                for rr in range(r_start, r_end + 1):
+                    # Skip header row 0
+                    if rr == 0:
+                        continue
+                    cc = 1
+                    cell = table.cellAt(rr, cc)
+                    if cell.isValid():
+                        tcur = cell.firstCursorPosition()
+                        tcur.mergeBlockFormat(bf)
+        except Exception:
+            pass
     except Exception:
         pass
 
