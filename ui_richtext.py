@@ -828,11 +828,19 @@ def add_rich_text_toolbar(
         _make_icon("indent"), "", lambda: _change_list_indent(text_edit, +1)
     )
     act_indent.setShortcut(QKeySequence("Ctrl+]"))
+    try:
+        act_indent.setShortcutContext(Qt.WidgetWithChildrenShortcut)
+    except Exception:
+        pass
     act_indent.setToolTip("Indent (Tab, Ctrl+])")
     act_outdent = toolbar.addAction(
         _make_icon("outdent"), "", lambda: _change_list_indent(text_edit, -1)
     )
-    act_outdent.setShortcut(QKeySequence("Ctrl+["))
+    act_outdent.setShortcut(QKeySequence("Ctrl["))
+    try:
+        act_outdent.setShortcutContext(Qt.WidgetWithChildrenShortcut)
+    except Exception:
+        pass
     act_outdent.setToolTip("Outdent (Shift+Tab, Ctrl+[)")
 
     # Enable Tab/Shift+Tab to control list levels
@@ -857,9 +865,62 @@ def add_rich_text_toolbar(
         _make_icon("color"), "", lambda: text_edit.setCurrentCharFormat(QTextCharFormat())
     )
     act_clear.setToolTip("Clear formatting")
-    act_hr = toolbar.addAction(
-        _make_icon("hr"), "", lambda: text_edit.textCursor().insertHtml("<hr/>")
-    )
+    def _insert_horizontal_rule():
+        cur = text_edit.textCursor()
+        cur.beginEditBlock()
+        try:
+            # Collapse selection and move to block boundary so the rule is on its own line
+            if cur.hasSelection():
+                pos = max(cur.position(), cur.anchor())
+                cur.setPosition(pos)
+            if cur.positionInBlock() != 0:
+                cur.insertBlock()
+            # Build a thin 1x1 table spanning full width with a 1px black top border on the cell
+            tf = QTextTableFormat()
+            try:
+                tf.setWidth(QTextLength(QTextLength.PercentageLength, 100.0))
+            except Exception:
+                pass
+            tf.setCellPadding(0)
+            tf.setCellSpacing(0)
+            tf.setBorder(0)
+            # Mark as HR so global border enforcement can skip it (runtime marker; HTML reload uses pattern detection)
+            try:
+                tf.setProperty(int(QTextFormat.UserProperty) + 101, True)
+            except Exception:
+                pass
+            tbl = cur.insertTable(1, 1, tf)
+            try:
+                cf = QTextTableCellFormat()
+                # Only top border to create a single visible line
+                cf.setTopBorder(1.0)
+                cf.setBottomBorder(0.0)
+                cf.setLeftBorder(0.0)
+                cf.setRightBorder(0.0)
+                try:
+                    cf.setBorderStyle(QTextFrameFormat.BorderStyle_Solid)
+                except Exception:
+                    pass
+                try:
+                    cf.setBorderBrush(QBrush(QColor("#000000")))
+                except Exception:
+                    pass
+                cell = tbl.cellAt(0, 0)
+                cell.setFormat(cf)
+            except Exception:
+                pass
+            # Move cursor after the table and insert a new block for continued typing
+            after = QTextCursor(text_edit.document())
+            try:
+                after.setPosition(tbl.lastPosition())
+            except Exception:
+                pass
+            text_edit.setTextCursor(after)
+            text_edit.textCursor().insertBlock()
+        finally:
+            cur.endEditBlock()
+
+    act_hr = toolbar.addAction(_make_icon("hr"), "", _insert_horizontal_rule)
     act_hr.setToolTip("Insert horizontal rule")
     # Image insert: split-button with dropdown for sizing modes
     btn_img = QtWidgets.QToolButton(toolbar)
@@ -1682,11 +1743,16 @@ def sanitize_html_for_storage(raw_html: str) -> str:
                         allowed.append((k, v))
                     continue
                 if lk == "style":
-                    # Keep only safe styles:
+                    # Keep safe styles, including inline character formatting so user-applied
+                    # bold/italic/underline/strike, colors, and custom font family/size persist.
+                    #
+                    # We preserve:
                     # - list-related (-qt-list-*, -qt-paragraph-type)
                     # - paragraph/div margin-left and text-align
                     # - table cell/row background-color and text-align
-                    if tag_l in ("ol", "ul", "li", "p", "div", "td", "th", "tr"):
+                    # - character styles: font-weight, font-style, text-decoration, color,
+                    #   background/background-color, font-family, font-size
+                    if tag_l in ("ol", "ul", "li", "p", "div", "td", "th", "tr", "span", "a", "em", "strong", "b", "i", "u", "s", "hr"):
                         try:
                             decls = [d.strip() for d in str(v).split(";") if d.strip()]
                             kept = []
@@ -1697,7 +1763,28 @@ def sanitize_html_for_storage(raw_html: str) -> str:
                                     kept.append(d)
                                 elif tag_l in ("p", "div") and key in ("margin-left", "text-align"):
                                     kept.append(d)
-                                elif tag_l in ("td", "th", "tr") and key in ("background", "background-color", "text-align"):
+                                elif tag_l in ("td", "th", "tr", "hr") and key in (
+                                    "background",
+                                    "background-color",
+                                    "text-align",
+                                    "border",
+                                    "border-top",
+                                    "border-right",
+                                    "border-bottom",
+                                    "border-left",
+                                ):
+                                    kept.append(d)
+                                # Allow inline char formatting on common tags
+                                elif key in (
+                                    "font-weight",
+                                    "font-style",
+                                    "text-decoration",
+                                    "color",
+                                    "background",
+                                    "background-color",
+                                    "font-family",
+                                    "font-size",
+                                ):
                                     kept.append(d)
                             if kept:
                                 buffered_style = "; ".join(kept)
@@ -1761,7 +1848,7 @@ def sanitize_html_for_storage(raw_html: str) -> str:
                         allowed.append((k, v))
                     continue
                 if lk == "style":
-                    if tag_l in ("ol", "ul", "li", "p", "div", "td", "th", "tr"):
+                    if tag_l in ("ol", "ul", "li", "p", "div", "td", "th", "tr", "span", "a", "em", "strong", "b", "i", "u", "s", "hr"):
                         try:
                             decls = [d.strip() for d in str(v).split(";") if d.strip()]
                             kept = []
@@ -1772,7 +1859,27 @@ def sanitize_html_for_storage(raw_html: str) -> str:
                                     kept.append(d)
                                 elif tag_l in ("p", "div") and key in ("margin-left", "text-align"):
                                     kept.append(d)
-                                elif tag_l in ("td", "th", "tr") and key in ("background", "background-color", "text-align"):
+                                elif tag_l in ("td", "th", "tr", "hr") and key in (
+                                    "background",
+                                    "background-color",
+                                    "text-align",
+                                    "border",
+                                    "border-top",
+                                    "border-right",
+                                    "border-bottom",
+                                    "border-left",
+                                ):
+                                    kept.append(d)
+                                elif key in (
+                                    "font-weight",
+                                    "font-style",
+                                    "text-decoration",
+                                    "color",
+                                    "background",
+                                    "background-color",
+                                    "font-family",
+                                    "font-size",
+                                ):
                                     kept.append(d)
                             if kept:
                                 buffered_style = "; ".join(kept)
@@ -3109,56 +3216,89 @@ def _enforce_uniform_table_borders(text_edit: QtWidgets.QTextEdit):
             key = (tbl.firstPosition(), tbl.lastPosition())
             if key not in seen:
                 seen.add(key)
-                # Normalize table format
+                # Check if this table is an HR marker table; if so, skip border normalization
+                skip = False
                 try:
                     fmt = tbl.format()
-                    # Remove spacing between cells for tight single-line appearance
+                    # Always set zero spacing for consistency
                     try:
                         fmt.setCellSpacing(0.0)
+                        tbl.setFormat(fmt)
                     except Exception:
                         pass
-                    # Use table border for the outer frame
-                    fmt.setBorder(1.0)
-                    try:
-                        from PyQt5.QtGui import QBrush, QColor
-                        fmt.setBorderBrush(QBrush(QColor(grid_hex)))
-                    except Exception:
-                        pass
-                    try:
-                        fmt.setBorderStyle(QTextFrameFormat.BorderStyle_Solid)
-                    except Exception:
-                        pass
-                    tbl.setFormat(fmt)
-                except Exception:
-                    pass
-                # Apply per-cell borders
-                try:
-                    rows, cols = tbl.rows(), tbl.columns()
-                except Exception:
-                    rows, cols = 0, 0
-                for r in range(rows):
-                    for c in range(cols):
+                    prop = fmt.property(int(QTextFormat.UserProperty) + 101)
+                    skip = bool(prop)
+                    # Additionally detect 1x1 top-border-only tables (HTML reload path)
+                    if not skip:
                         try:
-                            cell = tbl.cellAt(r, c)
-                            cf = cell.format()
-                            tcf = QTextTableCellFormat(cf)
-                            # All sides single line at configured width/color
+                            rows, cols = tbl.rows(), tbl.columns()
+                        except Exception:
+                            rows, cols = 0, 0
+                        if rows == 1 and cols == 1:
                             try:
-                                tcf.setBorder(float(grid_w))
-                            except Exception:
-                                tcf.setBorder(1.5)
-                            try:
-                                from PyQt5.QtGui import QBrush, QColor
-                                tcf.setBorderBrush(QBrush(QColor(grid_hex)))
-                            except Exception:
-                                pass
-                            try:
-                                tcf.setBorderStyle(QTextFrameFormat.BorderStyle_Solid)
+                                cell = tbl.cellAt(0, 0)
+                                cf = QTextTableCellFormat(cell.format())
+                                tb = float(getattr(cf, 'topBorder', lambda: 0.0)() or 0.0)
+                                lb = float(getattr(cf, 'leftBorder', lambda: 0.0)() or 0.0)
+                                rb = float(getattr(cf, 'rightBorder', lambda: 0.0)() or 0.0)
+                                bb = float(getattr(cf, 'bottomBorder', lambda: 0.0)() or 0.0)
+                                if tb > 0.0 and lb == 0.0 and rb == 0.0 and bb == 0.0:
+                                    skip = True
                             except Exception:
                                 pass
-                            cell.setFormat(tcf)
+                except Exception:
+                    skip = False
+                if not skip:
+                    # Normalize table format and apply per-cell borders
+                    try:
+                        fmt = tbl.format()
+                        # Remove spacing between cells for tight single-line appearance
+                        try:
+                            fmt.setCellSpacing(0.0)
                         except Exception:
                             pass
+                        # Use table border for the outer frame
+                        fmt.setBorder(1.0)
+                        try:
+                            from PyQt5.QtGui import QBrush, QColor
+                            fmt.setBorderBrush(QBrush(QColor(grid_hex)))
+                        except Exception:
+                            pass
+                        try:
+                            fmt.setBorderStyle(QTextFrameFormat.BorderStyle_Solid)
+                        except Exception:
+                            pass
+                        tbl.setFormat(fmt)
+                    except Exception:
+                        pass
+                    # Apply per-cell borders
+                    try:
+                        rows, cols = tbl.rows(), tbl.columns()
+                    except Exception:
+                        rows, cols = 0, 0
+                    for r in range(rows):
+                        for c in range(cols):
+                            try:
+                                cell = tbl.cellAt(r, c)
+                                cf = cell.format()
+                                tcf = QTextTableCellFormat(cf)
+                                # All sides single line at configured width/color
+                                try:
+                                    tcf.setBorder(float(grid_w))
+                                except Exception:
+                                    tcf.setBorder(1.5)
+                                try:
+                                    from PyQt5.QtGui import QBrush, QColor
+                                    tcf.setBorderBrush(QBrush(QColor(grid_hex)))
+                                except Exception:
+                                    pass
+                                try:
+                                    tcf.setBorderStyle(QTextFrameFormat.BorderStyle_Solid)
+                                except Exception:
+                                    pass
+                                cell.setFormat(tcf)
+                            except Exception:
+                                pass
         if not cur.movePosition(QTextCursor.NextBlock):
             break
 
@@ -4452,6 +4592,12 @@ def _change_list_indent(text_edit: QtWidgets.QTextEdit, delta: int):
     block = cursor.block()
     cur_list = block.textList()
     if cur_list is None:
+        # Fallback: adjust plain paragraph left margin when not in a list
+        try:
+            step = INDENT_STEP_PX
+        except Exception:
+            step = 24.0
+        _change_block_left_margin(text_edit, float(delta) * float(step))
         return
     cur_level = max(1, cur_list.format().indent())
     new_level = max(1, cur_level + int(delta))

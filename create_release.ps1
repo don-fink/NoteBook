@@ -10,9 +10,22 @@ Write-Host "Creating PyInstaller distribution package..." -ForegroundColor Cyan
 if (Test-Path $distFolder) { Remove-Item -Recurse -Force $distFolder }
 New-Item -ItemType Directory $distFolder | Out-Null
 
-# Copy the executable
-Copy-Item 'dist\NoteBook.exe' $distFolder
-Write-Host "  ✓ NoteBook.exe" -ForegroundColor Green
+# Safety: ensure no machine-specific pointer file is accidentally bundled
+if (Test-Path 'settings.loc') {
+    try {
+        Remove-Item 'settings.loc' -Force -ErrorAction SilentlyContinue
+    Write-Host "  Removed stray settings.loc from working directory" -ForegroundColor Yellow
+    } catch {}
+}
+
+# Copy the full PyInstaller output (includes NoteBook.exe and any _internal or support files)
+$distSource = 'dist\NoteBook'
+if (-not (Test-Path $distSource)) {
+    Write-Error "Build output folder not found at '$distSource'. Build the app first (e.g., run build.cmd or PyInstaller with notebook.spec)."
+    exit 1
+}
+Copy-Item "$distSource\*" $distFolder -Recurse
+Write-Host "  Copied PyInstaller output (NoteBook + dependencies)" -ForegroundColor Green
 
 # Create user-friendly README
 $readmeContent = @'
@@ -64,8 +77,15 @@ All settings and data are stored in your user profile.
 Enjoy taking notes!
 '@
 
-Set-Content -Path "$distFolder\README.txt" -Value $readmeContent -Encoding UTF8
-Write-Host "  ✓ README.txt" -ForegroundColor Green
+# Append settings note to README
+$settingsNote = @'
+
+---
+NOTE: Settings are stored per-user at %LOCALAPPDATA%\NoteBook\settings.json.
+Do NOT distribute any settings.loc file; it is a machine-specific pointer and will break on other systems.
+'@
+
+Set-Content -Path "$distFolder\README.txt" -Value ($readmeContent + $settingsNote) -Encoding UTF8
 
 # Get executable size
 $exeSize = [math]::Round((Get-Item "$distFolder\NoteBook.exe").Length / 1MB, 1)
@@ -76,9 +96,9 @@ Write-Host "Location: $distFolder" -ForegroundColor Cyan
 Write-Host "Executable size: $exeSize MB" -ForegroundColor Cyan
 Write-Host ""
 Write-Host "Ready to distribute:" -ForegroundColor Yellow
-Write-Host "  • Zip the '$distFolder' folder" -ForegroundColor White
-Write-Host "  • Users just extract and run NoteBook.exe" -ForegroundColor White
-Write-Host "  • No Python installation needed!" -ForegroundColor White
+Write-Host "  - Zip the '$distFolder' folder" -ForegroundColor White
+Write-Host "  - Users just extract and run NoteBook.exe" -ForegroundColor White
+Write-Host "  - No Python installation needed!" -ForegroundColor White
 Write-Host ""
 
 # Optional: Create ZIP
@@ -90,7 +110,7 @@ if ($createZip -notmatch '^n|N|no|No$') {
     try {
         Compress-Archive -Path "$distFolder\*" -DestinationPath $zipPath -CompressionLevel Optimal
         $zipSize = [math]::Round((Get-Item $zipPath).Length / 1MB, 1)
-        Write-Host "  ✓ $zipPath ($zipSize MB)" -ForegroundColor Green
+    Write-Host "  Created $zipPath ($zipSize MB)" -ForegroundColor Green
     } catch {
         Write-Warning "Failed to create zip: $($_.Exception.Message)"
     }

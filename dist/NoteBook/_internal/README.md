@@ -55,6 +55,11 @@ If you want to build the executable yourself:
 2. Run `build.cmd` to create the executable
 3. Run `scripts\create_release_simple.ps1` to package for distribution
 
+### Release packaging notes
+
+- Do NOT include `settings.loc` in your ZIP/installer. It is a machine-specific pointer to a custom `settings.json` path and will break on other usernames/machines. If it exists in your working folder, delete it before packaging.
+- On target machines, settings will default to `%LOCALAPPDATA%\NoteBook\settings.json` unless the user selects a different location in the app’s Storage tab.
+
 ### Legacy UI Notes
 - If you use a legacy `.ui` without `pageEdit`, setup becomes a no‑op; switch to `main_window_2_column.ui` for full functionality.
 
@@ -121,7 +126,7 @@ python -m pip install -r requirements-dev.txt
 ### Notes
 - Qt Designer binaries and tools come from `pyqt5-tools` and related packages.
 - If you only need runtime deps, use `requirements.txt` instead.
-- Settings are stored in `settings.json` alongside the app.
+- Settings are stored per-user at `%LOCALAPPDATA%\NoteBook\settings.json`. If you choose a custom location in the Storage tab, the app writes a pointer file `settings.loc` under the default settings directory to remember it (do not distribute this file).
 - The UI is loaded from `main_window_2_column.ui` (if present) or falls back to `main_window.ui` via `ui_loader.py`.
 
 ## Troubleshooting

@@ -8,9 +8,22 @@ Write-Host "Creating PyInstaller distribution package..." -ForegroundColor Cyan
 if (Test-Path $distFolder) { Remove-Item -Recurse -Force $distFolder }
 New-Item -ItemType Directory $distFolder | Out-Null
 
-# Copy the executable
-Copy-Item 'dist\NoteBook.exe' $distFolder
-Write-Host "  Copied NoteBook.exe" -ForegroundColor Green
+# Safety: ensure no machine-specific pointer file is accidentally bundled
+if (Test-Path 'settings.loc') {
+	try {
+		Remove-Item 'settings.loc' -Force -ErrorAction SilentlyContinue
+		Write-Host "  Removed stray settings.loc from working directory" -ForegroundColor Yellow
+	} catch {}
+}
+
+# Copy the full PyInstaller output (includes NoteBook.exe and any _internal or support files)
+$distSource = 'dist\NoteBook'
+if (-not (Test-Path $distSource)) {
+	Write-Error "Build output folder not found at '$distSource'. Build the app first (e.g., run build.cmd or PyInstaller with notebook.spec)."
+	exit 1
+}
+Copy-Item "$distSource\*" $distFolder -Recurse
+Write-Host "  Copied PyInstaller output (NoteBook + dependencies)" -ForegroundColor Green
 
 # Copy optional Start Menu installer
 Copy-Item 'add_to_start_menu.cmd' $distFolder
@@ -59,9 +72,10 @@ Enjoy!
 '@
 
 Set-Content -Path "$distFolder\README.txt" -Value $readme -Encoding UTF8
+Add-Content -Path "$distFolder\README.txt" -Value "`n---`nNOTE: Settings are stored per-user at %LOCALAPPDATA%\NoteBook\settings.json. Do NOT distribute any settings.loc file; it is a machine-specific pointer and will break on other systems." -Encoding UTF8
 Write-Host "  Created README.txt" -ForegroundColor Green
 
-# Show size info
+# Show size info (exe only)
 $exeSize = [math]::Round((Get-Item "$distFolder\NoteBook.exe").Length / 1MB, 1)
 Write-Host ""
 Write-Host "Distribution ready!" -ForegroundColor Green
