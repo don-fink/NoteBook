@@ -1,0 +1,445 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<ui version="4.0">
+ <class>SettingsDialog</class>
+ <widget class="QDialog" name="SettingsDialog">
+  <property name="geometry">
+   <rect>
+    <x>0</x>
+    <y>0</y>
+    <width>709</width>
+    <height>307</height>
+   </rect>
+  </property>
+  <property name="windowTitle">
+   <string>Settings</string>
+  </property>
+  <layout class="QVBoxLayout" name="verticalLayout">
+   <item>
+    <widget class="QTabWidget" name="tabWidget">
+     <widget class="QWidget" name="tabGeneral">
+      <attribute name="title">
+       <string>General</string>
+      </attribute>
+      <layout class="QFormLayout" name="formLayoutGeneral">
+       <item row="0" column="0">
+        <widget class="QLabel" name="labelPaste">
+         <property name="text">
+          <string>Default paste mode:</string>
+         </property>
+        </widget>
+       </item>
+       <item row="0" column="1">
+        <widget class="QComboBox" name="comboPasteMode">
+         <item>
+          <property name="text">
+           <string>Rich</string>
+          </property>
+         </item>
+         <item>
+          <property name="text">
+           <string>Text Only</string>
+          </property>
+         </item>
+         <item>
+          <property name="text">
+           <string>Match Style</string>
+          </property>
+         </item>
+         <item>
+          <property name="text">
+           <string>Clean Formatting</string>
+          </property>
+         </item>
+        </widget>
+       </item>
+       <item row="1" column="0">
+        <widget class="QLabel" name="labelIndent">
+         <property name="text">
+          <string>Plain paragraph indent (px):</string>
+         </property>
+        </widget>
+       </item>
+       <item row="1" column="1">
+        <widget class="QSpinBox" name="spinIndentPx">
+         <property name="minimum">
+          <number>4</number>
+         </property>
+         <property name="maximum">
+          <number>160</number>
+         </property>
+         <property name="singleStep">
+          <number>2</number>
+         </property>
+         <property name="value">
+          <number>24</number>
+         </property>
+        </widget>
+       </item>
+       <item row="2" column="0">
+        <widget class="QLabel" name="labelImageLong">
+         <property name="text">
+          <string>Default image long side (px):</string>
+         </property>
+        </widget>
+       </item>
+       <item row="2" column="1">
+        <widget class="QSpinBox" name="spinImageLong">
+         <property name="minimum">
+          <number>100</number>
+         </property>
+         <property name="maximum">
+          <number>8000</number>
+         </property>
+         <property name="singleStep">
+          <number>50</number>
+         </property>
+         <property name="value">
+          <number>400</number>
+         </property>
+        </widget>
+       </item>
+       <item row="3" column="0">
+        <widget class="QLabel" name="labelVideoLong">
+         <property name="text">
+          <string>Default video long side (px):</string>
+         </property>
+        </widget>
+       </item>
+       <item row="3" column="1">
+        <widget class="QSpinBox" name="spinVideoLong">
+         <property name="minimum">
+          <number>100</number>
+         </property>
+         <property name="maximum">
+          <number>8000</number>
+         </property>
+         <property name="singleStep">
+          <number>50</number>
+         </property>
+         <property name="value">
+          <number>400</number>
+         </property>
+        </widget>
+       </item>
+      </layout>
+     </widget>
+      <widget class="QWidget" name="tabTables">
+       <attribute name="title">
+        <string>Tables</string>
+       </attribute>
+       <layout class="QFormLayout" name="formLayoutTables">
+        <item row="0" column="0">
+         <widget class="QLabel" name="labelGridColor">
+         <property name="text">
+          <string>Grid color (hex):</string>
+         </property>
+         </widget>
+        </item>
+        <item row="0" column="1">
+         <widget class="QWidget" name="widgetGridColor" native="true">
+         <layout class="QHBoxLayout" name="hLayoutGridColor">
+          <item>
+           <widget class="QLineEdit" name="editGridColor"/>
+          </item>
+          <item>
+           <widget class="QPushButton" name="btnPickGridColor">
+            <property name="text">
+            <string>Pick…</string>
+            </property>
+           </widget>
+          </item>
+         </layout>
+         </widget>
+        </item>
+        <item row="1" column="0">
+         <widget class="QLabel" name="labelGridWidth">
+         <property name="text">
+          <string>Grid width (px):</string>
+         </property>
+         </widget>
+        </item>
+        <item row="1" column="1">
+         <widget class="QDoubleSpinBox" name="spinGridWidth">
+         <property name="minimum">
+          <double>0.5</double>
+         </property>
+         <property name="maximum">
+          <double>6.0</double>
+         </property>
+         <property name="singleStep">
+          <double>0.5</double>
+         </property>
+         <property name="value">
+          <double>1.5</double>
+         </property>
+         </widget>
+        </item>
+        <item row="2" column="0">
+         <widget class="QLabel" name="labelHeaderBg">
+         <property name="text">
+          <string>Header background (hex):</string>
+         </property>
+         </widget>
+        </item>
+        <item row="2" column="1">
+         <widget class="QWidget" name="widgetHeaderBg" native="true">
+         <layout class="QHBoxLayout" name="hLayoutHeaderBg">
+          <item>
+           <widget class="QLineEdit" name="editHeaderBg"/>
+          </item>
+          <item>
+           <widget class="QPushButton" name="btnPickHeaderBg">
+            <property name="text">
+            <string>Pick…</string>
+            </property>
+           </widget>
+          </item>
+         </layout>
+         </widget>
+        </item>
+        <item row="3" column="0">
+         <widget class="QLabel" name="labelTotalsBg">
+         <property name="text">
+          <string>Totals background (hex):</string>
+         </property>
+         </widget>
+        </item>
+        <item row="3" column="1">
+         <widget class="QWidget" name="widgetTotalsBg" native="true">
+         <layout class="QHBoxLayout" name="hLayoutTotalsBg">
+          <item>
+           <widget class="QLineEdit" name="editTotalsBg"/>
+          </item>
+          <item>
+           <widget class="QPushButton" name="btnPickTotalsBg">
+            <property name="text">
+            <string>Pick…</string>
+            </property>
+           </widget>
+          </item>
+         </layout>
+         </widget>
+        </item>
+        <item row="4" column="0">
+         <widget class="QLabel" name="labelCostHeaderBg">
+         <property name="text">
+          <string>Cost header background (hex):</string>
+         </property>
+         </widget>
+        </item>
+        <item row="4" column="1">
+         <widget class="QWidget" name="widgetCostHeaderBg" native="true">
+         <layout class="QHBoxLayout" name="hLayoutCostHeaderBg">
+          <item>
+           <widget class="QLineEdit" name="editCostHeaderBg"/>
+          </item>
+          <item>
+           <widget class="QPushButton" name="btnPickCostHeaderBg">
+            <property name="text">
+            <string>Pick…</string>
+            </property>
+           </widget>
+          </item>
+         </layout>
+         </widget>
+        </item>
+       </layout>
+      </widget>
+     <widget class="QWidget" name="tabStorage">
+      <attribute name="title">
+       <string>Storage</string>
+      </attribute>
+      <layout class="QFormLayout" name="formLayoutStorage">
+       <item row="0" column="0">
+        <widget class="QLabel" name="labelDbRoot">
+         <property name="text">
+          <string>Databases root folder:</string>
+         </property>
+        </widget>
+       </item>
+       <item row="0" column="1">
+        <widget class="QWidget" name="widgetDbRoot" native="true">
+         <layout class="QHBoxLayout" name="hLayoutDbRoot">
+          <item>
+           <widget class="QLineEdit" name="editDbRoot"/>
+          </item>
+          <item>
+           <widget class="QPushButton" name="btnBrowseDbRoot">
+            <property name="text">
+             <string>Browse…</string>
+            </property>
+           </widget>
+          </item>
+         </layout>
+        </widget>
+       </item>
+       <item row="1" column="0">
+        <widget class="QLabel" name="labelSettingsPath">
+         <property name="text">
+          <string>Settings file:</string>
+         </property>
+        </widget>
+       </item>
+       <item row="1" column="1">
+        <widget class="QWidget" name="widgetSettingsPath" native="true">
+         <layout class="QHBoxLayout" name="hLayoutSettingsPath">
+          <item>
+           <widget class="QLineEdit" name="editSettingsPath">
+            <property name="readOnly">
+             <bool>true</bool>
+            </property>
+           </widget>
+          </item>
+                        <item>
+                         <widget class="QPushButton" name="btnBrowseSettingsPath">
+                            <property name="text">
+                             <string>Change…</string>
+                            </property>
+                         </widget>
+                        </item>
+          <item>
+           <widget class="QPushButton" name="btnOpenSettingsFolder">
+            <property name="text">
+             <string>Open Folder</string>
+            </property>
+           </widget>
+          </item>
+         </layout>
+        </widget>
+       </item>
+      </layout>
+     </widget>
+     <widget class="QWidget" name="tabThemes">
+      <attribute name="title">
+       <string>Themes</string>
+      </attribute>
+      <layout class="QFormLayout" name="formLayoutThemes">
+       <item row="0" column="0">
+        <widget class="QLabel" name="labelTheme">
+         <property name="text">
+          <string>Theme:</string>
+         </property>
+        </widget>
+       </item>
+       <item row="0" column="1">
+        <widget class="QComboBox" name="comboTheme">
+         <item>
+          <property name="text">
+           <string>Default</string>
+          </property>
+         </item>
+         <item>
+          <property name="text">
+           <string>High Contrast</string>
+          </property>
+         </item>
+        </widget>
+       </item>
+       <item row="1" column="0">
+        <widget class="QLabel" name="labelThemeNote">
+         <property name="text">
+          <string>Note: Hover preview will be added later.</string>
+         </property>
+        </widget>
+       </item>
+      </layout>
+     </widget>
+     <widget class="QWidget" name="tabLists">
+      <attribute name="title">
+       <string>Lists</string>
+      </attribute>
+      <layout class="QFormLayout" name="formLayoutLists">
+       <item row="0" column="0">
+        <widget class="QLabel" name="labelOrdered">
+         <property name="text">
+          <string>Ordered list scheme:</string>
+         </property>
+        </widget>
+       </item>
+       <item row="0" column="1">
+        <widget class="QComboBox" name="comboOrdered">
+         <item>
+          <property name="text">
+           <string>Classic (I, A, 1, a, i)</string>
+          </property>
+         </item>
+         <item>
+          <property name="text">
+           <string>Decimal (1, 2, 3)</string>
+          </property>
+         </item>
+        </widget>
+       </item>
+       <item row="1" column="0">
+        <widget class="QLabel" name="labelUnordered">
+         <property name="text">
+          <string>Unordered list scheme:</string>
+         </property>
+        </widget>
+       </item>
+       <item row="1" column="1">
+        <widget class="QComboBox" name="comboUnordered">
+         <item>
+          <property name="text">
+           <string>Disc → Circle → Square</string>
+          </property>
+         </item>
+         <item>
+          <property name="text">
+           <string>Disc only</string>
+          </property>
+         </item>
+        </widget>
+       </item>
+      </layout>
+     </widget>
+    </widget>
+   </item>
+   <item>
+    <widget class="QDialogButtonBox" name="buttonBox">
+     <property name="orientation">
+      <enum>Qt::Horizontal</enum>
+     </property>
+     <property name="standardButtons">
+      <set>QDialogButtonBox::Cancel|QDialogButtonBox::Ok</set>
+     </property>
+    </widget>
+   </item>
+  </layout>
+ </widget>
+ <resources/>
+ <connections>
+  <connection>
+   <sender>buttonBox</sender>
+   <signal>accepted()</signal>
+   <receiver>SettingsDialog</receiver>
+   <slot>accept()</slot>
+   <hints>
+    <hint type="sourcelabel">
+     <x>20</x>
+     <y>20</y>
+    </hint>
+    <hint type="destinationlabel">
+     <x>20</x>
+     <y>20</y>
+    </hint>
+   </hints>
+  </connection>
+  <connection>
+   <sender>buttonBox</sender>
+   <signal>rejected()</signal>
+   <receiver>SettingsDialog</receiver>
+   <slot>reject()</slot>
+   <hints>
+    <hint type="sourcelabel">
+     <x>20</x>
+     <y>20</y>
+    </hint>
+    <hint type="destinationlabel">
+     <x>20</x>
+     <y>20</y>
+    </hint>
+   </hints>
+  </connection>
+ </connections>
+</ui>

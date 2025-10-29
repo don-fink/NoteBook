@@ -54,7 +54,7 @@
         </property>
        </column>
       </widget>
-  <widget class="QFrame" name="frame_3">
+      <widget class="QFrame" name="frame_3">
        <property name="sizePolicy">
         <sizepolicy hsizetype="Expanding" vsizetype="Preferred">
          <horstretch>0</horstretch>
@@ -115,6 +115,7 @@
     <addaction name="actionSave_As"/>
     <addaction name="actionNew_Database"/>
     <addaction name="separator"/>
+    <addaction name="actionBackup_Database"/>
     <addaction name="actionExport_Database"/>
     <addaction name="separator"/>
     <addaction name="actionExit"/>
@@ -139,9 +140,9 @@
     <addaction name="actionInsert_Attachment"/>
     <addaction name="separator"/>
     <addaction name="actionPlanning_Register"/>
-   <addaction name="actionSave_Planning_Register_as_Preset"/>
-   <addaction name="actionRename_Planning_Register_Preset"/>
-   <addaction name="actionDelete_Planning_Register_Preset"/>
+    <addaction name="actionSave_Planning_Register_as_Preset"/>
+    <addaction name="actionRename_Planning_Register_Preset"/>
+    <addaction name="actionDelete_Planning_Register_Preset"/>
     <addaction name="separator"/>
    </widget>
    <widget class="QMenu" name="menuView">
@@ -445,21 +446,26 @@
     <string>Insert Planning Register</string>
    </property>
   </action>
-    <action name="actionSave_Planning_Register_as_Preset">
-     <property name="text">
-        <string>Save Planning Register as Preset…</string>
-     </property>
-    </action>
-   <action name="actionRename_Planning_Register_Preset">
-    <property name="text">
-      <string>Rename Planning Register Preset…</string>
-    </property>
-   </action>
-   <action name="actionDelete_Planning_Register_Preset">
-    <property name="text">
-      <string>Delete Planning Register Preset…</string>
-    </property>
-   </action>
+  <action name="actionSave_Planning_Register_as_Preset">
+   <property name="text">
+    <string>Save Planning Register as Preset…</string>
+   </property>
+  </action>
+  <action name="actionRename_Planning_Register_Preset">
+   <property name="text">
+    <string>Rename Planning Register Preset…</string>
+   </property>
+  </action>
+  <action name="actionDelete_Planning_Register_Preset">
+   <property name="text">
+    <string>Delete Planning Register Preset…</string>
+   </property>
+  </action>
+  <action name="actionBackup_Database">
+   <property name="text">
+    <string>Backup Database</string>
+   </property>
+  </action>
  </widget>
  <resources/>
  <connections/>

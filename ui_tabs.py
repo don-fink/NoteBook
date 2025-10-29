@@ -952,17 +952,10 @@ def _populate_tabs_for_notebook(window, notebook_id):
         # section: (id, notebook_id, title, ...)
         section_id = section[0]
         section_title = str(section[2])
-        # Load the tab page UI file once
-        # Resolve tab_page.ui robustly
-        tab_ui_path = os.path.join(os.path.dirname(__file__), "tab_page.ui")
-        if not os.path.exists(tab_ui_path):
-            try:
-                tab_ui_path = os.path.abspath("tab_page.ui")
-            except Exception:
-                pass
-        # Create the tab content from UI file (centralized styling)
+        # Create the tab content from UI file (centralized loading)
         try:
-            tab = uic.loadUi(tab_ui_path)
+            from ui_loader import load_ui
+            tab = load_ui("tab_page.ui")
         except Exception:
             # Fallback to a simple container if UI fails to load
             tab = QtWidgets.QWidget()

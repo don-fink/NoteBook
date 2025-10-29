@@ -6,16 +6,34 @@
    <rect>
     <x>0</x>
     <y>0</y>
-    <width>709</width>
-    <height>307</height>
+    <width>604</width>
+    <height>441</height>
    </rect>
   </property>
   <property name="windowTitle">
    <string>Settings</string>
   </property>
   <layout class="QVBoxLayout" name="verticalLayout">
+   <property name="spacing">
+    <number>0</number>
+   </property>
+   <property name="leftMargin">
+    <number>0</number>
+   </property>
+   <property name="topMargin">
+    <number>0</number>
+   </property>
+   <property name="rightMargin">
+    <number>0</number>
+   </property>
+   <property name="bottomMargin">
+    <number>0</number>
+   </property>
    <item>
     <widget class="QTabWidget" name="tabWidget">
+     <property name="currentIndex">
+      <number>2</number>
+     </property>
      <widget class="QWidget" name="tabGeneral">
       <attribute name="title">
        <string>General</string>
@@ -30,6 +48,12 @@
        </item>
        <item row="0" column="1">
         <widget class="QComboBox" name="comboPasteMode">
+         <property name="sizePolicy">
+          <sizepolicy hsizetype="Fixed" vsizetype="Fixed">
+           <horstretch>0</horstretch>
+           <verstretch>0</verstretch>
+          </sizepolicy>
+         </property>
          <item>
           <property name="text">
            <string>Rich</string>
@@ -61,6 +85,12 @@
        </item>
        <item row="1" column="1">
         <widget class="QSpinBox" name="spinIndentPx">
+         <property name="sizePolicy">
+          <sizepolicy hsizetype="Fixed" vsizetype="Fixed">
+           <horstretch>0</horstretch>
+           <verstretch>0</verstretch>
+          </sizepolicy>
+         </property>
          <property name="minimum">
           <number>4</number>
          </property>
@@ -84,6 +114,12 @@
        </item>
        <item row="2" column="1">
         <widget class="QSpinBox" name="spinImageLong">
+         <property name="sizePolicy">
+          <sizepolicy hsizetype="Fixed" vsizetype="Fixed">
+           <horstretch>0</horstretch>
+           <verstretch>0</verstretch>
+          </sizepolicy>
+         </property>
          <property name="minimum">
           <number>100</number>
          </property>
@@ -107,6 +143,12 @@
        </item>
        <item row="3" column="1">
         <widget class="QSpinBox" name="spinVideoLong">
+         <property name="sizePolicy">
+          <sizepolicy hsizetype="Fixed" vsizetype="Fixed">
+           <horstretch>0</horstretch>
+           <verstretch>0</verstretch>
+          </sizepolicy>
+         </property>
          <property name="minimum">
           <number>100</number>
          </property>
@@ -123,66 +165,86 @@
        </item>
       </layout>
      </widget>
-      <widget class="QWidget" name="tabTables">
-       <attribute name="title">
-        <string>Tables</string>
-       </attribute>
-       <layout class="QFormLayout" name="formLayoutTables">
-        <item row="0" column="0">
-         <widget class="QLabel" name="labelGridColor">
-         <property name="text">
-          <string>Grid color (hex):</string>
-         </property>
-         </widget>
-        </item>
-        <item row="0" column="1">
-         <widget class="QWidget" name="widgetGridColor" native="true">
+     <widget class="QWidget" name="tabTables">
+      <attribute name="title">
+       <string>Tables</string>
+      </attribute>
+      <layout class="QFormLayout" name="formLayoutTables">
+       <item row="0" column="1">
+        <widget class="QWidget" name="widgetGridColor" native="true">
          <layout class="QHBoxLayout" name="hLayoutGridColor">
+          <property name="sizeConstraint">
+           <enum>QLayout::SetDefaultConstraint</enum>
+          </property>
           <item>
-           <widget class="QLineEdit" name="editGridColor"/>
-          </item>
-          <item>
-           <widget class="QPushButton" name="btnPickGridColor">
-            <property name="text">
-            <string>Pick…</string>
+           <widget class="QFrame" name="frame_3">
+            <property name="sizePolicy">
+             <sizepolicy hsizetype="Preferred" vsizetype="Fixed">
+              <horstretch>0</horstretch>
+              <verstretch>0</verstretch>
+             </sizepolicy>
             </property>
+            <property name="frameShape">
+             <enum>QFrame::NoFrame</enum>
+            </property>
+            <property name="frameShadow">
+             <enum>QFrame::Plain</enum>
+            </property>
+            <layout class="QHBoxLayout" name="horizontalLayout_4">
+             <property name="topMargin">
+              <number>0</number>
+             </property>
+             <property name="bottomMargin">
+              <number>0</number>
+             </property>
+             <item>
+              <widget class="QLineEdit" name="editGridColor"/>
+             </item>
+             <item>
+              <widget class="QPushButton" name="btnPickGridColor">
+               <property name="text">
+                <string>Pick…</string>
+               </property>
+              </widget>
+             </item>
+            </layout>
            </widget>
           </item>
          </layout>
-         </widget>
-        </item>
-        <item row="1" column="0">
-         <widget class="QLabel" name="labelGridWidth">
+        </widget>
+       </item>
+       <item row="1" column="0">
+        <widget class="QLabel" name="labelGridWidth">
          <property name="text">
           <string>Grid width (px):</string>
          </property>
-         </widget>
-        </item>
-        <item row="1" column="1">
-         <widget class="QDoubleSpinBox" name="spinGridWidth">
+        </widget>
+       </item>
+       <item row="1" column="1">
+        <widget class="QDoubleSpinBox" name="spinGridWidth">
          <property name="minimum">
-          <double>0.5</double>
+          <double>0.500000000000000</double>
          </property>
          <property name="maximum">
-          <double>6.0</double>
+          <double>6.000000000000000</double>
          </property>
          <property name="singleStep">
-          <double>0.5</double>
+          <double>0.500000000000000</double>
          </property>
          <property name="value">
-          <double>1.5</double>
+          <double>1.500000000000000</double>
          </property>
-         </widget>
-        </item>
-        <item row="2" column="0">
-         <widget class="QLabel" name="labelHeaderBg">
+        </widget>
+       </item>
+       <item row="2" column="0">
+        <widget class="QLabel" name="labelHeaderBg">
          <property name="text">
           <string>Header background (hex):</string>
          </property>
-         </widget>
-        </item>
-        <item row="2" column="1">
-         <widget class="QWidget" name="widgetHeaderBg" native="true">
+        </widget>
+       </item>
+       <item row="2" column="1">
+        <widget class="QWidget" name="widgetHeaderBg" native="true">
          <layout class="QHBoxLayout" name="hLayoutHeaderBg">
           <item>
            <widget class="QLineEdit" name="editHeaderBg"/>
@@ -190,22 +252,22 @@
           <item>
            <widget class="QPushButton" name="btnPickHeaderBg">
             <property name="text">
-            <string>Pick…</string>
+             <string>Pick…</string>
             </property>
            </widget>
           </item>
          </layout>
-         </widget>
-        </item>
-        <item row="3" column="0">
-         <widget class="QLabel" name="labelTotalsBg">
+        </widget>
+       </item>
+       <item row="3" column="0">
+        <widget class="QLabel" name="labelTotalsBg">
          <property name="text">
           <string>Totals background (hex):</string>
          </property>
-         </widget>
-        </item>
-        <item row="3" column="1">
-         <widget class="QWidget" name="widgetTotalsBg" native="true">
+        </widget>
+       </item>
+       <item row="3" column="1">
+        <widget class="QWidget" name="widgetTotalsBg" native="true">
          <layout class="QHBoxLayout" name="hLayoutTotalsBg">
           <item>
            <widget class="QLineEdit" name="editTotalsBg"/>
@@ -213,22 +275,22 @@
           <item>
            <widget class="QPushButton" name="btnPickTotalsBg">
             <property name="text">
-            <string>Pick…</string>
+             <string>Pick…</string>
             </property>
            </widget>
           </item>
          </layout>
-         </widget>
-        </item>
-        <item row="4" column="0">
-         <widget class="QLabel" name="labelCostHeaderBg">
+        </widget>
+       </item>
+       <item row="4" column="0">
+        <widget class="QLabel" name="labelCostHeaderBg">
          <property name="text">
           <string>Cost header background (hex):</string>
          </property>
-         </widget>
-        </item>
-        <item row="4" column="1">
-         <widget class="QWidget" name="widgetCostHeaderBg" native="true">
+        </widget>
+       </item>
+       <item row="4" column="1">
+        <widget class="QWidget" name="widgetCostHeaderBg" native="true">
          <layout class="QHBoxLayout" name="hLayoutCostHeaderBg">
           <item>
            <widget class="QLineEdit" name="editCostHeaderBg"/>
@@ -236,35 +298,79 @@
           <item>
            <widget class="QPushButton" name="btnPickCostHeaderBg">
             <property name="text">
-            <string>Pick…</string>
+             <string>Pick…</string>
             </property>
            </widget>
           </item>
          </layout>
-         </widget>
-        </item>
-       </layout>
-      </widget>
+        </widget>
+       </item>
+       <item row="0" column="0">
+        <widget class="QLabel" name="labelGridColor">
+         <property name="text">
+          <string>Grid color (hex):</string>
+         </property>
+        </widget>
+       </item>
+      </layout>
+     </widget>
      <widget class="QWidget" name="tabStorage">
       <attribute name="title">
        <string>Storage</string>
       </attribute>
       <layout class="QFormLayout" name="formLayoutStorage">
-       <item row="0" column="0">
-        <widget class="QLabel" name="labelDbRoot">
-         <property name="text">
-          <string>Databases root folder:</string>
-         </property>
-        </widget>
-       </item>
        <item row="0" column="1">
-        <widget class="QWidget" name="widgetDbRoot" native="true">
+        <widget class="QFrame" name="frameDbRoot">
+         <property name="sizePolicy">
+          <sizepolicy hsizetype="Preferred" vsizetype="Fixed">
+           <horstretch>0</horstretch>
+           <verstretch>0</verstretch>
+          </sizepolicy>
+         </property>
          <layout class="QHBoxLayout" name="hLayoutDbRoot">
+          <property name="spacing">
+           <number>6</number>
+          </property>
+          <property name="leftMargin">
+           <number>0</number>
+          </property>
+          <property name="topMargin">
+           <number>0</number>
+          </property>
+          <property name="bottomMargin">
+           <number>0</number>
+          </property>
           <item>
-           <widget class="QLineEdit" name="editDbRoot"/>
+           <widget class="QLabel" name="labelDbRoot">
+            <property name="sizePolicy">
+             <sizepolicy hsizetype="Preferred" vsizetype="Fixed">
+              <horstretch>0</horstretch>
+              <verstretch>0</verstretch>
+             </sizepolicy>
+            </property>
+            <property name="text">
+             <string>Databases root folder:</string>
+            </property>
+           </widget>
+          </item>
+          <item>
+           <widget class="QLineEdit" name="editDbRoot">
+            <property name="sizePolicy">
+             <sizepolicy hsizetype="Expanding" vsizetype="Fixed">
+              <horstretch>0</horstretch>
+              <verstretch>0</verstretch>
+             </sizepolicy>
+            </property>
+           </widget>
           </item>
           <item>
            <widget class="QPushButton" name="btnBrowseDbRoot">
+            <property name="sizePolicy">
+             <sizepolicy hsizetype="Minimum" vsizetype="Fixed">
+              <horstretch>0</horstretch>
+              <verstretch>0</verstretch>
+             </sizepolicy>
+            </property>
             <property name="text">
              <string>Browse…</string>
             </property>
@@ -273,16 +379,84 @@
          </layout>
         </widget>
        </item>
-       <item row="1" column="0">
-        <widget class="QLabel" name="labelSettingsPath">
-         <property name="text">
-          <string>Settings file:</string>
+       <item row="1" column="1">
+        <widget class="QFrame" name="widgetDbBackup">
+         <property name="sizePolicy">
+          <sizepolicy hsizetype="Preferred" vsizetype="Fixed">
+           <horstretch>0</horstretch>
+           <verstretch>0</verstretch>
+          </sizepolicy>
          </property>
+         <property name="frameShape">
+          <enum>QFrame::NoFrame</enum>
+         </property>
+         <property name="frameShadow">
+          <enum>QFrame::Plain</enum>
+         </property>
+         <layout class="QHBoxLayout" name="horizontalLayout">
+          <property name="leftMargin">
+           <number>0</number>
+          </property>
+          <property name="topMargin">
+           <number>0</number>
+          </property>
+          <property name="bottomMargin">
+           <number>0</number>
+          </property>
+          <item>
+           <widget class="QLabel" name="labelDbBackup">
+            <property name="text">
+             <string>Database Backup Location:</string>
+            </property>
+           </widget>
+          </item>
+          <item>
+           <widget class="QLineEdit" name="editDbBackup"/>
+          </item>
+          <item>
+           <widget class="QPushButton" name="btnBrowseDbBackup">
+            <property name="text">
+             <string>Browse</string>
+            </property>
+           </widget>
+          </item>
+         </layout>
         </widget>
        </item>
-       <item row="1" column="1">
-        <widget class="QWidget" name="widgetSettingsPath" native="true">
-         <layout class="QHBoxLayout" name="hLayoutSettingsPath">
+       <item row="3" column="1">
+        <widget class="QFrame" name="frameSettingsPath">
+         <property name="sizePolicy">
+          <sizepolicy hsizetype="Preferred" vsizetype="Fixed">
+           <horstretch>0</horstretch>
+           <verstretch>0</verstretch>
+          </sizepolicy>
+         </property>
+         <layout class="QHBoxLayout" name="hLayoutSettingsPath" stretch="0,1,0,0">
+          <property name="spacing">
+           <number>6</number>
+          </property>
+          <property name="leftMargin">
+           <number>0</number>
+          </property>
+          <property name="topMargin">
+           <number>25</number>
+          </property>
+          <property name="bottomMargin">
+           <number>0</number>
+          </property>
+          <item>
+           <widget class="QLabel" name="labelSettingsPath">
+            <property name="sizePolicy">
+             <sizepolicy hsizetype="Preferred" vsizetype="Fixed">
+              <horstretch>0</horstretch>
+              <verstretch>0</verstretch>
+             </sizepolicy>
+            </property>
+            <property name="text">
+             <string>Settings file:</string>
+            </property>
+           </widget>
+          </item>
           <item>
            <widget class="QLineEdit" name="editSettingsPath">
             <property name="readOnly">
@@ -290,15 +464,21 @@
             </property>
            </widget>
           </item>
-                        <item>
-                         <widget class="QPushButton" name="btnBrowseSettingsPath">
-                            <property name="text">
-                             <string>Change…</string>
-                            </property>
-                         </widget>
-                        </item>
+          <item>
+           <widget class="QPushButton" name="btnBrowseSettingsPath">
+            <property name="text">
+             <string>Change…</string>
+            </property>
+           </widget>
+          </item>
           <item>
            <widget class="QPushButton" name="btnOpenSettingsFolder">
+            <property name="baseSize">
+             <size>
+              <width>0</width>
+              <height>0</height>
+             </size>
+            </property>
             <property name="text">
              <string>Open Folder</string>
             </property>
@@ -306,6 +486,126 @@
           </item>
          </layout>
         </widget>
+       </item>
+       <item row="2" column="1">
+        <widget class="QFrame" name="frame">
+         <property name="sizePolicy">
+          <sizepolicy hsizetype="Preferred" vsizetype="Fixed">
+           <horstretch>0</horstretch>
+           <verstretch>0</verstretch>
+          </sizepolicy>
+         </property>
+         <property name="frameShape">
+          <enum>QFrame::NoFrame</enum>
+         </property>
+         <property name="frameShadow">
+          <enum>QFrame::Plain</enum>
+         </property>
+         <layout class="QHBoxLayout" name="horizontalLayout_2">
+          <property name="spacing">
+           <number>15</number>
+          </property>
+          <property name="leftMargin">
+           <number>0</number>
+          </property>
+          <property name="topMargin">
+           <number>0</number>
+          </property>
+          <property name="rightMargin">
+           <number>0</number>
+          </property>
+          <property name="bottomMargin">
+           <number>0</number>
+          </property>
+          <item>
+           <widget class="QCheckBox" name="chkBuOnExit">
+            <property name="layoutDirection">
+             <enum>Qt::RightToLeft</enum>
+            </property>
+            <property name="text">
+             <string>Backup on Exit</string>
+            </property>
+           </widget>
+          </item>
+          <item>
+           <widget class="QLabel" name="label">
+            <property name="text">
+             <string>Backups to Keep</string>
+            </property>
+           </widget>
+          </item>
+          <item>
+           <widget class="QSpinBox" name="spinBuToKeep">
+            <property name="minimumSize">
+             <size>
+              <width>40</width>
+              <height>0</height>
+             </size>
+            </property>
+            <property name="minimum">
+             <number>1</number>
+            </property>
+            <property name="maximum">
+             <number>99</number>
+            </property>
+           </widget>
+          </item>
+          <item>
+           <spacer name="horizontalSpacer">
+            <property name="orientation">
+             <enum>Qt::Horizontal</enum>
+            </property>
+            <property name="sizeHint" stdset="0">
+             <size>
+              <width>40</width>
+              <height>20</height>
+             </size>
+            </property>
+           </spacer>
+          </item>
+         </layout>
+        </widget>
+       </item>
+       <item row="5" column="1">
+        <widget class="QFrame" name="frame_2">
+         <property name="sizePolicy">
+          <sizepolicy hsizetype="Preferred" vsizetype="Fixed">
+           <horstretch>0</horstretch>
+           <verstretch>0</verstretch>
+          </sizepolicy>
+         </property>
+         <property name="frameShape">
+          <enum>QFrame::NoFrame</enum>
+         </property>
+         <property name="frameShadow">
+          <enum>QFrame::Plain</enum>
+         </property>
+         <layout class="QHBoxLayout" name="horizontalLayout_3">
+          <item>
+           <widget class="QDialogButtonBox" name="buttonBox">
+            <property name="orientation">
+             <enum>Qt::Horizontal</enum>
+            </property>
+            <property name="standardButtons">
+             <set>QDialogButtonBox::Cancel|QDialogButtonBox::Ok</set>
+            </property>
+           </widget>
+          </item>
+         </layout>
+        </widget>
+       </item>
+       <item row="4" column="1">
+        <spacer name="verticalSpacer">
+         <property name="orientation">
+          <enum>Qt::Vertical</enum>
+         </property>
+         <property name="sizeHint" stdset="0">
+          <size>
+           <width>20</width>
+           <height>40</height>
+          </size>
+         </property>
+        </spacer>
        </item>
       </layout>
      </widget>
@@ -393,16 +693,6 @@
        </item>
       </layout>
      </widget>
-    </widget>
-   </item>
-   <item>
-    <widget class="QDialogButtonBox" name="buttonBox">
-     <property name="orientation">
-      <enum>Qt::Horizontal</enum>
-     </property>
-     <property name="standardButtons">
-      <set>QDialogButtonBox::Cancel|QDialogButtonBox::Ok</set>
-     </property>
     </widget>
    </item>
   </layout>

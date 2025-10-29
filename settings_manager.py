@@ -609,3 +609,60 @@ def set_video_insert_long_side(pixels: int):
     s = load_settings()
     s["video_insert_long_side"] = px
     save_settings(s)
+
+
+# --- Backups on exit settings ---
+def get_exit_backup_dir() -> str:
+    """Return the configured folder path for database backups on exit, or empty string if not set."""
+    s = load_settings()
+    val = s.get("exit_backup_dir", "")
+    return str(val) if isinstance(val, str) else ""
+
+
+def set_exit_backup_dir(path: str):
+    """Set the folder path where backups should be stored (no validation performed here)."""
+    if not isinstance(path, str):
+        return
+    s = load_settings()
+    s["exit_backup_dir"] = path
+    save_settings(s)
+
+
+def get_backup_on_exit_enabled() -> bool:
+    """Return True if making a backup on application exit is enabled."""
+    s = load_settings()
+    return bool(s.get("backup_on_exit", False))
+
+
+def set_backup_on_exit_enabled(enabled: bool):
+    s = load_settings()
+    s["backup_on_exit"] = bool(enabled)
+    save_settings(s)
+
+
+def get_backups_to_keep() -> int:
+    """Return how many exit backups to keep (FIFO rotation). Default 5; clamped [1, 999]."""
+    s = load_settings()
+    try:
+        val = int(s.get("backups_to_keep", 5))
+    except Exception:
+        val = 5
+    if val < 1:
+        val = 1
+    elif val > 999:
+        val = 999
+    return val
+
+
+def set_backups_to_keep(n: int):
+    try:
+        val = int(n)
+    except Exception:
+        return
+    if val < 1:
+        val = 1
+    elif val > 999:
+        val = 999
+    s = load_settings()
+    s["backups_to_keep"] = val
+    save_settings(s)

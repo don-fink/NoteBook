@@ -740,6 +740,80 @@ def insert_attachment(window):
         QtWidgets.QMessageBox.warning(window, "Insert Attachment", f"Failed to attach file: {e}")
 
 
+def backup_database_now(window):
+    """Create a manual backup using current settings (destination and retention).
+
+    - Uses the same bundle format as on-exit backups (DB at root, media/ folder included).
+    - If no destination folder is configured, prompt the user to choose one for this run.
+    """
+    try:
+        # Flush any unsaved edits before snapshotting
+        try:
+            save_current_page(window)
+        except Exception:
+            pass
+
+        db_path = getattr(window, "_db_path", None) or get_last_db() or "notes.db"
+        from settings_manager import (
+            get_exit_backup_dir,
+            get_backups_to_keep,
+            set_exit_backup_dir,
+        )
+
+        dest = (get_exit_backup_dir() or "").strip()
+        # If not set, ask the user once where to put the backup
+        if not dest:
+            options = QtWidgets.QFileDialog.Options()
+            chosen = QtWidgets.QFileDialog.getExistingDirectory(
+                window, "Choose Backup Folder", os.path.dirname(db_path) or "", options=options
+            )
+            if not chosen:
+                return
+            dest = chosen
+            # Offer to remember this location for next time
+            try:
+                remember = QtWidgets.QMessageBox.question(
+                    window,
+                    "Remember Backup Folder",
+                    f"Use this folder for future backups?\n{dest}",
+                    QtWidgets.QMessageBox.Yes | QtWidgets.QMessageBox.No,
+                )
+                if remember == QtWidgets.QMessageBox.Yes:
+                    set_exit_backup_dir(dest)
+            except Exception:
+                pass
+
+        # Run backup with a busy cursor
+        QtWidgets.QApplication.setOverrideCursor(Qt.WaitCursor)
+        try:
+            from backup import make_exit_backup
+
+            bundle = make_exit_backup(
+                db_path, dest, keep=int(get_backups_to_keep()), include_media=True
+            )
+        finally:
+            try:
+                QtWidgets.QApplication.restoreOverrideCursor()
+            except Exception:
+                pass
+
+        if bundle:
+            QtWidgets.QMessageBox.information(
+                window, "Backup Complete", f"Backup created:\n{bundle}"
+            )
+        else:
+            QtWidgets.QMessageBox.warning(
+                window,
+                "Backup Failed",
+                "The backup could not be created. Please verify the destination folder and try again.",
+            )
+    except Exception as e:
+        try:
+            QtWidgets.QMessageBox.warning(window, "Backup Failed", str(e))
+        except Exception:
+            pass
+
+
 def ensure_database_initialized(db_path):
     """
     Ensure database exists and has the required schema.
@@ -1912,6 +1986,13 @@ def main():
     act_insert_attachment = window.findChild(QtWidgets.QAction, "actionInsert_Attachment")
     if act_insert_attachment:
         act_insert_attachment.triggered.connect(lambda: insert_attachment(window))
+    # Tools: Manual Database Backup
+    try:
+        act_backup_now = window.findChild(QtWidgets.QAction, "actionBackup_Database")
+        if act_backup_now is not None:
+            act_backup_now.triggered.connect(lambda: backup_database_now(window))
+    except Exception:
+        pass
     # Insert menu: Planning Register
     act_plan_reg = window.findChild(QtWidgets.QAction, "actionPlanning_Register")
     if act_plan_reg:
@@ -2863,11 +2944,10 @@ def main():
 
             def _open_settings():
                 try:
-                    import os
+                    # Centralized loading from ui_loader
+                    from ui_loader import load_settings_dialog
 
-                    # Load as a top-level QDialog with normal window chrome
-                    ui_path = os.path.join(os.path.dirname(__file__), "settings_dialog.ui")
-                    dlg = uic.loadUi(ui_path)
+                    dlg = load_settings_dialog(window)
                     try:
                         dlg.setWindowModality(Qt.ApplicationModal)
                     except Exception:
@@ -2884,6 +2964,9 @@ def main():
                             get_video_insert_long_side,
                             get_settings_file_path,
                             get_theme_name,
+                            get_exit_backup_dir,
+                            get_backup_on_exit_enabled,
+                            get_backups_to_keep,
                         )
 
                         # Paste mode
@@ -2929,6 +3012,39 @@ def main():
                             ed = dlg.findChild(QtWidgets.QLineEdit, "editDbRoot")
                             if ed is not None:
                                 ed.setText(get_databases_root())
+                        except Exception:
+                            pass
+                        # Backups on exit settings
+                        try:
+                            # Field names from settings_dialog.ui
+                            ed_back = (
+                                dlg.findChild(QtWidgets.QLineEdit, "editDbBackup")
+                                or dlg.findChild(QtWidgets.QLineEdit, "exitDbBackup")
+                            )
+                            chk_on_exit = dlg.findChild(QtWidgets.QCheckBox, "chkBuOnExit")
+                            sp_keep = dlg.findChild(QtWidgets.QSpinBox, "spinBuToKeep")
+                            if ed_back is not None:
+                                ed_back.setText(get_exit_backup_dir())
+                            if chk_on_exit is not None:
+                                chk_on_exit.setChecked(bool(get_backup_on_exit_enabled()))
+                            if sp_keep is not None:
+                                sp_keep.setValue(int(get_backups_to_keep()))
+                            # Browse button (support both expected names)
+                            btn_browse_back = (
+                                dlg.findChild(QtWidgets.QPushButton, "btnBrowseDbBackup")
+                                or dlg.findChild(QtWidgets.QPushButton, "btnBrowseExitBackup")
+                            )
+                            if btn_browse_back is not None and ed_back is not None:
+                                def _browse_backup_dir():
+                                    try:
+                                        import os
+                                        start = ed_back.text().strip() or os.path.expanduser("~")
+                                        dir_path = QtWidgets.QFileDialog.getExistingDirectory(window, "Select Backup Folder", start)
+                                        if dir_path:
+                                            ed_back.setText(dir_path)
+                                    except Exception:
+                                        pass
+                                btn_browse_back.clicked.connect(_browse_backup_dir)
                         except Exception:
                             pass
                         # Default image insert size
@@ -3119,6 +3235,9 @@ def main():
                             set_image_insert_long_side,
                             set_video_insert_long_side,
                             set_theme_name,
+                            set_exit_backup_dir,
+                            set_backup_on_exit_enabled,
+                            set_backups_to_keep,
                         )
 
                         # Paste mode
@@ -3157,6 +3276,22 @@ def main():
                                     rt.DEFAULT_IMAGE_LONG_SIDE = int(val)
                                 except Exception:
                                     pass
+                        except Exception:
+                            pass
+                        # Backups on exit: persist
+                        try:
+                            ed_back = (
+                                dlg.findChild(QtWidgets.QLineEdit, "editDbBackup")
+                                or dlg.findChild(QtWidgets.QLineEdit, "exitDbBackup")
+                            )
+                            chk_on_exit = dlg.findChild(QtWidgets.QCheckBox, "chkBuOnExit")
+                            sp_keep = dlg.findChild(QtWidgets.QSpinBox, "spinBuToKeep")
+                            if ed_back is not None:
+                                set_exit_backup_dir((ed_back.text() or "").strip())
+                            if chk_on_exit is not None:
+                                set_backup_on_exit_enabled(bool(chk_on_exit.isChecked()))
+                            if sp_keep is not None:
+                                set_backups_to_keep(int(sp_keep.value()))
                         except Exception:
                             pass
                         # Default video insert long side
@@ -3447,6 +3582,25 @@ def main():
                 from settings_manager import set_splitter_sizes
 
                 set_splitter_sizes(splitter.sizes())
+        except Exception:
+            pass
+        # Backup on exit (best-effort, after content and geometry saves)
+        try:
+            from settings_manager import (
+                get_backup_on_exit_enabled,
+                get_exit_backup_dir,
+                get_backups_to_keep,
+            )
+            if get_backup_on_exit_enabled():
+                dest = (get_exit_backup_dir() or "").strip()
+                if dest:
+                    dbp = getattr(window, "_db_path", None) or get_last_db() or "notes.db"
+                    try:
+                        from backup import make_exit_backup
+
+                        make_exit_backup(dbp, dest, keep=get_backups_to_keep(), include_media=True)
+                    except Exception:
+                        pass
         except Exception:
             pass
 
