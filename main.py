@@ -8,6 +8,7 @@ import sys
 import warnings
 
 from PyQt5 import QtWidgets, uic
+from ui_toast import show_toast
 from PyQt5.QtCore import QProcess, Qt, QTimer, QUrl
 
 from db_access import create_notebook as db_create_notebook
@@ -710,7 +711,11 @@ def _current_page_context(window):
 
 
 def insert_attachment(window):
-    """Prompt for a file and attach it to the current page via media store; no inline HTML yet."""
+    """Prompt for a file and attach it to the current page via media store.
+
+    If the selected file is an image, also insert it inline at the current caret position.
+    Non-image files are just attached (reference saved) without inline HTML.
+    """
     section_id, page_id = _current_page_context(window)
     if page_id is None:
         QtWidgets.QMessageBox.information(
@@ -729,13 +734,65 @@ def insert_attachment(window):
     if not file_path:
         return
     try:
-        from media_store import add_media_ref, save_file_into_store
+        from media_store import add_media_ref, save_file_into_store, guess_mime_and_ext
 
+        # Save into store and record attachment ref
         media_id, rel_path = save_file_into_store(db_path, file_path)
         add_media_ref(db_path, media_id, page_id=page_id, role="attachment")
-        QtWidgets.QMessageBox.information(
-            window, "Insert Attachment", f"Attached file saved to media store.\n{rel_path}"
-        )
+
+        # If it's an image, also insert inline at the caret using a relative src
+        mime, ext = guess_mime_and_ext(file_path)
+        is_image_mime = isinstance(mime, str) and mime.lower().startswith("image/")
+        raw_exts = {
+            "dng", "nef", "cr2", "cr3", "arw", "orf", "rw2", "raf", "srw", "pef",
+            "rw1", "3fr", "erf", "kdc", "mrw", "nrw", "ptx", "r3d", "sr2", "x3f"
+        }
+        did_inline = False
+        if is_image_mime and (ext or "").lower() not in raw_exts:
+            te = window.findChild(QtWidgets.QTextEdit, "pageEdit")
+            if te is not None:
+                # Use default width from settings; fallback to 400px
+                try:
+                    from settings_manager import get_image_insert_long_side
+
+                    long_side = int(get_image_insert_long_side())
+                except Exception:
+                    long_side = 400
+                # Insert HTML img tag; baseUrl is already set to media root
+                name_attr = rel_path.replace("\\", "/")
+                html = f'<img src="{name_attr}" width="{int(max(16, long_side))}" />'
+                try:
+                    cur = te.textCursor()
+                    before = cur.position()
+                    cur.insertHtml(html)
+                    after = cur.position()
+                    te.setTextCursor(cur)
+                    did_inline = True
+                except Exception:
+                    pass
+        # If we didn't insert an inline image, insert a clickable link to the attachment instead
+        if not did_inline:
+            te = window.findChild(QtWidgets.QTextEdit, "pageEdit")
+            if te is not None:
+                try:
+                    # Use original filename as link text
+                    link_text = os.path.basename(file_path)
+                except Exception:
+                    link_text = rel_path.replace("\\", "/")
+                href = rel_path.replace("\\", "/")
+                # Insert an anchor; baseUrl is set so relative href opens the local file
+                link_html = f'<a href="{href}">📎 {link_text}</a>'
+                try:
+                    cur = te.textCursor()
+                    cur.insertHtml(link_html)
+                    te.setTextCursor(cur)
+                except Exception:
+                    pass
+        # Non-intrusive confirmation
+        if did_inline:
+            show_toast(window, f"Inserted image + attached: {rel_path}", 2500)
+        else:
+            show_toast(window, f"Attached: {rel_path}", 2500)
     except Exception as e:
         QtWidgets.QMessageBox.warning(window, "Insert Attachment", f"Failed to attach file: {e}")
 
@@ -1991,6 +2048,33 @@ def main():
         act_backup_now = window.findChild(QtWidgets.QAction, "actionBackup_Database")
         if act_backup_now is not None:
             act_backup_now.triggered.connect(lambda: backup_database_now(window))
+    except Exception:
+        pass
+    # Tools: Rename Database (handled in backup module for compartmentalization)
+    try:
+        act_rename_db = window.findChild(QtWidgets.QAction, "actionRename_Database")
+        if act_rename_db is not None:
+            from backup import show_rename_database_dialog
+
+            act_rename_db.triggered.connect(lambda: show_rename_database_dialog(window))
+    except Exception:
+        pass
+    # File: Export Binder (handled in backup module)
+    try:
+        act_export_binder = window.findChild(QtWidgets.QAction, "actionExport_Binder")
+        if act_export_binder is not None:
+            from backup import export_binder
+
+            act_export_binder.triggered.connect(lambda: export_binder(window))
+    except Exception:
+        pass
+    # File: Import Binder (handled in backup module)
+    try:
+        act_import_binder = window.findChild(QtWidgets.QAction, "actionImport_Binder")
+        if act_import_binder is not None:
+            from backup import import_binder
+
+            act_import_binder.triggered.connect(lambda: import_binder(window))
     except Exception:
         pass
     # Insert menu: Planning Register

@@ -39,6 +39,20 @@ from PyQt5.QtGui import (
 )
 
 # ----------------------------- Image helpers -----------------------------
+_RAW_EXTS = {
+    "dng", "nef", "cr2", "cr3", "arw", "orf", "rw2", "raf", "srw", "pef",
+    "rw1", "3fr", "erf", "kdc", "mrw", "nrw", "ptx", "r3d", "sr2", "x3f"
+}
+
+def _is_raw_ext(name: str) -> bool:
+    try:
+        if not name:
+            return False
+        import os as _os
+        ext = _os.path.splitext(str(name))[1].lstrip(".").lower()
+        return ext in _RAW_EXTS
+    except Exception:
+        return False
 def _qimage_dims(text_edit: QtWidgets.QTextEdit, name: str):
     try:
         if not name:
@@ -47,6 +61,9 @@ def _qimage_dims(text_edit: QtWidgets.QTextEdit, name: str):
         path = name
         if base and name and not os.path.isabs(name):
             path = os.path.join(base, name)
+        # Avoid trying to load RAW formats; Qt/libtiff may spam stderr and fail
+        if _is_raw_ext(path):
+            return None, None
         img = QImage(path)
         if not img.isNull():
             return img.width(), img.height()
@@ -1306,9 +1323,10 @@ def _image_info_at_position(text_edit: QtWidgets.QTextEdit, pos_or_posint):
                 path = name
                 if base and name and not os.path.isabs(name):
                     path = os.path.join(base, name)
-                img = QImage(path)
-                if not img.isNull():
-                    iw, ih = img.width(), img.height()
+                if not _is_raw_ext(path):
+                    img = QImage(path)
+                    if not img.isNull():
+                        iw, ih = img.width(), img.height()
             except Exception:
                 pass
             return {"cursor_pos": c.position(), "name": name, "w": w, "h": h, "iw": iw, "ih": ih}
