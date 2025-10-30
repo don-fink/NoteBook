@@ -1,9 +1,16 @@
-# NoteBook Distribution Package Creator
-# Creates a clean distribution folder with the PyInstaller executable
+<#
+ NoteBook Distribution Package Creator
+ Creates a clean distribution folder with the PyInstaller executable
+ This script is now location-agnostic: it resolves paths relative to the script file.
+#>
 
 $ErrorActionPreference = 'Stop'
 
-$distFolder = 'NoteBook_Release'
+# Resolve repository root relative to this script and make it the working directory
+$Root = Split-Path -Parent $PSCommandPath
+Set-Location $Root
+
+$distFolder = Join-Path $Root 'NoteBook_Release'
 Write-Host "Creating PyInstaller distribution package..." -ForegroundColor Cyan
 
 # Clean and create distribution folder
@@ -11,20 +18,20 @@ if (Test-Path $distFolder) { Remove-Item -Recurse -Force $distFolder }
 New-Item -ItemType Directory $distFolder | Out-Null
 
 # Safety: ensure no machine-specific pointer file is accidentally bundled
-if (Test-Path 'settings.loc') {
+if (Test-Path (Join-Path $Root 'settings.loc')) {
     try {
-        Remove-Item 'settings.loc' -Force -ErrorAction SilentlyContinue
+        Remove-Item (Join-Path $Root 'settings.loc') -Force -ErrorAction SilentlyContinue
     Write-Host "  Removed stray settings.loc from working directory" -ForegroundColor Yellow
     } catch {}
 }
 
 # Copy the full PyInstaller output (includes NoteBook.exe and any _internal or support files)
-$distSource = 'dist\NoteBook'
+$distSource = Join-Path $Root 'dist\NoteBook'
 if (-not (Test-Path $distSource)) {
     Write-Error "Build output folder not found at '$distSource'. Build the app first (e.g., run build.cmd or PyInstaller with notebook.spec)."
     exit 1
 }
-Copy-Item "$distSource\*" $distFolder -Recurse
+Copy-Item (Join-Path $distSource '*') $distFolder -Recurse
 Write-Host "  Copied PyInstaller output (NoteBook + dependencies)" -ForegroundColor Green
 
 # Create user-friendly README
@@ -85,10 +92,10 @@ NOTE: Settings are stored per-user at %LOCALAPPDATA%\NoteBook\settings.json.
 Do NOT distribute any settings.loc file; it is a machine-specific pointer and will break on other systems.
 '@
 
-Set-Content -Path "$distFolder\README.txt" -Value ($readmeContent + $settingsNote) -Encoding UTF8
+Set-Content -Path (Join-Path $distFolder 'README.txt') -Value ($readmeContent + $settingsNote) -Encoding UTF8
 
 # Get executable size
-$exeSize = [math]::Round((Get-Item "$distFolder\NoteBook.exe").Length / 1MB, 1)
+$exeSize = [math]::Round((Get-Item (Join-Path $distFolder 'NoteBook.exe')).Length / 1MB, 1)
 
 Write-Host ""
 Write-Host "Distribution package created!" -ForegroundColor Green
@@ -104,11 +111,11 @@ Write-Host ""
 # Optional: Create ZIP
 $createZip = Read-Host "Create zip file for distribution? (Y/n)"
 if ($createZip -notmatch '^n|N|no|No$') {
-    $zipPath = "$distFolder.zip"
+    $zipPath = Join-Path $Root 'NoteBook_Release.zip'
     if (Test-Path $zipPath) { Remove-Item $zipPath -Force }
     
     try {
-        Compress-Archive -Path "$distFolder\*" -DestinationPath $zipPath -CompressionLevel Optimal
+    Compress-Archive -Path (Join-Path $distFolder '*') -DestinationPath $zipPath -CompressionLevel Optimal
         $zipSize = [math]::Round((Get-Item $zipPath).Length / 1MB, 1)
     Write-Host "  Created $zipPath ($zipSize MB)" -ForegroundColor Green
     } catch {
@@ -118,4 +125,4 @@ if ($createZip -notmatch '^n|N|no|No$') {
 
 Write-Host ""
 Write-Host "Test the executable:" -ForegroundColor Yellow
-Write-Host "  Double-click: $distFolder\NoteBook.exe" -ForegroundColor White
+Write-Host ("  Double-click: {0}" -f (Join-Path $distFolder 'NoteBook.exe')) -ForegroundColor White

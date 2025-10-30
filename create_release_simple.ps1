@@ -1,7 +1,14 @@
-# NoteBook Distribution Package Creator
+<#
+ NoteBook Distribution Package Creator (simple)
+ Location-agnostic: resolves paths relative to this script file.
+#>
 $ErrorActionPreference = 'Stop'
 
-$distFolder = 'NoteBook_Release'
+# Resolve repository root relative to this script and make it the working directory
+$Root = Split-Path -Parent $PSCommandPath
+Set-Location $Root
+
+$distFolder = Join-Path $Root 'NoteBook_Release'
 Write-Host "Creating PyInstaller distribution package..." -ForegroundColor Cyan
 
 # Clean and create distribution folder
@@ -9,24 +16,24 @@ if (Test-Path $distFolder) { Remove-Item -Recurse -Force $distFolder }
 New-Item -ItemType Directory $distFolder | Out-Null
 
 # Safety: ensure no machine-specific pointer file is accidentally bundled
-if (Test-Path 'settings.loc') {
+if (Test-Path (Join-Path $Root 'settings.loc')) {
 	try {
-		Remove-Item 'settings.loc' -Force -ErrorAction SilentlyContinue
+		Remove-Item (Join-Path $Root 'settings.loc') -Force -ErrorAction SilentlyContinue
 		Write-Host "  Removed stray settings.loc from working directory" -ForegroundColor Yellow
 	} catch {}
 }
 
 # Copy the full PyInstaller output (includes NoteBook.exe and any _internal or support files)
-$distSource = 'dist\NoteBook'
+$distSource = Join-Path $Root 'dist\NoteBook'
 if (-not (Test-Path $distSource)) {
 	Write-Error "Build output folder not found at '$distSource'. Build the app first (e.g., run build.cmd or PyInstaller with notebook.spec)."
 	exit 1
 }
-Copy-Item "$distSource\*" $distFolder -Recurse
+Copy-Item (Join-Path $distSource '*') $distFolder -Recurse
 Write-Host "  Copied PyInstaller output (NoteBook + dependencies)" -ForegroundColor Green
 
 # Copy optional Start Menu installer
-Copy-Item 'add_to_start_menu.cmd' $distFolder
+Copy-Item (Join-Path $Root 'add_to_start_menu.cmd') $distFolder
 Write-Host "  Copied Start Menu installer" -ForegroundColor Green
 
 # Create README
@@ -71,18 +78,18 @@ delete the shortcut from Start Menu → All Apps.
 Enjoy!
 '@
 
-Set-Content -Path "$distFolder\README.txt" -Value $readme -Encoding UTF8
-Add-Content -Path "$distFolder\README.txt" -Value "`n---`nNOTE: Settings are stored per-user at %LOCALAPPDATA%\NoteBook\settings.json. Do NOT distribute any settings.loc file; it is a machine-specific pointer and will break on other systems." -Encoding UTF8
+Set-Content -Path (Join-Path $distFolder 'README.txt') -Value $readme -Encoding UTF8
+Add-Content -Path (Join-Path $distFolder 'README.txt') -Value "`n---`nNOTE: Settings are stored per-user at %LOCALAPPDATA%\NoteBook\settings.json. Do NOT distribute any settings.loc file; it is a machine-specific pointer and will break on other systems." -Encoding UTF8
 Write-Host "  Created README.txt" -ForegroundColor Green
 
 # Show size info (exe only)
-$exeSize = [math]::Round((Get-Item "$distFolder\NoteBook.exe").Length / 1MB, 1)
+$exeSize = [math]::Round((Get-Item (Join-Path $distFolder 'NoteBook.exe')).Length / 1MB, 1)
 Write-Host ""
 Write-Host "Distribution ready!" -ForegroundColor Green
 Write-Host "Location: $distFolder" -ForegroundColor Cyan
 Write-Host "Size: $exeSize MB" -ForegroundColor Cyan
 Write-Host ""
 Write-Host "Next steps:" -ForegroundColor Yellow
-Write-Host "  1. Test: Double-click $distFolder\NoteBook.exe" -ForegroundColor White
-Write-Host "  2. Optional: Run $distFolder\add_to_start_menu.cmd" -ForegroundColor White
+Write-Host ("  1. Test: Double-click {0}" -f (Join-Path $distFolder 'NoteBook.exe')) -ForegroundColor White
+Write-Host ("  2. Optional: Run {0}" -f (Join-Path $distFolder 'add_to_start_menu.cmd')) -ForegroundColor White
 Write-Host "  3. Zip the folder for distribution" -ForegroundColor White

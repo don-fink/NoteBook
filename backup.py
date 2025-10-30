@@ -763,13 +763,47 @@ def import_binder(window):
                 QtWidgets.QMessageBox.warning(window, "Import Binder", "Unsupported binder format.")
                 return
 
-            # Prepare DB inserts
-            con = sqlite3.connect(db_path)
+            # Prepare DB inserts (single connection, with a small busy timeout)
+            con = sqlite3.connect(db_path, timeout=10.0)
             try:
                 con.execute("PRAGMA foreign_keys=ON")
             except Exception:
                 pass
             cur = con.cursor()
+
+            # Ensure media tables exist using the SAME connection to avoid cross-connection locks
+            try:
+                cur.executescript(
+                    """
+                    CREATE TABLE IF NOT EXISTS media (
+                        id INTEGER PRIMARY KEY AUTOINCREMENT,
+                        sha256 TEXT NOT NULL UNIQUE,
+                        mime_type TEXT NOT NULL,
+                        ext TEXT NOT NULL,
+                        original_filename TEXT,
+                        size_bytes INTEGER,
+                        created_at TEXT NOT NULL DEFAULT (datetime('now'))
+                    );
+                    CREATE TABLE IF NOT EXISTS media_refs (
+                        media_id INTEGER NOT NULL REFERENCES media(id) ON DELETE CASCADE,
+                        page_id INTEGER REFERENCES pages(id) ON DELETE CASCADE,
+                        section_id INTEGER REFERENCES sections(id) ON DELETE CASCADE,
+                        notebook_id INTEGER REFERENCES notebooks(id) ON DELETE CASCADE,
+                        role TEXT NOT NULL,
+                        CHECK (
+                            (page_id IS NOT NULL AND section_id IS NULL AND notebook_id IS NULL) OR
+                            (page_id IS NULL AND section_id IS NOT NULL AND notebook_id IS NULL) OR
+                            (page_id IS NULL AND section_id IS NULL AND notebook_id IS NOT NULL)
+                        )
+                    );
+                    CREATE INDEX IF NOT EXISTS idx_media_refs_media ON media_refs(media_id);
+                    CREATE INDEX IF NOT EXISTS idx_media_refs_page ON media_refs(page_id);
+                    CREATE INDEX IF NOT EXISTS idx_media_refs_section ON media_refs(section_id);
+                    CREATE INDEX IF NOT EXISTS idx_media_refs_notebook ON media_refs(notebook_id);
+                    """
+                )
+            except Exception:
+                pass
 
             # Create notebook with unique title
             src_nb = manifest.get("notebook", {})
@@ -832,7 +866,7 @@ def import_binder(window):
                     page_map[int(p.get("orig_id"))] = cur.lastrowid
 
             # Import media files and upsert media records
-            from media_store import media_root_for_db, ensure_dir, build_rel_path, upsert_media_record, add_media_ref
+            from media_store import media_root_for_db, ensure_dir, build_rel_path
 
             base_media = media_root_for_db(db_path)
             ensure_dir(base_media)
@@ -860,9 +894,23 @@ def import_binder(window):
                     # Media file missing from bundle; continue but still insert record
                     pass
                 size = os.path.getsize(abs_p) if os.path.exists(abs_p) else int(m.get("size_bytes") or 0)
-                media_id = upsert_media_record(
-                    db_path, sha, m.get("mime_type") or "application/octet-stream", ext, m.get("original_filename"), size
-                )
+                # Upsert into media table using the SAME connection
+                cur.execute("SELECT id FROM media WHERE sha256=?", (sha,))
+                row = cur.fetchone()
+                if row:
+                    media_id = int(row[0])
+                else:
+                    cur.execute(
+                        "INSERT INTO media(sha256, mime_type, ext, original_filename, size_bytes) VALUES (?,?,?,?,?)",
+                        (
+                            sha,
+                            m.get("mime_type") or "application/octet-stream",
+                            ext,
+                            m.get("original_filename"),
+                            int(size or 0),
+                        ),
+                    )
+                    media_id = int(cur.lastrowid)
                 sha_to_id[sha] = media_id
 
             # Recreate refs (fallback to content scan if absent)
@@ -883,13 +931,22 @@ def import_binder(window):
                     if r.get("page_orig_id") is not None:
                         pid = page_map.get(int(r.get("page_orig_id")))
                         if pid:
-                            add_media_ref(db_path, new_mid, page_id=int(pid), role=role)
+                            cur.execute(
+                                "INSERT INTO media_refs(media_id, page_id, section_id, notebook_id, role) VALUES (?,?,?,?,?)",
+                                (int(new_mid), int(pid), None, None, role),
+                            )
                     elif r.get("section_orig_id") is not None:
                         sid = sec_map.get(int(r.get("section_orig_id")))
                         if sid:
-                            add_media_ref(db_path, new_mid, section_id=int(sid), role=role)
+                            cur.execute(
+                                "INSERT INTO media_refs(media_id, page_id, section_id, notebook_id, role) VALUES (?,?,?,?,?)",
+                                (int(new_mid), None, int(sid), None, role),
+                            )
                     elif r.get("notebook_orig_id") is not None:
-                        add_media_ref(db_path, new_mid, notebook_id=int(nb_new_id), role=role)
+                        cur.execute(
+                            "INSERT INTO media_refs(media_id, page_id, section_id, notebook_id, role) VALUES (?,?,?,?,?)",
+                            (int(new_mid), None, None, int(nb_new_id), role),
+                        )
             else:
                 # Fallback: scan page HTML for media paths and add page-level refs
                 import re
@@ -906,7 +963,10 @@ def import_binder(window):
                             new_mid = sha_to_id.get(sha)
                             if new_mid:
                                 try:
-                                    add_media_ref(db_path, new_mid, page_id=int(new_pid), role="inline")
+                                    cur.execute(
+                                        "INSERT INTO media_refs(media_id, page_id, section_id, notebook_id, role) VALUES (?,?,?,?,?)",
+                                        (int(new_mid), int(new_pid), None, None, "inline"),
+                                    )
                                 except Exception:
                                     pass
 
