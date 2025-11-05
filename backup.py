@@ -58,6 +58,28 @@ def _retention_prune(dest_dir: str, stem: str, keep: int):
         except Exception:
             pass
 
+def _cleanup_stale_tmp_backups(dest_dir: str, *, min_age_seconds: int = 24 * 60 * 60):
+    """Remove stale temporary backup/export files left from interrupted runs.
+
+    We write bundles and binder exports to a temporary file (e.g., .bundle.tmp, .binder.tmp)
+    and atomically rename at the end. If the process is interrupted before rename, the
+    .tmp file can be left behind. It's safe to remove .tmp files older than a threshold.
+    """
+    try:
+        now = time.time()
+        for name in os.listdir(dest_dir or "."):
+            lower = name.lower()
+            if lower.endswith(".bundle.tmp") or lower.endswith(".binder.tmp"):
+                p = os.path.join(dest_dir, name)
+                try:
+                    mtime = os.path.getmtime(p)
+                    if (now - float(mtime)) >= float(min_age_seconds):
+                        os.remove(p)
+                except Exception:
+                    pass
+    except Exception:
+        pass
+
 
 def _zip_add_file(zf: zipfile.ZipFile, src_path: str, arcname: str):
     try:
@@ -95,6 +117,12 @@ def make_exit_backup(db_path: str, dest_dir: str, keep: int = 5, include_media: 
         _ensure_dir(dest_dir)
     except Exception:
         return None
+
+    # Opportunistically clean up old temp files from prior interrupted backups/exports
+    try:
+        _cleanup_stale_tmp_backups(dest_dir, min_age_seconds=24 * 60 * 60)
+    except Exception:
+        pass
 
     base = os.path.basename(db_path)
     stem, _ext = os.path.splitext(base)

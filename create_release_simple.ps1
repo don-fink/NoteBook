@@ -26,8 +26,22 @@ if (Test-Path (Join-Path $Root 'settings.loc')) {
 # Copy the full PyInstaller output (includes NoteBook.exe and any _internal or support files)
 $distSource = Join-Path $Root 'dist\NoteBook'
 if (-not (Test-Path $distSource)) {
-	Write-Error "Build output folder not found at '$distSource'. Build the app first (e.g., run build.cmd or PyInstaller with notebook.spec)."
-	exit 1
+	Write-Host "Build output folder not found. Attempting to build with PyInstaller..." -ForegroundColor Yellow
+	$venvPy = Join-Path $Root '.venv\Scripts\python.exe'
+	try {
+		if (Test-Path $venvPy) {
+			& $venvPy -m PyInstaller 'notebook.spec' --clean
+		} else {
+			Write-Host "No venv detected. Using system PyInstaller on PATH..." -ForegroundColor Yellow
+			pyinstaller 'notebook.spec' --clean
+		}
+		if ($LASTEXITCODE -ne 0) {
+			throw "PyInstaller exited with code $LASTEXITCODE"
+		}
+	} catch {
+		Write-Error "Failed to build with PyInstaller: $($_.Exception.Message)"
+		exit 1
+	}
 }
 Copy-Item (Join-Path $distSource '*') $distFolder -Recurse
 Write-Host "  Copied PyInstaller output (NoteBook + dependencies)" -ForegroundColor Green

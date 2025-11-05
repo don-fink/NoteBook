@@ -3617,6 +3617,87 @@ def main():
 
     window.show()
 
+    # Ensure the window is actually visible on current monitors (handles monitor changes)
+    def _ensure_window_visible():
+        try:
+            # Collect available geometries for all connected screens
+            screens = QtWidgets.QApplication.screens() or []
+            if not screens:
+                return
+            rects = []
+            try:
+                rects = [s.availableGeometry() for s in screens]
+            except Exception:
+                # Fallback to full geometries if available ones are not accessible
+                rects = [s.geometry() for s in screens]
+
+            # Determine current window frame geometry (includes window frame)
+            try:
+                g = window.frameGeometry()
+            except Exception:
+                g = window.geometry()
+
+            def _intersects_any(target):
+                try:
+                    for r in rects:
+                        try:
+                            if target.intersects(r):
+                                return True
+                        except Exception:
+                            pass
+                except Exception:
+                    pass
+                return False
+
+            too_small = False
+            try:
+                too_small = (g.width() < 100) or (g.height() < 100)
+            except Exception:
+                pass
+
+            # If the window is off-screen or tiny, move it to the primary screen and size reasonably
+            if (not _intersects_any(g)) or too_small:
+                try:
+                    primary = QtWidgets.QApplication.primaryScreen()
+                    pr = primary.availableGeometry() if primary is not None else rects[0]
+                except Exception:
+                    pr = rects[0]
+                try:
+                    w = min(int(pr.width() * 0.8), 1200)
+                    h = min(int(pr.height() * 0.8), 800)
+                    w = max(w, 800)
+                    h = max(h, 600)
+                except Exception:
+                    w, h = 1000, 700
+                try:
+                    x = pr.x() + (pr.width() - w) // 2
+                    y = pr.y() + (pr.height() - h) // 2
+                except Exception:
+                    x, y = 100, 100
+
+                # Ensure window is in a normal state before moving/resizing
+                try:
+                    if window.isMaximized() or window.isMinimized():
+                        window.setWindowState(Qt.WindowNoState)
+                except Exception:
+                    pass
+                try:
+                    window.setGeometry(x, y, w, h)
+                except Exception:
+                    pass
+
+                # Re-apply maximized state if that's the user's preference
+                try:
+                    if get_window_maximized():
+                        window.showMaximized()
+                except Exception:
+                    pass
+        except Exception:
+            pass
+
+    # Run visibility correction after the window is initially shown so frameGeometry is valid
+    QTimer.singleShot(0, _ensure_window_visible)
+
     # Restore splitter sizes after the window is shown to ensure geometry exists
     def _apply_saved_splitter_sizes():
         try:

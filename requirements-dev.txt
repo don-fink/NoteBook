@@ -9,6 +9,9 @@ python-dotenv==1.1.1
 click==8.2.1
 colorama==0.4.6
 
+# Build tooling
+pyinstaller==6.10.0
+
 # Lint/format/test/type/security tools for developer workflows
 black==24.8.0
 isort==5.13.2
