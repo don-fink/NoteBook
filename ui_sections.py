@@ -12,11 +12,52 @@ loads the page content into the center editor.
 from PyQt5 import QtWidgets
 from PyQt5.QtCore import Qt
 
-from db_pages import get_pages_by_section_id
+from db_pages import (
+    get_pages_by_section_id,
+    get_root_pages_by_section_id,
+    get_child_pages,
+)
 from db_sections import get_sections_by_notebook_id
 from page_editor import is_two_column_ui as _is_two_col
 from page_editor import load_page as _load_page_2col
 from ui_tabs import load_first_page_for_current_tab, select_tab_for_section
+
+
+def _add_child_pages_recursively(section_id: int, parent_page_id: int, parent_item: QtWidgets.QTreeWidgetItem, db_path: str):
+    """Add child pages under the given page item recursively."""
+    try:
+        children = get_child_pages(section_id, int(parent_page_id), db_path)
+    except Exception:
+        children = []
+    try:
+        children_sorted = sorted(children, key=lambda p: (p[6], p[0]))
+    except Exception:
+        children_sorted = children
+    for p in children_sorted:
+        page_id = p[0]
+        page_title = str(p[2])
+        page_item = QtWidgets.QTreeWidgetItem([page_title])
+        page_item.setData(0, 1000, page_id)
+        try:
+            page_item.setData(0, 1001, "page")
+            page_item.setData(0, 1002, section_id)
+        except Exception:
+            pass
+        try:
+            pflags = page_item.flags()
+            if _is_two_col(parent_item.treeWidget().window()):
+                # Subpages: enable selection + DnD for sibling-only reorder
+                pflags = pflags | Qt.ItemIsEnabled | Qt.ItemIsSelectable | Qt.ItemIsDragEnabled | Qt.ItemIsDropEnabled
+            else:
+                pflags = (pflags | Qt.ItemIsEnabled) & ~(
+                    Qt.ItemIsSelectable | Qt.ItemIsDragEnabled | Qt.ItemIsDropEnabled
+                )
+            page_item.setFlags(pflags)
+        except Exception:
+            pass
+        parent_item.addChild(page_item)
+        # Recurse for this child's children
+        _add_child_pages_recursively(section_id, int(page_id), page_item, db_path)
 
 
 def add_sections_as_children(tree_widget, notebook_id, parent_item, db_path):
@@ -40,11 +81,7 @@ def add_sections_as_children(tree_widget, notebook_id, parent_item, db_path):
             sec_item.setData(0, 1001, "section")
         except Exception:
             pass
-        # Sections: enabled + selectable + draggable; DO NOT accept drops
-        # Reordering within a binder uses the binder as the drop target so the
-        # drop indicator appears between section rows. Allowing drops directly
-        # on a section causes Qt to treat it as a child-drop and expand instead
-        # of reordering.
+        # Sections: enabled + selectable + draggable; accept drops (for pages into root)
         try:
             flags = sec_item.flags()
             flags = (
@@ -52,22 +89,22 @@ def add_sections_as_children(tree_widget, notebook_id, parent_item, db_path):
                 | Qt.ItemIsEnabled
                 | Qt.ItemIsSelectable
                 | Qt.ItemIsDragEnabled
+                | Qt.ItemIsDropEnabled
             )
             sec_item.setFlags(flags)
         except Exception:
             pass
         parent_item.addChild(sec_item)
 
-        # Add pages under this section
+        # Add root pages under this section, then recursively add children
         try:
-            pages = get_pages_by_section_id(section_id, db_path)
+            pages_root = get_root_pages_by_section_id(section_id, db_path)
         except Exception:
-            pages = []
-        # Prefer order_index (index 6) then id (index 0) when available
+            pages_root = []
         try:
-            pages_sorted = sorted(pages, key=lambda p: (p[6], p[0]))
+            pages_sorted = sorted(pages_root, key=lambda p: (p[6], p[0]))
         except Exception:
-            pages_sorted = pages
+            pages_sorted = pages_root
         for p in pages_sorted:
             page_id = p[0]
             page_title = str(p[2])
@@ -84,9 +121,7 @@ def add_sections_as_children(tree_widget, notebook_id, parent_item, db_path):
             try:
                 pflags = page_item.flags()
                 if _is_two_col(tree_widget.window()):
-                    pflags = (pflags | Qt.ItemIsEnabled | Qt.ItemIsSelectable | Qt.ItemIsDragEnabled) & ~(
-                        Qt.ItemIsDropEnabled
-                    )
+                    pflags = pflags | Qt.ItemIsEnabled | Qt.ItemIsSelectable | Qt.ItemIsDragEnabled | Qt.ItemIsDropEnabled
                 else:
                     pflags = (pflags | Qt.ItemIsEnabled) & ~(
                         Qt.ItemIsSelectable | Qt.ItemIsDragEnabled | Qt.ItemIsDropEnabled
@@ -95,6 +130,8 @@ def add_sections_as_children(tree_widget, notebook_id, parent_item, db_path):
             except Exception:
                 pass
             sec_item.addChild(page_item)
+            # Recursively add subpages
+            _add_child_pages_recursively(section_id, int(page_id), page_item, db_path)
 
 
 def on_notebook_clicked(item, column):

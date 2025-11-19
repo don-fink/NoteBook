@@ -927,7 +927,7 @@ def create_new_database_file(db_path):
         cursor.executescript(schema_sql)
     except FileNotFoundError:
         # Fallback to embedded schema
-        cursor.executescript('''
+                cursor.executescript('''
             PRAGMA foreign_keys = ON;
             
             CREATE TABLE notebooks (
@@ -956,9 +956,11 @@ def create_new_database_file(db_path):
               content_html  TEXT    NOT NULL,
               created_at    TEXT    NOT NULL DEFAULT (datetime('now')),
               modified_at   TEXT    NOT NULL DEFAULT (datetime('now')),
-              order_index   INTEGER NOT NULL DEFAULT 0,
+                            order_index   INTEGER NOT NULL DEFAULT 0,
+                            parent_page_id INTEGER NULL,
               FOREIGN KEY (section_id) REFERENCES sections(id) ON DELETE CASCADE
             );
+                        CREATE INDEX IF NOT EXISTS idx_pages_parent ON pages(parent_page_id);
         ''')
     
     # Set initial version
@@ -976,7 +978,7 @@ def migrate_database_if_needed(db_path):
     from db_version import get_db_version, set_db_version
 
     current_version = get_db_version(db_path)
-    target_version = 3  # Update as needed for future migrations
+    target_version = 4  # Update as needed for future migrations
     import sqlite3
 
     if current_version < 1:
@@ -1056,6 +1058,28 @@ def migrate_database_if_needed(db_path):
             except Exception:
                 pass
         set_db_version(3, db_path)
+    if current_version < 4:
+        # Add hierarchical pages support: parent_page_id + index
+        import sqlite3
+
+        conn = sqlite3.connect(db_path)
+        try:
+            cur = conn.cursor()
+            try:
+                cur.execute("ALTER TABLE pages ADD COLUMN parent_page_id INTEGER NULL")
+            except sqlite3.OperationalError:
+                pass
+            try:
+                cur.execute("CREATE INDEX IF NOT EXISTS idx_pages_parent ON pages(parent_page_id)")
+            except Exception:
+                pass
+            conn.commit()
+        finally:
+            try:
+                conn.close()
+            except Exception:
+                pass
+        set_db_version(4, db_path)
 
 
 def open_database(window):
@@ -1078,11 +1102,96 @@ def open_database(window):
     )
     if not file_name:
         return
-    migrate_database_if_needed(file_name)
-    set_last_db(file_name)
-    clear_last_state()
-    # Force a clean restart so UI initializes with the opened database
-    restart_application()
+    # Switch in-process to the selected database (single-instance)
+    try:
+        # Flush current page/content if possible before switching
+        try:
+            save_current_page(window)
+        except Exception:
+            pass
+        # Cancel autosave timer/state (two-column mode)
+        try:
+            if hasattr(window, "_autosave_timer") and window._autosave_timer.isActive():
+                window._autosave_timer.stop()
+            window._two_col_dirty = False
+        except Exception:
+            pass
+        # Clear editor widgets
+        try:
+            te = window.findChild(QtWidgets.QTextEdit, "pageEdit")
+            if te is not None:
+                te.blockSignals(True)
+                te.setHtml("")
+                te.setReadOnly(True)
+                te.blockSignals(False)
+            title_le = window.findChild(QtWidgets.QLineEdit, "pageTitleEdit")
+            if title_le is not None:
+                title_le.blockSignals(True)
+                title_le.setText("")
+                title_le.setEnabled(False)
+                title_le.blockSignals(False)
+        except Exception:
+            pass
+        # Clear left/right trees
+        try:
+            left_tree = window.findChild(QtWidgets.QTreeWidget, "notebookName")
+            if left_tree is not None:
+                left_tree.clear()
+            right_tree = window.findChild(QtWidgets.QTreeWidget, "sectionPages")
+            if right_tree is not None:
+                right_tree.clear()
+        except Exception:
+            pass
+        # Reset contextual state
+        try:
+            window._current_notebook_id = None
+            window._current_section_id = None
+            window._current_page_by_section = {}
+        except Exception:
+            pass
+        # Point window to new database path
+        try:
+            window._db_path = file_name
+        except Exception:
+            pass
+        # Ensure and migrate schema before populating UI
+        try:
+            ensure_database_initialized(file_name)
+            migrate_database_if_needed(file_name)
+        except Exception:
+            pass
+        # Persist last used DB and clear last state snapshot
+        try:
+            set_last_db(file_name)
+            clear_last_state()
+        except Exception:
+            pass
+        # Update window title to reflect new DB
+        try:
+            window.setWindowTitle(f"NoteBook — {file_name}")
+        except Exception:
+            pass
+        # Re-populate notebook list for new database
+        try:
+            from ui_logic import populate_notebook_names
+
+            populate_notebook_names(window, file_name)
+        except Exception:
+            pass
+        # Reapply tab/tree sync wiring if needed (idempotent)
+        try:
+            from ui_tabs import setup_tab_sync
+
+            setup_tab_sync(window)
+        except Exception:
+            pass
+        # Inform user of successful switch (non-blocking)
+        try:
+            show_toast(window, "Database opened", 2000)
+        except Exception:
+            pass
+    except Exception as e:
+        QtWidgets.QMessageBox.warning(window, "Open Database", f"Failed to open database: {e}")
 
 
 def save_database_as(window):
@@ -1484,6 +1593,7 @@ def main():
                     elif kind == "page":
                         # Page menu
                         act_add_page = m.addAction("Add Page")
+                        act_add_subpage = m.addAction("Add Subpage")
                         act_rename_page = m.addAction("Rename Page")
                         act_delete_page = m.addAction("Delete Page")
                         chosen = m.exec_(global_pos)
@@ -1495,6 +1605,81 @@ def main():
                         db_path = getattr(window, "_db_path", None) or get_last_db() or "notes.db"
                         if chosen == act_add_page:
                             add_page(window)
+                            return
+                        if chosen == act_add_subpage and page_id is not None and section_id is not None:
+                            # Prompt for title and create a child page under this page
+                            new_title, ok = QtWidgets.QInputDialog.getText(
+                                tree, "New Subpage", "Subpage title:", text="Untitled Page"
+                            )
+                            if not ok:
+                                return
+                            new_title = (new_title or "").strip() or "Untitled Page"
+                            # Before creating, persist current root page order to prevent shuffle on refresh
+                            try:
+                                ordered_root_ids = []
+                                # Find the section item in the left tree to read current visual order
+                                sec_item = item
+                                while sec_item is not None and sec_item.data(0, 1001) != "section":
+                                    sec_item = sec_item.parent()
+                                if sec_item is not None:
+                                    for j in range(sec_item.childCount()):
+                                        ch = sec_item.child(j)
+                                        try:
+                                            if ch.data(0, 1001) == "page" and ch.parent() is sec_item:
+                                                pid = ch.data(0, 1000)
+                                                if pid is not None:
+                                                    ordered_root_ids.append(int(pid))
+                                        except Exception:
+                                            pass
+                                if ordered_root_ids:
+                                    try:
+                                        db_set_pages_order(int(section_id), ordered_root_ids, db_path)
+                                    except Exception:
+                                        pass
+                            except Exception:
+                                pass
+                            try:
+                                from db_pages import create_page as db_create_page
+
+                                new_pid = db_create_page(int(section_id), new_title, db_path, parent_page_id=int(page_id))
+                            except Exception:
+                                new_pid = None
+                            # Refresh left tree for this binder and select the new subpage
+                            try:
+                                # Find owning notebook id from parent binder item
+                                nb_item = item
+                                while nb_item is not None and nb_item.parent() is not None:
+                                    nb_item = nb_item.parent()
+                                nb_id = nb_item.data(0, 1000) if nb_item is not None else None
+                            except Exception:
+                                nb_id = getattr(window, "_current_notebook_id", None)
+                            if nb_id is not None:
+                                try:
+                                    ensure_left_tree_sections(window, int(nb_id), select_section_id=int(section_id))
+                                except Exception:
+                                    pass
+                            # Select the newly created subpage
+                            try:
+                                from left_tree import select_left_tree_page as _select_left_tree_page
+
+                                if new_pid is not None:
+                                    _select_left_tree_page(window, int(section_id), int(new_pid))
+                            except Exception:
+                                pass
+                            # If in two-column UI, load the new page into the editor
+                            try:
+                                from page_editor import load_page as _load_page_two_column
+
+                                if new_pid is not None and _is_two_column_ui(window):
+                                    _load_page_two_column(window, int(new_pid))
+                                    try:
+                                        from settings_manager import set_last_state
+
+                                        set_last_state(section_id=int(section_id), page_id=int(new_pid))
+                                    except Exception:
+                                        pass
+                            except Exception:
+                                pass
                             return
                         if chosen == act_rename_page and page_id is not None:
                             # Prefill current title
@@ -1719,6 +1904,14 @@ def main():
                 tree.setAcceptDrops(True)
                 tree.setDragEnabled(True)
                 tree.setDropIndicatorShown(True)
+                # Make drop indicator more pronounced (thicker blue line + subtle fill)
+                try:
+                    existing = tree.styleSheet() or ""
+                    indicator_style = "QTreeView::drop-indicator { border: 2px solid #0078D7; background: rgba(0,120,215,0.25); }"
+                    if indicator_style not in existing:
+                        tree.setStyleSheet(existing + "\n" + indicator_style)
+                except Exception:
+                    pass
                 # Ensure event filter constrains DnD to top-level and persists order
                 if not hasattr(window, "_left_tree_dnd_filter"):
                     from left_tree import LeftTreeDnDFilter
@@ -3756,7 +3949,9 @@ def main():
                 get_exit_backup_dir,
                 get_backups_to_keep,
             )
-            if get_backup_on_exit_enabled():
+            # Allow a runtime override to disable exit backup entirely
+            disable_env = os.environ.get("NOTEBOOK_DISABLE_EXIT_BACKUP", "").strip().lower() in {"1", "true", "yes"}
+            if (not disable_env) and get_backup_on_exit_enabled():
                 dest = (get_exit_backup_dir() or "").strip()
                 if dest:
                     dbp = getattr(window, "_db_path", None) or get_last_db() or "notes.db"
@@ -3764,7 +3959,11 @@ def main():
                         from backup import make_exit_backup
 
                         make_exit_backup(dbp, dest, keep=get_backups_to_keep(), include_media=True)
-                    except Exception:
+                    except KeyboardInterrupt:
+                        # Ignore Ctrl+C or interrupt during compression on app exit
+                        pass
+                    except BaseException:
+                        # Swallow any other fatal errors to avoid blocking shutdown
                         pass
         except Exception:
             pass

@@ -27,5 +27,9 @@ CREATE TABLE pages (
   created_at    TEXT    NOT NULL DEFAULT (datetime('now')),
   modified_at   TEXT    NOT NULL DEFAULT (datetime('now')),
   order_index   INTEGER NOT NULL DEFAULT 0,
+  parent_page_id INTEGER NULL,
   FOREIGN KEY (section_id) REFERENCES sections(id) ON DELETE CASCADE
 );
+
+-- Helpful index for hierarchical lookups
+CREATE INDEX IF NOT EXISTS idx_pages_parent ON pages(parent_page_id);
