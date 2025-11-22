@@ -37,7 +37,28 @@ Shortcuts:
 - Ctrl+Up / Ctrl+Down — reorder binders (focus left tree) and sections/pages (focus right panel).
 
 Notes:
-- Legacy tabbed wiring has been removed from setup; `setup_tab_sync` configures only the two‑pane UI.
+- Legacy tabbed UI fully removed; two‑pane initialization handled by `setup_two_pane`.
+
+### Order Index Normalization (Tools → Normalize Page Order)
+
+Pages, sections, and binders each have an `order_index` used for sorting. Over time inserts/deletes can leave gaps (e.g. 1,5,7) or duplicates (two items at 0). The Normalize action:
+
+1. Collects all sibling groups:
+	- Binders (top level notebooks)
+	- Sections within each binder
+	- Pages within each (section_id, parent_page_id) group (or just section if hierarchical pages disabled)
+2. Sorts items by `(order_index, id)` to preserve relative order.
+3. Reassigns sequential values `1..N` gap‑free where needed.
+4. Optionally creates a timestamped backup before applying.
+
+If no changes are needed you’ll see “Already normalized.”. Running normalization again immediately is idempotent (produces no further changes).
+
+Use when:
+- You notice unexpected jumpy ordering numbers while debugging.
+- After large import/migration operations.
+- Before implementing new relative move logic.
+
+This does not alter titles, hierarchy, or content—only the numeric ordering labels.
 ## End‑User Installation (Windows)
 
 1. Download `NoteBook_Release.zip` from the latest release
@@ -76,6 +97,10 @@ If you want to build the executable yourself:
 	- Single-click links open in your browser
 - Default paste mode and list schemes are persisted
 - Media storage and “Clean Unused Media” tool
+
+### Removed / Deprecated Features
+
+The experimental table cell formula feature (inline `=A1+B2`, `SUM(A1:B3)`, recalculation action, and hidden sidecar storage) was fully rolled back in November 2025. All related menu items, context actions, and the `beautifulsoup4` dependency were removed to simplify the editor and avoid fragile HTML attribute persistence. The former `table_formulas.py` module no longer exists. Any lingering `data-formula` attributes in older saved pages are treated as plain text and ignored.
 
 ### Paste modes
 - Rich (default): standard paste.

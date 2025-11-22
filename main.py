@@ -37,7 +37,7 @@ from settings_manager import (
 from ui_loader import load_main_window
 from ui_logic import populate_notebook_names
 from left_tree import ensure_left_tree_sections, refresh_for_notebook
-from ui_tabs import restore_last_position, setup_tab_sync
+from two_pane_core import restore_last_position, setup_two_pane
 from left_tree import select_left_tree_page, update_left_tree_page_title
 from page_editor import (
     is_two_column_ui as _is_two_column_ui,
@@ -85,6 +85,117 @@ def _install_global_excepthook():
     except Exception:
         pass
 
+# --- Database initialization / migration helpers (reintroduced after rollback) ---
+def create_new_database_file(db_path: str):
+    """Create a brand new SQLite database at db_path using schema.sql and set initial version.
+
+    Safe to call if the file already exists (will no-op)."""
+    import os, sqlite3
+    if os.path.isfile(db_path):
+        # Do not overwrite existing DB; assume it's valid or will be initialized later.
+        return
+    schema_file = os.path.join(os.path.dirname(os.path.abspath(__file__)), "schema.sql")
+    schema_sql = ""
+    try:
+        with open(schema_file, "r", encoding="utf-8") as f:
+            schema_sql = f.read()
+    except Exception:
+        pass
+    conn = sqlite3.connect(db_path)
+    try:
+        if schema_sql.strip():
+            conn.executescript(schema_sql)
+        # Set initial user_version
+        try:
+            conn.execute("PRAGMA user_version = 4")
+        except Exception:
+            pass
+        conn.commit()
+    finally:
+        conn.close()
+
+def ensure_database_initialized(db_path: str):
+    """Ensure required tables exist; if missing, apply schema.
+
+    Idempotent: running on an existing, fully initialized DB is safe."""
+    import os, sqlite3
+    # If file missing, create directly
+    if not os.path.isfile(db_path):
+        create_new_database_file(db_path)
+        return
+    conn = sqlite3.connect(db_path)
+    try:
+        cur = conn.cursor()
+        cur.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='notebooks'")
+        row = cur.fetchone()
+        if not row:
+            # Tables absent -> apply schema
+            schema_file = os.path.join(os.path.dirname(os.path.abspath(__file__)), "schema.sql")
+            try:
+                with open(schema_file, "r", encoding="utf-8") as f:
+                    conn.executescript(f.read())
+                try:
+                    conn.execute("PRAGMA user_version = 4")
+                except Exception:
+                    pass
+                conn.commit()
+            except Exception:
+                pass
+    finally:
+        conn.close()
+
+def migrate_database_if_needed(db_path: str):
+    """Apply in-place migrations based on PRAGMA user_version.
+
+    Current target version = 4. Future migrations can extend this helper.
+    """
+    import sqlite3
+    TARGET = 4
+    conn = sqlite3.connect(db_path)
+    try:
+        cur = conn.cursor()
+        cur.execute("PRAGMA user_version")
+        version = cur.fetchone()[0]
+        # Example placeholder migrations; currently just bumps version if lower.
+        if version < TARGET:
+            try:
+                cur.execute(f"PRAGMA user_version = {int(TARGET)}")
+            except Exception:
+                pass
+            conn.commit()
+    finally:
+        conn.close()
+
+def open_database(window):
+    """Prompt user to open an existing database file and switch context."""
+    dlg_path, _ = QtWidgets.QFileDialog.getOpenFileName(
+        window,
+        "Open Database",
+        get_last_db() or "notes.db",
+        "SQLite DB (*.db);;All Files (*)",
+    )
+    if not dlg_path:
+        return
+    try:
+        ensure_database_initialized(dlg_path)
+        migrate_database_if_needed(dlg_path)
+    except Exception as e:
+        QtWidgets.QMessageBox.critical(window, "Open Database", f"Failed to open DB: {e}")
+        return
+    try:
+        set_last_db(dlg_path)
+        clear_last_state()
+    except Exception:
+        pass
+    window._db_path = dlg_path
+    populate_notebook_names(window, dlg_path)
+    setup_two_pane(window)
+    restore_last_position(window)
+    try:
+        window.setWindowTitle(f"NoteBook — {dlg_path}")
+    except Exception:
+        pass
+
 
 def _enable_faulthandler(log_path: str):
     """Enable Python faulthandler to dump tracebacks on fatal errors (e.g., segfaults).
@@ -93,206 +204,92 @@ def _enable_faulthandler(log_path: str):
     """
     try:
         import faulthandler as _faulthandler
-        # Keep a global reference so the file handle stays open for the lifetime of the app
-        globals().setdefault("_native_crash_log_file", None)
         try:
-            f = open(log_path, "a", encoding="utf-8")
-            globals()["_native_crash_log_file"] = f
+            f = open(log_path, 'a', encoding='utf-8')
         except Exception:
             f = None
         if f is not None:
-            try:
-                _faulthandler.enable(all_threads=True, file=f)
-            except Exception:
-                try:
-                    f.close()
-                except Exception:
-                    pass
-                globals()["_native_crash_log_file"] = None
+            _faulthandler.enable(file=f, all_threads=True)
     except Exception:
         pass
 
 
 def _install_qt_message_handler(log_path: str):
-    """Capture Qt warnings/errors into a log to aid diagnosing native crashes."""
+    """Install a Qt message handler that appends warnings/errors to a log file."""
     try:
-        from PyQt5.QtCore import qInstallMessageHandler, QtMsgType
-        import datetime as _dt
-
-        level_map = {
-            QtMsgType.QtDebugMsg: "DEBUG",
-            QtMsgType.QtInfoMsg: "INFO",
-            QtMsgType.QtWarningMsg: "WARNING",
-            QtMsgType.QtCriticalMsg: "CRITICAL",
-            QtMsgType.QtFatalMsg: "FATAL",
-        }
-
-        def _qt_handler(msgType, context, message):
-            try:
-                ts = _dt.datetime.now().strftime("%Y-%m-%d %H:%M:%S.%f")
-                level = level_map.get(msgType, str(msgType))
-                with open(log_path, "a", encoding="utf-8") as _f:
-                    _f.write(f"[{ts}] [Qt {level}] {message}\n")
-                    try:
-                        file = getattr(context, "file", None)
-                        line = getattr(context, "line", None)
-                        func = getattr(context, "function", None)
-                        if file or func:
-                            _f.write(f"    at {file or '?'}:{line or '?'} ({func or '?'})\n")
-                    except Exception:
-                        pass
-            except Exception:
-                pass
-
-        qInstallMessageHandler(_qt_handler)
+        from PyQt5.QtCore import qInstallMessageHandler
     except Exception:
-        pass
-
-def create_new_database(window):
-    options = QtWidgets.QFileDialog.Options()
-    # Default to the configured Databases root
-    try:
-        import os
-
-        from settings_manager import get_databases_root
-
-        initial = os.path.join(get_databases_root(), "NewNotebook.db")
-    except Exception:
-        initial = "NewNotebook.db"
-    file_name, _ = QtWidgets.QFileDialog.getSaveFileName(
-        window,
-        "Create New Database",
-        initial,
-        "SQLite DB Files (*.db);;All Files (*)",
-        options=options,
-    )
-    if not file_name:
         return
-    # Ensure .db extension
-    if not str(file_name).lower().endswith(".db"):
-        file_name = file_name + ".db"
-    import sqlite3
-
-    conn = sqlite3.connect(file_name)
-    cursor = conn.cursor()
-    cursor.executescript(
-        """
-        PRAGMA foreign_keys = ON;
-        CREATE TABLE IF NOT EXISTS notebooks (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            title TEXT NOT NULL,
-            created_at TEXT NOT NULL DEFAULT (datetime('now')),
-            modified_at TEXT NOT NULL DEFAULT (datetime('now')),
-            order_index INTEGER NOT NULL DEFAULT 0
-        );
-        CREATE TABLE IF NOT EXISTS sections (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            notebook_id INTEGER NOT NULL,
-            title TEXT NOT NULL,
-            color_hex TEXT,
-            created_at TEXT NOT NULL DEFAULT (datetime('now')),
-            modified_at TEXT NOT NULL DEFAULT (datetime('now')),
-            order_index INTEGER NOT NULL DEFAULT 0,
-            FOREIGN KEY (notebook_id) REFERENCES notebooks(id) ON DELETE CASCADE
-        );
-        CREATE TABLE IF NOT EXISTS pages (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            section_id INTEGER NOT NULL,
-            title TEXT NOT NULL,
-            content_html TEXT,
-            created_at TEXT NOT NULL DEFAULT (datetime('now')),
-            modified_at TEXT NOT NULL DEFAULT (datetime('now')),
-            order_index INTEGER NOT NULL DEFAULT 0,
-            FOREIGN KEY (section_id) REFERENCES sections(id) ON DELETE CASCADE
-        );
-    """
-    )
-    conn.commit()
-    # Set version to 2 (includes sections.color_hex)
-    cursor.execute("PRAGMA user_version = 2")
-    conn.commit()
-    conn.close()
-    # Prepare media root directory for this DB
+    def _handler(mode, context, message):  # pragma: no cover
+        try:
+            with open(log_path, 'a', encoding='utf-8') as f:
+                f.write(f"[QT] {message}\n")
+        except Exception:
+            pass
     try:
-        from media_store import ensure_dir, media_root_for_db
-
-        media_base = media_root_for_db(file_name)
-        ensure_dir(media_base)
+        qInstallMessageHandler(_handler)
     except Exception:
         pass
-    set_last_db(file_name)
-    clear_last_state()
-    # Force a clean restart so UI initializes with the new database
-    restart_application()
 
 
 def _select_left_tree_notebook(window, notebook_id: int):
-    tree_widget = window.findChild(QtWidgets.QTreeWidget, "notebookName")
-    if not tree_widget:
-        return
-    for i in range(tree_widget.topLevelItemCount()):
-        top = tree_widget.topLevelItem(i)
-        if top.data(0, 1000) == notebook_id:
-            tree_widget.setCurrentItem(top)
-            break
+    """Select a top-level notebook item in the left tree by id."""
+    try:
+        tree_widget = window.findChild(QtWidgets.QTreeWidget, "notebookName")
+        if not tree_widget:
+            return
+        for i in range(tree_widget.topLevelItemCount()):
+            top = tree_widget.topLevelItem(i)
+            nid = top.data(0, 1000)
+            try:
+                if int(nid) == int(notebook_id):
+                    tree_widget.setCurrentItem(top)
+                    window._current_notebook_id = int(notebook_id)
+                    return
+            except Exception:
+                pass
+    except Exception:
+        pass
 
 
 def add_binder(window):
-    title, ok = QtWidgets.QInputDialog.getText(
-        window, "Add Binder", "Binder title:", text="Untitled Binder"
-    )
+    """Create a new notebook (binder) and refresh the left tree."""
+    db_path = getattr(window, "_db_path", None) or get_last_db() or "notes.db"
+    title, ok = QtWidgets.QInputDialog.getText(window, "Add Binder", "Title:", text="Untitled Binder")
     if not ok:
         return
-    title = (title or "").strip() or "Untitled Binder"
-    db_path = getattr(window, "_db_path", None) or get_last_db() or "notes.db"
-    # Capture current expanded state of top-level binders and persist before refresh
+    title = (title or "Untitled Binder").strip() or "Untitled Binder"
     try:
-        tree_widget = window.findChild(QtWidgets.QTreeWidget, "notebookName")
-        expanded_ids = set()
-        if tree_widget is not None:
-            for i in range(tree_widget.topLevelItemCount()):
-                top = tree_widget.topLevelItem(i)
-                try:
-                    if top.isExpanded():
-                        tid = top.data(0, 1000)
-                        if tid is not None:
-                            expanded_ids.add(int(tid))
-                except Exception:
-                    pass
-        from settings_manager import set_expanded_notebooks
-
-        set_expanded_notebooks(expanded_ids)
-    except Exception:
-        pass
-
-    # (context menu wiring moved to main())
-
-    # Create notebook and refresh UI
-    nid = db_create_notebook(title, db_path)
-    set_last_state(notebook_id=nid, section_id=None, page_id=None)
+        nid = db_create_notebook(title, db_path)
+    except Exception as e:
+        QtWidgets.QMessageBox.warning(window, "Add Binder", f"Failed: {e}")
+        return
     populate_notebook_names(window, db_path)
-    # Restore previously expanded binders (do not auto-expand the new one)
+    _select_left_tree_notebook(window, nid)
     try:
-        from settings_manager import get_expanded_notebooks
-        from left_tree import ensure_left_tree_sections
-
-        persisted_ids = get_expanded_notebooks()
-        tree_widget = window.findChild(QtWidgets.QTreeWidget, "notebookName")
-        if tree_widget is not None and persisted_ids:
-            for i in range(tree_widget.topLevelItemCount()):
-                top = tree_widget.topLevelItem(i)
-                tid = top.data(0, 1000)
-                try:
-                    tid_int = int(tid)
-                except Exception:
-                    tid_int = None
-                if tid_int is not None and tid_int in persisted_ids:
-                    ensure_left_tree_sections(window, tid_int)
+        set_last_state(notebook_id=int(nid))
     except Exception:
         pass
-    # Select the new binder but keep it collapsed to preserve current tree state
-    _select_left_tree_notebook(window, nid)
-    refresh_for_notebook(window, nid)
+
+
+def create_new_database(window):
+    """Create a brand new database file and switch application context to it."""
+    dlg_path, _ = QtWidgets.QFileDialog.getSaveFileName(window, "Create New Database", "notes.db", "SQLite DB (*.db);;All Files (*)")
+    if not dlg_path:
+        return
+    try:
+        create_new_database_file(dlg_path)
+        set_last_db(dlg_path)
+        clear_last_state()
+        window._db_path = dlg_path
+    except Exception as e:
+        QtWidgets.QMessageBox.warning(window, "New Database", f"Failed: {e}")
+        return
+    populate_notebook_names(window, dlg_path)
+    try:
+        window.setWindowTitle(f"NoteBook — {dlg_path}")
+    except Exception:
+        pass
 
 
 def rename_binder(window):
@@ -520,148 +517,87 @@ def add_section(window):
 
 
 def _full_ui_refresh(window):
-    """Clear and rebuild the entire UI from current db_path and last state."""
+    """Two-pane only: clear left tree, repopulate binders, restore last position."""
     db_path = getattr(window, "_db_path", None) or get_last_db() or "notes.db"
-    # Clear widgets
     tree_widget = window.findChild(QtWidgets.QTreeWidget, "notebookName")
     if tree_widget:
         tree_widget.clear()
-    tab_widget = window.findChild(QtWidgets.QTabWidget, "tabPages")
-    if tab_widget:
-        tab_widget.clear()
-    right_tw = window.findChild(QtWidgets.QTreeWidget, "sectionPages")
-    if right_tw:
-        right_tw.clear()
-    right_tv = window.findChild(QtWidgets.QTreeView, "sectionPages")
-    if right_tv and right_tv.model() is not None:
-        right_tv.setModel(None)
     populate_notebook_names(window, db_path)
-    setup_tab_sync(window)
-    # In both legacy (tabs) and 2-column mode, restore last viewed position
+    setup_two_pane(window)
     restore_last_position(window)
-    # Prepare splitter stretch factors (favor center panel); apply sizes after show
     try:
         splitter = window.findChild(QtWidgets.QSplitter, "mainSplitter")
         if splitter is not None:
-            try:
-                splitter.setStretchFactor(0, 0)  # left
-                splitter.setStretchFactor(1, 2)  # center
-                splitter.setStretchFactor(2, 0)  # right
-            except Exception:
-                pass
+            splitter.setStretchFactor(0, 0)
+            splitter.setStretchFactor(1, 2)
+            # Ignore third pane (legacy right panel) if present
     except Exception:
         pass
 
 
 def add_page(window):
-    # Determine active section from: tabs (legacy), right pane, left pane (2-col), or current context
-    tab_widget = window.findChild(QtWidgets.QTabWidget, "tabPages")
-    tab_bar = tab_widget.tabBar() if tab_widget else None
+    """Add a new page under the currently selected Section in the left tree.
+
+    Two-pane simplification: ignore legacy tab/right panel paths; rely solely on
+    left binder tree selection. If a page is selected, use its parent section.
+    """
     section_id = None
-    if tab_widget and tab_widget.count() > 0 and tab_bar is not None:
-        idx = tab_widget.currentIndex()
-        section_id = tab_bar.tabData(idx)
-    if section_id is None:
-        # Right pane selection (legacy)
-        right_tw = window.findChild(QtWidgets.QTreeWidget, "sectionPages")
-        if right_tw and right_tw.currentItem() is not None:
-            cur = right_tw.currentItem()
-            kind = cur.data(0, 1001)
-            if kind == "section":
-                section_id = cur.data(0, 1000)
-            elif kind == "page":
-                section_id = cur.data(0, 1002)
-        # Model view
-        if section_id is None:
-            right_tv = window.findChild(QtWidgets.QTreeView, "sectionPages")
-            try:
-                idx_obj = right_tv.currentIndex() if right_tv is not None else None
-                if idx_obj is not None and idx_obj.isValid():
-                    kind = idx_obj.data(1001)
-                    if kind == "section":
-                        section_id = idx_obj.data(1000)
-                    elif kind == "page":
-                        section_id = idx_obj.data(1002)
-            except Exception:
-                pass
-    # Two-column: try left tree (notebookName)
-    if section_id is None:
-        try:
-            tree = window.findChild(QtWidgets.QTreeWidget, "notebookName")
-            cur = tree.currentItem() if tree is not None else None
-            if cur is not None and cur.parent() is not None:
+    try:
+        tree = window.findChild(QtWidgets.QTreeWidget, "notebookName")
+        if tree is not None:
+            cur = tree.currentItem()
+            if cur is not None:
                 kind = cur.data(0, 1001)
                 if kind == "section":
                     section_id = cur.data(0, 1000)
                 elif kind == "page":
-                    # Prefer explicit parent section id role, else derive from parent
-                    section_id = cur.data(0, 1002) or (
-                        cur.parent().data(0, 1000) if cur.parent() is not None else None
-                    )
-        except Exception:
-            pass
-    # Fallback to current section context in two-column mode
+                    section_id = cur.data(0, 1002)  # stored parent section id
+                elif kind is None and cur.parent() is None:
+                    # Binder selected: choose first child section if any
+                    for i in range(cur.childCount()):
+                        ch = cur.child(i)
+                        if ch.data(0, 1001) == "section":
+                            section_id = ch.data(0, 1000)
+                            break
+    except Exception:
+        section_id = None
     if section_id is None:
-        try:
-            if _is_two_column_ui(window):
-                section_id = getattr(window, "_current_section_id", None)
-        except Exception:
-            pass
-    if section_id is None:
-        QtWidgets.QMessageBox.information(
-            window, "Add Page", "Please select or create a section first."
-        )
+        QtWidgets.QMessageBox.information(window, "Add Page", "Please select a Section first.")
         return
-    db_path = getattr(window, "_db_path", None) or get_last_db() or "notes.db"
-    pid = db_create_page(int(section_id), "Untitled Page", db_path)
-    # Update UI depending on mode
     try:
-        if _is_two_column_ui(window):
-            # Refresh left tree under the owning binder so the new page appears
-            try:
-                # Find owning notebook for this section
-                import sqlite3
-
-                con = sqlite3.connect(db_path)
-                cur = con.cursor()
-                cur.execute("SELECT notebook_id FROM sections WHERE id = ?", (int(section_id),))
-                row = cur.fetchone()
-                con.close()
-                nb_id = int(row[0]) if row else None
-            except Exception:
-                nb_id = None
-            try:
-                if nb_id is not None:
-                    ensure_left_tree_sections(
-                        window, nb_id, select_section_id=int(section_id)
-                    )
-            except Exception:
-                pass
-            # Set current context and load the new page into the editor
-            try:
-                window._current_section_id = int(section_id)
-                if not hasattr(window, "_current_page_by_section"):
-                    window._current_page_by_section = {}
-                window._current_page_by_section[int(section_id)] = int(pid)
-            except Exception:
-                pass
-            try:
-                _load_page_two_column(window, int(pid))
-                # Ensure left tree selects the new page and section remains expanded
-                select_left_tree_page(window, int(section_id), int(pid))
-            except Exception:
-                pass
-            # Persist last state
-            try:
-                set_last_state(section_id=int(section_id), page_id=pid)
-            except Exception:
-                pass
+        db_path = getattr(window, "_db_path", None) or get_last_db() or "notes.db"
+        title, ok = QtWidgets.QInputDialog.getText(
+            window, "Add Page", "Page title:", text="Untitled Page"
+        )
+        if not ok:
             return
+        title = (title or "").strip() or "Untitled Page"
+        pid = db_create_page(int(section_id), title, db_path)
+        # Refresh children for the section's binder and select the new page
+        nb_id = getattr(window, "_current_notebook_id", None)
+        if nb_id is not None:
+            ensure_left_tree_sections(window, int(nb_id), select_section_id=int(section_id))
+        try:
+            select_left_tree_page(window, int(section_id), int(pid))
+        except Exception:
+            pass
+        try:
+            window._current_section_id = int(section_id)
+            if not hasattr(window, "_current_page_by_section"):
+                window._current_page_by_section = {}
+            window._current_page_by_section[int(section_id)] = int(pid)
+        except Exception:
+            pass
+        try:
+            _load_page_two_column(window, int(pid))
+        except Exception:
+            pass
+        try:
+            set_last_state(section_id=int(section_id), page_id=int(pid))
+        except Exception:
+            pass
     except Exception:
         pass
-    # Legacy tabs: persist and restore selection via tab logic
-    set_last_state(section_id=int(section_id), page_id=pid)
-    restore_last_position(window)
 
 
 def _current_page_context(window):
@@ -818,7 +754,6 @@ def backup_database_now(window):
         )
 
         dest = (get_exit_backup_dir() or "").strip()
-        # If not set, ask the user once where to put the backup
         if not dest:
             options = QtWidgets.QFileDialog.Options()
             chosen = QtWidgets.QFileDialog.getExistingDirectory(
@@ -827,7 +762,6 @@ def backup_database_now(window):
             if not chosen:
                 return
             dest = chosen
-            # Offer to remember this location for next time
             try:
                 remember = QtWidgets.QMessageBox.question(
                     window,
@@ -840,11 +774,9 @@ def backup_database_now(window):
             except Exception:
                 pass
 
-        # Run backup with a busy cursor
         QtWidgets.QApplication.setOverrideCursor(Qt.WaitCursor)
         try:
             from backup import make_exit_backup
-
             bundle = make_exit_backup(
                 db_path, dest, keep=int(get_backups_to_keep()), include_media=True
             )
@@ -862,337 +794,10 @@ def backup_database_now(window):
             QtWidgets.QMessageBox.warning(
                 window,
                 "Backup Failed",
-                "The backup could not be created. Please verify the destination folder and try again.",
+                "Backup did not create a bundle."
             )
     except Exception as e:
-        try:
-            QtWidgets.QMessageBox.warning(window, "Backup Failed", str(e))
-        except Exception:
-            pass
-
-
-def ensure_database_initialized(db_path):
-    """
-    Ensure database exists and has the required schema.
-    This should be called before any database operations.
-    """
-    import sqlite3
-    import os
-    
-    # Check if database file exists
-    if not os.path.exists(db_path):
-        create_new_database_file(db_path)
-        return
-    
-    # Database exists, check if it has the required tables
-    conn = sqlite3.connect(db_path)
-    cursor = conn.cursor()
-    
-    try:
-        # Try to query notebooks table
-        cursor.execute("SELECT COUNT(*) FROM notebooks")
-        conn.close()
-    except sqlite3.OperationalError as e:
-        if "no such table: notebooks" in str(e):
-            conn.close()
-            initialize_database_schema(db_path)
-        else:
-            conn.close()
-            raise
-
-
-def create_new_database_file(db_path):
-    """Create a new database file with proper schema"""
-    import sqlite3
-    
-    conn = sqlite3.connect(db_path)
-    cursor = conn.cursor()
-    
-    # Read schema from schema.sql file
-    try:
-        # In PyInstaller executable, schema.sql is in the same directory as the executable
-        import os
-        import sys
-        
-        if getattr(sys, 'frozen', False):
-            # Running in PyInstaller bundle
-            schema_path = os.path.join(sys._MEIPASS, 'schema.sql')
-        else:
-            # Running from source
-            schema_path = 'schema.sql'
-            
-        with open(schema_path, 'r') as f:
-            schema_sql = f.read()
-            
-        cursor.executescript(schema_sql)
-    except FileNotFoundError:
-        # Fallback to embedded schema
-                cursor.executescript('''
-            PRAGMA foreign_keys = ON;
-            
-            CREATE TABLE notebooks (
-              id            INTEGER PRIMARY KEY AUTOINCREMENT,
-              title         TEXT    NOT NULL,
-              created_at    TEXT    NOT NULL DEFAULT (datetime('now')),
-              modified_at   TEXT    NOT NULL DEFAULT (datetime('now')),
-              order_index   INTEGER NOT NULL DEFAULT 0
-            );
-            
-            CREATE TABLE sections (
-              id            INTEGER PRIMARY KEY AUTOINCREMENT,
-              notebook_id   INTEGER NOT NULL,
-              title         TEXT    NOT NULL,
-              color_hex     TEXT,
-              created_at    TEXT    NOT NULL DEFAULT (datetime('now')),
-              modified_at   TEXT    NOT NULL DEFAULT (datetime('now')),
-              order_index   INTEGER NOT NULL DEFAULT 0,
-              FOREIGN KEY (notebook_id) REFERENCES notebooks(id) ON DELETE CASCADE
-            );
-            
-            CREATE TABLE pages (
-              id            INTEGER PRIMARY KEY AUTOINCREMENT,
-              section_id    INTEGER NOT NULL,
-              title         TEXT    NOT NULL,
-              content_html  TEXT    NOT NULL,
-              created_at    TEXT    NOT NULL DEFAULT (datetime('now')),
-              modified_at   TEXT    NOT NULL DEFAULT (datetime('now')),
-                            order_index   INTEGER NOT NULL DEFAULT 0,
-                            parent_page_id INTEGER NULL,
-              FOREIGN KEY (section_id) REFERENCES sections(id) ON DELETE CASCADE
-            );
-                        CREATE INDEX IF NOT EXISTS idx_pages_parent ON pages(parent_page_id);
-        ''')
-    
-    # Set initial version
-    cursor.execute("PRAGMA user_version = 2")
-    conn.commit()
-    conn.close()
-
-
-def initialize_database_schema(db_path):
-    """Initialize schema for an existing but empty database"""
-    create_new_database_file(db_path)
-
-
-def migrate_database_if_needed(db_path):
-    from db_version import get_db_version, set_db_version
-
-    current_version = get_db_version(db_path)
-    target_version = 4  # Update as needed for future migrations
-    import sqlite3
-
-    if current_version < 1:
-        # baseline
-        set_db_version(1, db_path)
-        current_version = 1
-    if current_version < 2:
-        # Add color_hex to sections
-        try:
-            conn = sqlite3.connect(db_path)
-            cur = conn.cursor()
-            cur.execute("ALTER TABLE sections ADD COLUMN color_hex TEXT")
-            conn.commit()
-        except sqlite3.OperationalError:
-            # Column may already exist; ignore
-            pass
-        finally:
-            try:
-                conn.close()
-            except Exception:
-                pass
-        set_db_version(2, db_path)
-    if current_version < 3:
-        # Add media storage tables and a database metadata table (uuid)
-        import uuid
-
-        conn = sqlite3.connect(db_path)
-        try:
-            cur = conn.cursor()
-            cur.executescript(
-                """
-                CREATE TABLE IF NOT EXISTS db_metadata (
-                    id INTEGER PRIMARY KEY CHECK (id = 1),
-                    uuid TEXT NOT NULL
-                );
-                
-                CREATE TABLE IF NOT EXISTS media (
-                    id INTEGER PRIMARY KEY AUTOINCREMENT,
-                    sha256 TEXT NOT NULL UNIQUE,
-                    mime_type TEXT NOT NULL,
-                    ext TEXT NOT NULL,
-                    original_filename TEXT,
-                    size_bytes INTEGER,
-                    created_at TEXT NOT NULL DEFAULT (datetime('now'))
-                );
-                
-                CREATE TABLE IF NOT EXISTS media_refs (
-                    media_id INTEGER NOT NULL REFERENCES media(id) ON DELETE CASCADE,
-                    page_id INTEGER REFERENCES pages(id) ON DELETE CASCADE,
-                    section_id INTEGER REFERENCES sections(id) ON DELETE CASCADE,
-                    notebook_id INTEGER REFERENCES notebooks(id) ON DELETE CASCADE,
-                    role TEXT NOT NULL,
-                    CHECK (
-                        (page_id IS NOT NULL AND section_id IS NULL AND notebook_id IS NULL) OR
-                        (page_id IS NULL AND section_id IS NOT NULL AND notebook_id IS NULL) OR
-                        (page_id IS NULL AND section_id IS NULL AND notebook_id IS NOT NULL)
-                    )
-                );
-                CREATE INDEX IF NOT EXISTS idx_media_refs_media ON media_refs(media_id);
-                CREATE INDEX IF NOT EXISTS idx_media_refs_page ON media_refs(page_id);
-                CREATE INDEX IF NOT EXISTS idx_media_refs_section ON media_refs(section_id);
-                CREATE INDEX IF NOT EXISTS idx_media_refs_notebook ON media_refs(notebook_id);
-                """
-            )
-            # Initialize db_metadata uuid if missing
-            cur.execute("SELECT uuid FROM db_metadata WHERE id=1")
-            row = cur.fetchone()
-            if not row or not row[0]:
-                cur.execute(
-                    "INSERT OR REPLACE INTO db_metadata(id, uuid) VALUES (1, ?)",
-                    (str(uuid.uuid4()),),
-                )
-            conn.commit()
-        finally:
-            try:
-                conn.close()
-            except Exception:
-                pass
-        set_db_version(3, db_path)
-    if current_version < 4:
-        # Add hierarchical pages support: parent_page_id + index
-        import sqlite3
-
-        conn = sqlite3.connect(db_path)
-        try:
-            cur = conn.cursor()
-            try:
-                cur.execute("ALTER TABLE pages ADD COLUMN parent_page_id INTEGER NULL")
-            except sqlite3.OperationalError:
-                pass
-            try:
-                cur.execute("CREATE INDEX IF NOT EXISTS idx_pages_parent ON pages(parent_page_id)")
-            except Exception:
-                pass
-            conn.commit()
-        finally:
-            try:
-                conn.close()
-            except Exception:
-                pass
-        set_db_version(4, db_path)
-
-
-def open_database(window):
-    options = QtWidgets.QFileDialog.Options()
-    # Default to the configured Databases root
-    try:
-        import os
-
-        from settings_manager import get_databases_root
-
-        initial_dir = get_databases_root()
-    except Exception:
-        initial_dir = ""
-    file_name, _ = QtWidgets.QFileDialog.getOpenFileName(
-        window,
-        "Open Database",
-        initial_dir,
-        "SQLite DB Files (*.db);;All Files (*)",
-        options=options,
-    )
-    if not file_name:
-        return
-    # Switch in-process to the selected database (single-instance)
-    try:
-        # Flush current page/content if possible before switching
-        try:
-            save_current_page(window)
-        except Exception:
-            pass
-        # Cancel autosave timer/state (two-column mode)
-        try:
-            if hasattr(window, "_autosave_timer") and window._autosave_timer.isActive():
-                window._autosave_timer.stop()
-            window._two_col_dirty = False
-        except Exception:
-            pass
-        # Clear editor widgets
-        try:
-            te = window.findChild(QtWidgets.QTextEdit, "pageEdit")
-            if te is not None:
-                te.blockSignals(True)
-                te.setHtml("")
-                te.setReadOnly(True)
-                te.blockSignals(False)
-            title_le = window.findChild(QtWidgets.QLineEdit, "pageTitleEdit")
-            if title_le is not None:
-                title_le.blockSignals(True)
-                title_le.setText("")
-                title_le.setEnabled(False)
-                title_le.blockSignals(False)
-        except Exception:
-            pass
-        # Clear left/right trees
-        try:
-            left_tree = window.findChild(QtWidgets.QTreeWidget, "notebookName")
-            if left_tree is not None:
-                left_tree.clear()
-            right_tree = window.findChild(QtWidgets.QTreeWidget, "sectionPages")
-            if right_tree is not None:
-                right_tree.clear()
-        except Exception:
-            pass
-        # Reset contextual state
-        try:
-            window._current_notebook_id = None
-            window._current_section_id = None
-            window._current_page_by_section = {}
-        except Exception:
-            pass
-        # Point window to new database path
-        try:
-            window._db_path = file_name
-        except Exception:
-            pass
-        # Ensure and migrate schema before populating UI
-        try:
-            ensure_database_initialized(file_name)
-            migrate_database_if_needed(file_name)
-        except Exception:
-            pass
-        # Persist last used DB and clear last state snapshot
-        try:
-            set_last_db(file_name)
-            clear_last_state()
-        except Exception:
-            pass
-        # Update window title to reflect new DB
-        try:
-            window.setWindowTitle(f"NoteBook — {file_name}")
-        except Exception:
-            pass
-        # Re-populate notebook list for new database
-        try:
-            from ui_logic import populate_notebook_names
-
-            populate_notebook_names(window, file_name)
-        except Exception:
-            pass
-        # Reapply tab/tree sync wiring if needed (idempotent)
-        try:
-            from ui_tabs import setup_tab_sync
-
-            setup_tab_sync(window)
-        except Exception:
-            pass
-        # Inform user of successful switch (non-blocking)
-        try:
-            show_toast(window, "Database opened", 2000)
-        except Exception:
-            pass
-    except Exception as e:
-        QtWidgets.QMessageBox.warning(window, "Open Database", f"Failed to open database: {e}")
-
+        QtWidgets.QMessageBox.warning(window, "Backup Failed", f"Error: {e}")
 
 def save_database_as(window):
     """Save the current database and its media folder under a new name (copy) and switch to it."""
@@ -1391,7 +996,7 @@ def main():
     except Exception:
         pass
     populate_notebook_names(window, db_path)
-    setup_tab_sync(window)
+    setup_two_pane(window)
     restore_last_position(window)
     # Apply saved list scheme (ordered/unordered) to rich text
     try:
@@ -1737,7 +1342,7 @@ def main():
                                     right_tv = window.findChild(QtWidgets.QTreeView, "sectionPages")
                                     if right_tv is not None and right_tv.model() is not None and section_id is not None:
                                         model = right_tv.model()
-                                        from ui_tabs import USER_ROLE_ID, USER_ROLE_KIND
+                                        from two_pane_core import USER_ROLE_ID, USER_ROLE_KIND
                                         for row in range(model.rowCount()):
                                             idx = model.index(row, 0)
                                             try:
@@ -2069,6 +1674,87 @@ def main():
                 pass
 
         act_ren_sec.triggered.connect(_ren_section_from_menu)
+
+    # --- Tools / Maintenance menu: Normalize Page Order ---
+    try:
+        menubar = window.menuBar()
+        tools_menu = None
+        # Try to find existing 'Tools' or 'Maintenance' menu
+        for act in menubar.actions():
+            if act.menu() and act.text().strip().lower() in {"tools", "maintenance"}:
+                tools_menu = act.menu()
+                break
+        if tools_menu is None:
+            tools_menu = menubar.addMenu("Tools")
+        normalize_action = QtWidgets.QAction("Normalize Page Order", window)
+        normalize_action.setToolTip("Resequence order_index values (gap‑free) for all notebooks, sections, and pages")
+
+        def _normalize_order_indexes():
+            try:
+                from maintenance_order import collect_changes, summarize, apply_changes
+            except Exception as e:
+                QtWidgets.QMessageBox.warning(window, "Normalize", f"Maintenance module missing: {e}")
+                return
+            # Flush current edits first
+            try:
+                save_current_page(window)
+            except Exception:
+                pass
+            db_path = getattr(window, "_db_path", None) or get_last_db() or "notes.db"
+            try:
+                changes = collect_changes(db_path)
+            except Exception as e:
+                QtWidgets.QMessageBox.warning(window, "Normalize", f"Failed to collect changes: {e}")
+                return
+            total = sum(len(changes[k]) for k in changes)
+            summary = summarize(changes)
+            if total == 0:
+                QtWidgets.QMessageBox.information(window, "Normalize Page Order", f"Already normalized.\n\n{summary}")
+                return
+            # Offer backup + apply
+            msg_box = QtWidgets.QMessageBox(window)
+            msg_box.setWindowTitle("Normalize Page Order")
+            msg_box.setIcon(QtWidgets.QMessageBox.Question)
+            msg_box.setText("Proposed resequencing:\n\n" + summary + "\n\nCreate backup and apply normalization?")
+            backup_apply = msg_box.addButton("Backup && Apply", QtWidgets.QMessageBox.AcceptRole)
+            apply_only = msg_box.addButton("Apply Only", QtWidgets.QMessageBox.DestructiveRole)
+            cancel_btn = msg_box.addButton(QtWidgets.QMessageBox.Cancel)
+            msg_box.exec_()
+            chosen = msg_box.clickedButton()
+            if chosen == cancel_btn:
+                return
+            # Optional backup
+            if chosen == backup_apply:
+                try:
+                    import os, shutil, datetime
+                    stamp = datetime.datetime.now().strftime("%Y%m%d%H%M%S")
+                    base_dir = os.path.dirname(db_path) or "."
+                    backup_name = f"notes_pre_normalize_menu_{stamp}.db"
+                    backup_path = os.path.join(base_dir, backup_name)
+                    shutil.copy2(db_path, backup_path)
+                except Exception as e:
+                    QtWidgets.QMessageBox.warning(window, "Normalize", f"Backup failed (continuing): {e}")
+            # Apply changes
+            try:
+                apply_changes(db_path, changes)
+            except Exception as e:
+                QtWidgets.QMessageBox.critical(window, "Normalize", f"Failed to apply updates: {e}")
+                return
+            # Refresh current notebook tree & editor context
+            try:
+                nb_id = getattr(window, "_current_notebook_id", None)
+                if nb_id is not None:
+                    ensure_left_tree_sections(window, int(nb_id))
+                    refresh_for_notebook(window, int(nb_id))
+            except Exception:
+                pass
+            QtWidgets.QMessageBox.information(window, "Normalize Page Order", "Normalization complete.\n\n" + summarize(collect_changes(db_path)))
+
+        normalize_action.triggered.connect(_normalize_order_indexes)
+        tools_menu.addAction(normalize_action)
+        # (Legacy formula actions removed during feature rollback.)
+    except Exception:
+        pass
     # Insert menu: Page ops
     act_del_page = window.findChild(QtWidgets.QAction, "actionDelete_Page")
     if act_del_page:
@@ -2130,11 +1816,9 @@ def main():
                                 window, int(nb_id), select_section_id=int(section_id)
                             )
                         try:
-                            # Ensure section context and load first page (or clear)
-                            try:
-                                window._current_section_id = int(section_id)
-                            except Exception:
-                                window._current_section_id = section_id
+                            window._current_section_id = int(section_id)
+                        except Exception:
+                            window._current_section_id = section_id
                             _load_first_page_two_column(window)
                         except Exception:
                             pass
@@ -2957,8 +2641,6 @@ def main():
                     # Defer selection + page load until after the model rebuild settles
                     def _finalize_page_selection():
                         try:
-                            from ui_tabs import _load_page_for_current_tab as _load_page
-
                             # Suppress sync signals while we set selection
                             try:
                                 window._suppress_sync = True
@@ -3019,7 +2701,7 @@ def main():
                             except Exception:
                                 pass
                             try:
-                                _load_page(window, int(page_id))
+                                _load_page_two_column(window, int(page_id))
                             except Exception:
                                 pass
                             try:
@@ -3925,8 +3607,6 @@ def main():
     def save_geometry():
         # Save current page content first to avoid losing last-minute edits
         try:
-            from ui_tabs import save_current_page
-
             save_current_page(window)
         except Exception:
             pass
@@ -4003,8 +3683,6 @@ def main():
                     te.paste()
                 # Save after paste
                 try:
-                    from ui_tabs import save_current_page
-
                     save_current_page(window)
                 except Exception:
                     pass

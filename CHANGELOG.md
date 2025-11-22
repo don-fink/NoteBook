@@ -1,6 +1,12 @@
 
 
 ## Unreleased - 2025-10-11
+### Removed
+- Formula (table cell) feature fully rolled back; all related menu actions, persistence hooks, and parsing dependencies removed (beautifulsoup4 pruned).
+
+### Added / Restored
+- Reintroduced database initialization helpers (ensure_database_initialized, migrate_database_if_needed, create_new_database_file) after rollback cleanup.
+
 - 22c1c21 Changed over to 2-Column dis
 - 2b7c280 General HouseKeeping
 - a060ff4 Added copy and paste functionality to the rich text editor toolbar.

@@ -181,10 +181,7 @@ def install_image_support(text_edit: QtWidgets.QTextEdit):
             text_edit.viewport().setAcceptDrops(False)
     except Exception:
         pass
-    try:
         _install_image_context_menu(text_edit)
-    except Exception:
-        pass
     try:
         _install_image_shortcuts(text_edit)
     except Exception:
@@ -369,7 +366,7 @@ def _image_properties_dialog_apply(text_edit: QtWidgets.QTextEdit, info: dict):
         current_align = "center" if blk.blockFormat().alignment() & Qt.AlignHCenter else ("right" if blk.blockFormat().alignment() & Qt.AlignRight else "left")
     except Exception:
         current_align = "left"
-    dlg = _ImagePropertiesDialog(text_edit, info.get("name"), info.get("w"), info.get("h"), info.get("iw") or 0, info.get("ih") or 0, current_align)
+    dlg = _ImagePropertiesDialog(text_edit, info.get("name"), info.get("w"), info.get("h"), info.get("iw") or 0, info.get("ih") or 0, current_align)  # (Removed legacy _table_recalculate_formulas after formula feature rollback.)
     if dlg.exec_() != QtWidgets.QDialog.Accepted:
         return
     new_w, new_align, keep, alt_txt, title_txt = dlg.values()
@@ -1825,6 +1822,10 @@ def sanitize_html_for_storage(raw_html: str) -> str:
                 elif tag_l == "img" and lk in ("src", "alt", "title", "width", "height"):
                     allowed.append((k, v))
                 elif lk.startswith("data-"):
+                    # Previously preserved formula-related attributes; now dropped after rollback.
+                    continue
+                if tag_l == "div" and lk == "id" and str(v) == "NB_DATA_FORMULAS":
+                    # Sidecar div no longer used; skip.
                     continue
                 elif lk in (
                     "width",
@@ -1906,6 +1907,12 @@ def sanitize_html_for_storage(raw_html: str) -> str:
                     continue
                 if tag_l in ("p", "div") and lk == "align":
                     allowed.append((k, v))
+                if tag_l == "div" and lk == "id" and str(v) == "NB_DATA_FORMULAS":
+                    # Skip legacy sidecar id.
+                    continue
+                if lk.startswith("data-"):
+                    # Drop legacy formula attributes.
+                    continue
                 if tag_l == "img" and lk in ("src", "alt", "title", "width", "height"):
                     allowed.append((k, v))
                 elif tag_l in ("td", "th") and lk in ("colspan", "rowspan", "align", "valign"):
@@ -4019,8 +4026,7 @@ class _TableContextMenu(QObject):
             # Insert Planning Register (dialog) under Insert submenu
             act_ins_pr_dialog = sub_ins.addAction("Planning Register…")
             menu.addSeparator()
-            act_recalc = menu.addAction("Recalculate Formulas (SUM)")
-            menu.addSeparator()
+            # (Legacy formula action removed during rollback.)
             # Determine multi-cell selection rectangle (within chosen table)
             sel_rect = _table_selection_rect(self._edit, tbl)
             sel_rows = (sel_rect[2] - sel_rect[0] + 1) if sel_rect is not None else 1
@@ -4079,11 +4085,6 @@ class _TableContextMenu(QObject):
                 # Use the centralized HTML-based saver so data and styles are preserved
                 try:
                     save_current_table_as_preset(self._edit)
-                except Exception:
-                    pass
-            elif chosen == act_recalc and has_tbl:
-                try:
-                    _table_recalculate_formulas(self._edit, tbl)
                 except Exception:
                     pass
             elif has_tbl:
@@ -4471,31 +4472,7 @@ def _sum_range_in_table(table, start_addr: str, end_addr: str) -> float:
     return total
 
 
-_SUM_RE = re.compile(r"^\s*=\s*SUM\(\s*([A-Za-z]+\d+)\s*:\s*([A-Za-z]+\d+)\s*\)\s*$")
-
-
-def _table_recalculate_formulas(text_edit: QtWidgets.QTextEdit, table):
-    """Scan table for cells that contain '=SUM(A1:B10)' (case-insensitive) and replace with the computed sum.
-    Note: formulas are not persisted to storage; this is an in-session convenience feature.
-    """
-    try:
-        rows = table.rows()
-        cols = table.columns()
-        for r in range(rows):
-            for c in range(cols):
-                raw = _table_cell_plain_text(table, r, c)
-                if not raw:
-                    continue
-                m = _SUM_RE.match(raw)
-                if not m:
-                    continue
-                start_addr, end_addr = m.group(1), m.group(2)
-                val = _sum_range_in_table(table, start_addr, end_addr)
-                # Format without trailing .0 for integers
-                out = ("%d" % int(val)) if abs(val - int(val)) < 1e-9 else ("%s" % val)
-                _table_set_cell_plain_text(text_edit, table, r, c, out)
-    except Exception:
-        pass
+# (Removed legacy inline SUM formula recalculation support.)
 
 
 def _apply_selection_colors(text_edit: QtWidgets.QTextEdit, bg: QColor, fg: QColor):
