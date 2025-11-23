@@ -4014,6 +4014,8 @@ class _TableContextMenu(QObject):
                 return True
             # Otherwise, build the full table menu
             menu = QtWidgets.QMenu(self._edit)
+            # Precompute selection rectangle early (for multi-column operations)
+            sel_rect = _table_selection_rect(self._edit, tbl)
             # Insert submenu with Table and Planning Register
             sub_ins = menu.addMenu("Insert")
             act_ins = sub_ins.addAction("Table…")
@@ -4026,9 +4028,12 @@ class _TableContextMenu(QObject):
             # Insert Planning Register (dialog) under Insert submenu
             act_ins_pr_dialog = sub_ins.addAction("Planning Register…")
             menu.addSeparator()
-            # (Legacy formula action removed during rollback.)
+            # Currency column helpers
+            act_mark_currency = menu.addAction("Mark Column(s) as Currency + Total")
+            act_unmark_currency = menu.addAction("Clear Currency Formatting")
+            act_recalc_currency = menu.addAction("Update Currency Totals")
+            menu.addSeparator()
             # Determine multi-cell selection rectangle (within chosen table)
-            sel_rect = _table_selection_rect(self._edit, tbl)
             sel_rows = (sel_rect[2] - sel_rect[0] + 1) if sel_rect is not None else 1
             # Dynamic labels reflecting selection count
             act_row_above = menu.addAction(
@@ -4066,6 +4071,21 @@ class _TableContextMenu(QObject):
 
                     w = self._edit.window()
                     insert_planning_register_via_dialog(w)
+                except Exception:
+                    pass
+            elif chosen == act_mark_currency and has_tbl:
+                try:
+                    _table_mark_currency_columns(self._edit, tbl, sel_rect)
+                except Exception:
+                    pass
+            elif chosen == act_unmark_currency and has_tbl:
+                try:
+                    _table_unmark_currency_columns(self._edit, tbl, sel_rect)
+                except Exception:
+                    pass
+            elif chosen == act_recalc_currency and has_tbl:
+                try:
+                    _table_recompute_currency_columns(self._edit, tbl)
                 except Exception:
                     pass
             elif chosen == act_prop and has_tbl:
@@ -4473,6 +4493,194 @@ def _sum_range_in_table(table, start_addr: str, end_addr: str) -> float:
 
 
 # (Removed legacy inline SUM formula recalculation support.)
+
+# --- Currency Column Helpers ---
+_CURRENCY_SUFFIX = " (Currency)"
+
+def _format_currency(value: float) -> str:
+    try:
+        return f"${value:,.2f}"
+    except Exception:
+        return str(value)
+
+def _detect_currency_columns(table) -> set:
+    cols = set()
+    try:
+        if table.rows() == 0:
+            return cols
+        cols_count = table.columns()
+        for c in range(cols_count):
+            hdr_txt = _table_cell_plain_text(table, 0, c)
+            if isinstance(hdr_txt, str) and hdr_txt.endswith(_CURRENCY_SUFFIX):
+                cols.add(c)
+    except Exception:
+        pass
+    return cols
+
+def _table_mark_currency_columns(text_edit: QtWidgets.QTextEdit, table, sel_rect):
+    if table is None:
+        return
+    # Determine columns to mark: from selection if multi-cell, else current cell
+    cols_to_mark = set()
+    try:
+        if sel_rect is not None:
+            r0, r1, c0, c1 = sel_rect
+            for c in range(c0, c1 + 1):
+                cols_to_mark.add(c)
+        else:
+            cur = text_edit.textCursor()
+            cell = table.cellAt(cur)
+            if cell.isValid():
+                cols_to_mark.add(cell.column())
+    except Exception:
+        pass
+    if not cols_to_mark:
+        return
+    # Append suffix to header cells and right-align numeric cells
+    rows = table.rows()
+    for c in cols_to_mark:
+        # Header cell suffix
+        try:
+            hdr_txt = _table_cell_plain_text(table, 0, c)
+            if hdr_txt and not hdr_txt.endswith(_CURRENCY_SUFFIX):
+                _table_set_cell_plain_text(text_edit, table, 0, c, hdr_txt + _CURRENCY_SUFFIX)
+        except Exception:
+            pass
+        # Align all cells in column (excluding header maybe) to right
+        for r in range(1, rows):
+            try:
+                cell = table.cellAt(r, c)
+                if not cell.isValid():
+                    continue
+                cur = cell.firstCursorPosition()
+                bf = cur.blockFormat()
+                from PyQt5.QtCore import Qt as _Qt
+                bf.setAlignment(_Qt.AlignRight)
+                cur.setBlockFormat(bf)
+            except Exception:
+                pass
+    # Ensure a total row exists (last row). If last row header cell text equals 'Total', reuse.
+    try:
+        need_total_row = True
+        last_row_idx = rows - 1 if rows > 0 else -1
+        if last_row_idx >= 0:
+            first_cell_txt = _table_cell_plain_text(table, last_row_idx, 0)
+            if isinstance(first_cell_txt, str) and first_cell_txt.strip().lower() == "total":
+                need_total_row = False
+        if need_total_row:
+            table.appendRows(1)
+            last_row_idx = table.rows() - 1
+            _table_set_cell_plain_text(text_edit, table, last_row_idx, 0, "Total")
+        # Compute totals for newly marked columns immediately
+        for c in cols_to_mark:
+            total = 0.0
+            for r in range(1, last_row_idx):  # exclude header and total row
+                try:
+                    raw = _table_cell_plain_text(table, r, c)
+                    if not raw:
+                        continue
+                    # Strip currency symbols/commas
+                    cleaned = raw.replace("$", "").replace(",", "").strip()
+                    if cleaned.endswith(_CURRENCY_SUFFIX):
+                        cleaned = cleaned[:-len(_CURRENCY_SUFFIX)]
+                    val = float(cleaned) if cleaned else 0.0
+                    total += val
+                except Exception:
+                    pass
+            _table_set_cell_plain_text(text_edit, table, last_row_idx, c, _format_currency(total))
+            # Right-align total cell
+            try:
+                cell = table.cellAt(last_row_idx, c)
+                if cell.isValid():
+                    cur = cell.firstCursorPosition()
+                    bf = cur.blockFormat()
+                    from PyQt5.QtCore import Qt as _Qt
+                    bf.setAlignment(_Qt.AlignRight)
+                    cur.setBlockFormat(bf)
+            except Exception:
+                pass
+    except Exception:
+        pass
+
+def _table_unmark_currency_columns(text_edit: QtWidgets.QTextEdit, table, sel_rect):
+    if table is None or table.rows() == 0:
+        return
+    cols_all = _detect_currency_columns(table)
+    if not cols_all:
+        return
+    # Determine target columns via selection; if no selection, unmark all currency columns
+    target = set()
+    try:
+        if sel_rect is not None:
+            r0, r1, c0, c1 = sel_rect
+            for c in range(c0, c1 + 1):
+                if c in cols_all:
+                    target.add(c)
+        else:
+            target = cols_all
+    except Exception:
+        target = cols_all
+    if not target:
+        return
+    rows = table.rows()
+    for c in target:
+        # Remove suffix from header
+        try:
+            hdr_txt = _table_cell_plain_text(table, 0, c)
+            if hdr_txt and hdr_txt.endswith(_CURRENCY_SUFFIX):
+                base = hdr_txt[:-len(_CURRENCY_SUFFIX)]
+                _table_set_cell_plain_text(text_edit, table, 0, c, base)
+        except Exception:
+            pass
+    # Optionally clear totals (blank last row cells for these columns)
+    try:
+        last_row_idx = rows - 1
+        if last_row_idx > 0:
+            first_cell_txt = _table_cell_plain_text(table, last_row_idx, 0)
+            if isinstance(first_cell_txt, str) and first_cell_txt.strip().lower() == "total":
+                for c in target:
+                    _table_set_cell_plain_text(text_edit, table, last_row_idx, c, "")
+    except Exception:
+        pass
+
+def _table_recompute_currency_columns(text_edit: QtWidgets.QTextEdit, table):
+    if table is None or table.rows() < 2:
+        return
+    cols = _detect_currency_columns(table)
+    if not cols:
+        return
+    last_row_idx = table.rows() - 1
+    first_cell_txt = _table_cell_plain_text(table, last_row_idx, 0)
+    has_total_row = isinstance(first_cell_txt, str) and first_cell_txt.strip().lower() == "total"
+    if not has_total_row:
+        # Append total row if missing
+        table.appendRows(1)
+        last_row_idx = table.rows() - 1
+        _table_set_cell_plain_text(text_edit, table, last_row_idx, 0, "Total")
+    # Recompute totals
+    for c in cols:
+        total = 0.0
+        for r in range(1, last_row_idx):
+            try:
+                raw = _table_cell_plain_text(table, r, c)
+                if not raw:
+                    continue
+                cleaned = raw.replace("$", "").replace(",", "").strip()
+                val = float(cleaned) if cleaned else 0.0
+                total += val
+            except Exception:
+                pass
+        _table_set_cell_plain_text(text_edit, table, last_row_idx, c, _format_currency(total))
+        try:
+            cell = table.cellAt(last_row_idx, c)
+            if cell.isValid():
+                cur = cell.firstCursorPosition()
+                bf = cur.blockFormat()
+                from PyQt5.QtCore import Qt as _Qt
+                bf.setAlignment(_Qt.AlignRight)
+                cur.setBlockFormat(bf)
+        except Exception:
+            pass
 
 
 def _apply_selection_colors(text_edit: QtWidgets.QTextEdit, bg: QColor, fg: QColor):

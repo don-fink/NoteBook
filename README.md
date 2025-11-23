@@ -102,6 +102,26 @@ If you want to build the executable yourself:
 
 The experimental table cell formula feature (inline `=A1+B2`, `SUM(A1:B3)`, recalculation action, and hidden sidecar storage) was fully rolled back in November 2025. All related menu items, context actions, and the `beautifulsoup4` dependency were removed to simplify the editor and avoid fragile HTML attribute persistence. The former `table_formulas.py` module no longer exists. Any lingering `data-formula` attributes in older saved pages are treated as plain text and ignored.
 
+### Currency Columns (Selective Numeric Formatting)
+
+You can right‑click inside any table and choose:
+
+- Mark Column(s) as Currency + Total
+- Update Currency Totals
+- Clear Currency Formatting
+
+Marking a column:
+1. Appends " (Currency)" to the header cell text for each selected column.
+2. Right‑aligns all numeric cells in that column.
+3. Ensures a bottom "Total" row exists (adds one if missing) and writes the column sum formatted as `$1,234.56`.
+
+Updating totals recomputes sums after manual edits. Clearing formatting removes the header suffix and clears any total values for the selected columns (leaving the Total row itself intact if present).
+
+Notes:
+- Detection relies on the header cell suffix; style/class attributes are stripped during sanitization so text content is used for persistence.
+- Non‑numeric cells are ignored during summation; empty cells count as 0.
+- If no Total row exists one is created automatically when marking or updating.
+
 ### Paste modes
 - Rich (default): standard paste.
 - Text-only (Ctrl+Shift+V): inserts plain text, no formatting.
