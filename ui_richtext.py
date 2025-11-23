@@ -4031,7 +4031,6 @@ class _TableContextMenu(QObject):
             # Currency column helpers
             act_mark_currency = menu.addAction("Mark Column(s) as Currency + Total")
             act_unmark_currency = menu.addAction("Clear Currency Formatting")
-            act_recalc_currency = menu.addAction("Update Currency Totals")
             menu.addSeparator()
             # Determine multi-cell selection rectangle (within chosen table)
             sel_rows = (sel_rect[2] - sel_rect[0] + 1) if sel_rect is not None else 1
@@ -4081,11 +4080,6 @@ class _TableContextMenu(QObject):
             elif chosen == act_unmark_currency and has_tbl:
                 try:
                     _table_unmark_currency_columns(self._edit, tbl, sel_rect)
-                except Exception:
-                    pass
-            elif chosen == act_recalc_currency and has_tbl:
-                try:
-                    _table_recompute_currency_columns(self._edit, tbl)
                 except Exception:
                     pass
             elif chosen == act_prop and has_tbl:
@@ -4499,7 +4493,8 @@ _CURRENCY_SUFFIX = " (Currency)"
 
 def _format_currency(value: float) -> str:
     try:
-        return f"${value:,.2f}"
+        # Show negative values with leading minus (simple style)
+        return ("-$%s" % f"{abs(value):,.2f}") if value < 0 else f"${value:,.2f}"
     except Exception:
         return str(value)
 
@@ -4536,7 +4531,7 @@ def _table_mark_currency_columns(text_edit: QtWidgets.QTextEdit, table, sel_rect
         pass
     if not cols_to_mark:
         return
-    # Append suffix to header cells and right-align numeric cells
+    # Append suffix to header cells and right-align numeric cells; also format existing numeric entries
     rows = table.rows()
     for c in cols_to_mark:
         # Header cell suffix
@@ -4557,6 +4552,16 @@ def _table_mark_currency_columns(text_edit: QtWidgets.QTextEdit, table, sel_rect
                 from PyQt5.QtCore import Qt as _Qt
                 bf.setAlignment(_Qt.AlignRight)
                 cur.setBlockFormat(bf)
+                # Format numeric cell content as currency if parseable
+                raw = _table_cell_plain_text(table, r, c)
+                if raw:
+                    cleaned = raw.replace("$", "").replace(",", "").strip()
+                    # Allow leading minus
+                    try:
+                        val = float(cleaned)
+                        _table_set_cell_plain_text(text_edit, table, r, c, _format_currency(val))
+                    except Exception:
+                        pass
             except Exception:
                 pass
     # Ensure a total row exists (last row). If last row header cell text equals 'Total', reuse.
@@ -4668,6 +4673,8 @@ def _table_recompute_currency_columns(text_edit: QtWidgets.QTextEdit, table):
                 cleaned = raw.replace("$", "").replace(",", "").strip()
                 val = float(cleaned) if cleaned else 0.0
                 total += val
+                # Reformat cell display as currency
+                _table_set_cell_plain_text(text_edit, table, r, c, _format_currency(val))
             except Exception:
                 pass
         _table_set_cell_plain_text(text_edit, table, last_row_idx, c, _format_currency(total))
@@ -4681,6 +4688,48 @@ def _table_recompute_currency_columns(text_edit: QtWidgets.QTextEdit, table):
                 cur.setBlockFormat(bf)
         except Exception:
             pass
+
+
+def ensure_currency_columns_watcher(text_edit: QtWidgets.QTextEdit):
+    if text_edit is None or not isinstance(text_edit, QtWidgets.QTextEdit):
+        return
+    if hasattr(text_edit, "_currency_columns_watcher_active"):
+        return
+    text_edit._currency_columns_watcher_active = True
+    text_edit._currency_last_cell = None
+
+    def _on_cursor_changed():
+        try:
+            cur = text_edit.textCursor()
+            tbl = cur.currentTable()
+            prev = text_edit._currency_last_cell
+            if tbl is not None:
+                cell = tbl.cellAt(cur)
+                if cell.isValid():
+                    coord = (tbl, cell.row(), cell.column())
+                    if prev is None:
+                        text_edit._currency_last_cell = coord
+                    elif prev != coord:
+                        prev_tbl = prev[0]
+                        if prev_tbl is not None and _detect_currency_columns(prev_tbl):
+                            _table_recompute_currency_columns(text_edit, prev_tbl)
+                        text_edit._currency_last_cell = coord
+                else:
+                    if prev is not None:
+                        prev_tbl = prev[0]
+                        if prev_tbl is not None and _detect_currency_columns(prev_tbl):
+                            _table_recompute_currency_columns(text_edit, prev_tbl)
+                    text_edit._currency_last_cell = None
+            else:
+                if prev is not None:
+                    prev_tbl = prev[0]
+                    if prev_tbl is not None and _detect_currency_columns(prev_tbl):
+                        _table_recompute_currency_columns(text_edit, prev_tbl)
+                text_edit._currency_last_cell = None
+        except Exception:
+            pass
+
+    text_edit.cursorPositionChanged.connect(_on_cursor_changed)
 
 
 def _apply_selection_colors(text_edit: QtWidgets.QTextEdit, bg: QColor, fg: QColor):

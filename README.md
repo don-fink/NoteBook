@@ -107,20 +107,21 @@ The experimental table cell formula feature (inline `=A1+B2`, `SUM(A1:B3)`, reca
 You can right‑click inside any table and choose:
 
 - Mark Column(s) as Currency + Total
-- Update Currency Totals
 - Clear Currency Formatting
 
 Marking a column:
 1. Appends " (Currency)" to the header cell text for each selected column.
-2. Right‑aligns all numeric cells in that column.
+2. Right‑aligns and immediately currency‑formats every numeric cell in that column (e.g. `$1,234.56`, negatives as `-$1,234.56`).
 3. Ensures a bottom "Total" row exists (adds one if missing) and writes the column sum formatted as `$1,234.56`.
 
-Updating totals recomputes sums after manual edits. Clearing formatting removes the header suffix and clears any total values for the selected columns (leaving the Total row itself intact if present).
+Automatic updates: When you finish editing a cell (move the caret to a different cell or leave the table), that column’s numeric cells and its Total row are recomputed and re‑formatted automatically. No manual update action is required.
+
+Clearing formatting removes the header suffix and clears any total values for the selected columns (leaving the Total row itself intact if present).
 
 Notes:
 - Detection relies on the header cell suffix; style/class attributes are stripped during sanitization so text content is used for persistence.
 - Non‑numeric cells are ignored during summation; empty cells count as 0.
-- If no Total row exists one is created automatically when marking or updating.
+- If no Total row exists one is created automatically when marking or on first recompute.
 
 ### Paste modes
 - Rich (default): standard paste.

@@ -1046,6 +1046,11 @@ def main():
         te = window.findChild(QtWidgets.QTextEdit, "pageEdit")
         if te is not None and not SAFE_MODE:
             ensure_planning_register_watcher(te)
+            try:
+                from ui_richtext import ensure_currency_columns_watcher
+                ensure_currency_columns_watcher(te)
+            except Exception:
+                pass
     except Exception:
         pass
 
