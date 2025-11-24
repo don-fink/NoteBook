@@ -74,7 +74,7 @@
  [],
  False,
  False,
- 1763581026,
+ 1763985220,
  [('runw.exe',
    'C:\\Python '
    'Projects\\NoteBook_clean\\.venv\\Lib\\site-packages\\PyInstaller\\bootloader\\Windows-64bit-intel\\runw.exe',

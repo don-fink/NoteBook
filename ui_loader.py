@@ -88,12 +88,9 @@ def load_settings_dialog(parent: Optional[QtWidgets.QWidget] = None) -> QtWidget
 
 
 def load_main_window():
-    """Load the main window UI.
-    Prefer the new two-column layout (main_window_2_column.ui) if present,
-    otherwise fall back to the legacy tabbed layout (main_window.ui).
-    """
+    """Load the two-column main window UI."""
     base = _base_dir()
-    two_col = os.path.join(base, "main_window_2_column.ui")
-    legacy = os.path.join(base, "main_window.ui")
-    ui_path = two_col if os.path.exists(two_col) else legacy
+    ui_path = os.path.join(base, "main_window_2_column.ui")
+    if not os.path.exists(ui_path):
+        raise FileNotFoundError(f"Main window UI file not found: {ui_path}")
     return uic.loadUi(ui_path)

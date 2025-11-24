@@ -171,7 +171,7 @@ python -m pip install -r requirements-dev.txt
 - Qt Designer binaries and tools come from `pyqt5-tools` and related packages.
 - If you only need runtime deps, use `requirements.txt` instead.
 - Settings are stored per-user at `%LOCALAPPDATA%\NoteBook\settings.json`. If you choose a custom location in the Storage tab, the app writes a pointer file `settings.loc` under the default settings directory to remember it (do not distribute this file).
-- The UI is loaded from `main_window_2_column.ui` (if present) or falls back to `main_window.ui` via `ui_loader.py`.
+- The UI is loaded from `main_window_2_column.ui` via `ui_loader.py`.
 
 ## Troubleshooting
 - If the UI fails to load with an UnsupportedPropertyError for `list`, remove any `sizes` property on QSplitter in the `.ui` file; set sizes in code instead.

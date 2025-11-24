@@ -5,7 +5,7 @@ a = Analysis(
     ['main.py'],
     pathex=[],
     binaries=[],
-    datas=[('*.ui', '.'), ('themes', 'themes'), ('schema.sql', '.'), ('add_to_start_menu.cmd', '.'), ('clear_icon_cache.cmd', '.'), ('README.md', '.')],
+    datas=[('main_window_2_column.ui', '.'), ('settings_dialog.ui', '.'), ('themes', 'themes'), ('schema.sql', '.'), ('add_to_start_menu.cmd', '.'), ('clear_icon_cache.cmd', '.'), ('README.md', '.')],
     hiddenimports=['PyQt5.QtCore', 'PyQt5.QtWidgets', 'PyQt5.QtGui', 'PyQt5.uic', 'sqlite3', 'settings_manager', 'db_access', 'db_pages', 'db_sections', 'db_version', 'media_store', 'ui_loader', 'ui_logic', 'ui_richtext', 'ui_sections', 'ui_planning_register', 'left_tree', 'page_editor', 'two_pane_core'],
     hookspath=[],
     hooksconfig={},
