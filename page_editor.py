@@ -15,17 +15,15 @@ All functions must be safe to call when widgets are missing; they no‑op.
 
 from typing import Optional
 
-# Delegate to existing implementation in ui_tabs
-from ui_tabs import (
-    _cancel_autosave as cancel_autosave,  # noqa: F401
-    _is_two_column_ui as is_two_column_ui,  # noqa: F401
-    _load_first_page_two_column as _ui_load_first_page_two_column,  # internal alias
-    _load_page_two_column as _ui_load_page_two_column,  # noqa: F401
-    _save_title_two_column as save_title_two_column,  # noqa: F401
-    _set_page_edit_html as _ui_set_page_edit_html,  # noqa: F401
-    save_current_page_two_column,  # noqa: F401
-    save_current_page as _save_current_page_generic,
+# Delegate to two-pane core (with legacy-safe wrappers elsewhere)
+from two_pane_core import (
+    is_two_column_ui,  # noqa: F401
+    load_first_page as _ui_load_first_page_two_column,
+    load_page as _ui_load_page_two_column,  # noqa: F401
+    save_current_title as save_title_two_column,  # noqa: F401
 )
+from two_pane_core import save_current_page as _save_current_page_generic
+from two_pane_core import _set_page_edit_html as _ui_set_page_edit_html  # type: ignore
 
 from PyQt5 import QtWidgets
 from PyQt5.QtCore import QUrl

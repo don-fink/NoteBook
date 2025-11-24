@@ -20,7 +20,8 @@ from db_pages import (
 from db_sections import get_sections_by_notebook_id
 from page_editor import is_two_column_ui as _is_two_col
 from page_editor import load_page as _load_page_2col
-from ui_tabs import load_first_page_for_current_tab, select_tab_for_section
+from two_pane_core import load_first_page as load_first_page_for_current_tab
+from two_pane_core import select_section as select_tab_for_section
 
 
 def _add_child_pages_recursively(section_id: int, parent_page_id: int, parent_item: QtWidgets.QTreeWidgetItem, db_path: str):

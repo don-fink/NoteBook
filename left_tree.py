@@ -11,23 +11,17 @@ from PyQt5.QtCore import QEvent, QObject, QTimer
 from PyQt5.QtCore import Qt, QRect
 from PyQt5.QtGui import QColor, QBrush
 
-# Temporary re-exports while we still rely on ui_tabs under the hood
-from ui_tabs import (  # noqa: F401
-    ensure_left_tree_sections,
-    refresh_for_notebook,
-)
+# Temporary re-exports while we migrate away from ui_tabs — now two-pane native
+from two_pane_core import ensure_left_tree_sections, refresh_for_notebook  # noqa: F401
 
-# Convenience re-exports for selection helpers
-from ui_tabs import (  # noqa: F401
+# Convenience re-exports for selection helpers (two-pane variants)
+from two_pane_core import (  # noqa: F401
     _select_left_binder as select_left_binder,
     _select_tree_section as select_tree_section,
 )
 
-# Additional helpers used by callers
-from ui_tabs import (  # noqa: F401
-    _select_left_tree_page as select_left_tree_page,
-    _update_left_tree_page_title as update_left_tree_page_title,
-)
+# Additional helpers used by callers (prefer core where available)
+from two_pane_core import select_left_tree_page, update_left_tree_page_title  # noqa: F401
 
 
 class LeftTreeDnDFilter(QObject):
