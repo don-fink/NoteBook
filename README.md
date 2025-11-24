@@ -139,6 +139,16 @@ You can set the default paste mode from the Edit menu.
 - Paste a URL in Match Style or Clean to auto-link it (e.g., https://example.com).
 - Click a link to open it in your default browser.
 
+## Help Menu
+
+The Help menu provides quick access to documentation and information:
+
+- **Documentation** — Opens this README file in your default markdown viewer/browser
+- **Keyboard Shortcuts** — Displays a dialog with common keyboard shortcuts for editing, tables, and currency columns
+- **About NoteBook** — Shows version information and feature summary
+
+For detailed guidance on specific features, refer to the sections below or use the Documentation menu item.
+
 ## Dev setup
 
 - Create and activate a virtual environment (recommended)

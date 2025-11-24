@@ -166,6 +166,10 @@
     <property name="title">
      <string>Help</string>
     </property>
+    <addaction name="actionDocumentation"/>
+    <addaction name="actionKeyboard_Shortcuts"/>
+    <addaction name="separator"/>
+    <addaction name="actionAbout"/>
    </widget>
    <widget class="QMenu" name="menuEdit">
     <property name="title">
@@ -482,6 +486,21 @@
   <action name="actionImport_Binder">
    <property name="text">
     <string>Import Binder</string>
+   </property>
+  </action>
+  <action name="actionDocumentation">
+   <property name="text">
+    <string>Documentation</string>
+   </property>
+  </action>
+  <action name="actionKeyboard_Shortcuts">
+   <property name="text">
+    <string>Keyboard Shortcuts</string>
+   </property>
+  </action>
+  <action name="actionAbout">
+   <property name="text">
+    <string>About NoteBook</string>
    </property>
   </action>
  </widget>

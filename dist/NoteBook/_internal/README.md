@@ -139,6 +139,16 @@ You can set the default paste mode from the Edit menu.
 - Paste a URL in Match Style or Clean to auto-link it (e.g., https://example.com).
 - Click a link to open it in your default browser.
 
+## Help Menu
+
+The Help menu provides quick access to documentation and information:
+
+- **Documentation** — Opens this README file in your default markdown viewer/browser
+- **Keyboard Shortcuts** — Displays a dialog with common keyboard shortcuts for editing, tables, and currency columns
+- **About NoteBook** — Shows version information and feature summary
+
+For detailed guidance on specific features, refer to the sections below or use the Documentation menu item.
+
 ## Dev setup
 
 - Create and activate a virtual environment (recommended)
@@ -171,7 +181,7 @@ python -m pip install -r requirements-dev.txt
 - Qt Designer binaries and tools come from `pyqt5-tools` and related packages.
 - If you only need runtime deps, use `requirements.txt` instead.
 - Settings are stored per-user at `%LOCALAPPDATA%\NoteBook\settings.json`. If you choose a custom location in the Storage tab, the app writes a pointer file `settings.loc` under the default settings directory to remember it (do not distribute this file).
-- The UI is loaded from `main_window_2_column.ui` (if present) or falls back to `main_window.ui` via `ui_loader.py`.
+- The UI is loaded from `main_window_2_column.ui` via `ui_loader.py`.
 
 ## Troubleshooting
 - If the UI fails to load with an UnsupportedPropertyError for `list`, remove any `sizes` property on QSplitter in the `.ui` file; set sizes in code instead.

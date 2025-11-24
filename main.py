@@ -3495,6 +3495,105 @@ def main():
     except Exception:
         pass
 
+    # Help menu
+    try:
+        act_documentation = window.findChild(QtWidgets.QAction, "actionDocumentation")
+        if act_documentation:
+            def _open_documentation():
+                """Open the README.md file in the default browser."""
+                try:
+                    from PyQt5.QtCore import QUrl
+                    from PyQt5.QtGui import QDesktopServices
+                    import os
+                    
+                    readme_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "README.md")
+                    if os.path.exists(readme_path):
+                        QDesktopServices.openUrl(QUrl.fromLocalFile(readme_path))
+                    else:
+                        QtWidgets.QMessageBox.warning(
+                            window, "Documentation", "README.md not found."
+                        )
+                except Exception as e:
+                    QtWidgets.QMessageBox.warning(
+                        window, "Documentation", f"Failed to open documentation: {e}"
+                    )
+            act_documentation.triggered.connect(_open_documentation)
+
+        act_shortcuts = window.findChild(QtWidgets.QAction, "actionKeyboard_Shortcuts")
+        if act_shortcuts:
+            def _show_shortcuts():
+                """Show a dialog with keyboard shortcuts."""
+                try:
+                    msg = """<h3>Keyboard Shortcuts</h3>
+<table border="0" cellpadding="5">
+<tr><td><b>General</b></td><td></td></tr>
+<tr><td>Ctrl+N</td><td>New Database</td></tr>
+<tr><td>Ctrl+O</td><td>Open Database</td></tr>
+<tr><td>Ctrl+S</td><td>Save (auto-saves on edit)</td></tr>
+<tr><td>Ctrl+Shift+S</td><td>Save Database As...</td></tr>
+<tr><td></td><td></td></tr>
+<tr><td><b>Editing</b></td><td></td></tr>
+<tr><td>Ctrl+B</td><td>Bold</td></tr>
+<tr><td>Ctrl+I</td><td>Italic</td></tr>
+<tr><td>Ctrl+U</td><td>Underline</td></tr>
+<tr><td>Ctrl+V</td><td>Paste (mode set in Edit menu)</td></tr>
+<tr><td>Ctrl+Shift+V</td><td>Paste as Plain Text</td></tr>
+<tr><td></td><td></td></tr>
+<tr><td><b>Tables</b></td><td></td></tr>
+<tr><td>Tab</td><td>Next cell (or insert row at end)</td></tr>
+<tr><td>Shift+Tab</td><td>Previous cell</td></tr>
+<tr><td>Right-click</td><td>Table context menu</td></tr>
+<tr><td></td><td></td></tr>
+<tr><td><b>Currency Columns</b></td><td></td></tr>
+<tr><td>Click header</td><td>Mark/unmark column as currency</td></tr>
+<tr><td>Auto-format</td><td>Numbers formatted as $#,##0.00</td></tr>
+<tr><td>Auto-total</td><td>Sum appears in bottom Total row</td></tr>
+</table>
+"""
+                    dlg = QtWidgets.QMessageBox(window)
+                    dlg.setWindowTitle("Keyboard Shortcuts")
+                    dlg.setTextFormat(Qt.RichText)
+                    dlg.setText(msg)
+                    dlg.setIcon(QtWidgets.QMessageBox.Information)
+                    dlg.exec_()
+                except Exception as e:
+                    QtWidgets.QMessageBox.warning(
+                        window, "Shortcuts", f"Failed to display shortcuts: {e}"
+                    )
+            act_shortcuts.triggered.connect(_show_shortcuts)
+
+        act_about = window.findChild(QtWidgets.QAction, "actionAbout")
+        if act_about:
+            def _show_about():
+                """Show About dialog with version and credits."""
+                try:
+                    msg = """<h2>NoteBook</h2>
+<p><b>Version:</b> 1.0.0</p>
+<p>A rich-text note-taking application with binders, sections, and pages.</p>
+<p><b>Features:</b></p>
+<ul>
+<li>Rich text editing with tables, images, and attachments</li>
+<li>Currency columns with automatic formatting and totals</li>
+<li>Planning registers for structured data entry</li>
+<li>SQLite-based storage with media management</li>
+<li>Customizable themes and settings</li>
+</ul>
+<p>Built with PyQt5 and Python.</p>
+"""
+                    dlg = QtWidgets.QMessageBox(window)
+                    dlg.setWindowTitle("About NoteBook")
+                    dlg.setTextFormat(Qt.RichText)
+                    dlg.setText(msg)
+                    dlg.setIcon(QtWidgets.QMessageBox.Information)
+                    dlg.exec_()
+                except Exception as e:
+                    QtWidgets.QMessageBox.warning(
+                        window, "About", f"Failed to display about dialog: {e}"
+                    )
+            act_about.triggered.connect(_show_about)
+    except Exception:
+        pass
+
     window.show()
 
     # Ensure the window is actually visible on current monitors (handles monitor changes)
