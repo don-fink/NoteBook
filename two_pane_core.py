@@ -163,6 +163,26 @@ def save_current_title(window):
 
 
 def update_left_tree_page_title(window, section_id: int, page_id: int, new_title: str):
+    """Update the title of a page in the left tree.
+    
+    Recursively searches for the page, including subpages nested under other pages.
+    """
+    def _find_and_update_page(parent_item, target_page_id, new_title):
+        """Recursively search for a page item and update its title."""
+        for i in range(parent_item.childCount()):
+            child = parent_item.child(i)
+            if (
+                child
+                and child.data(0, USER_ROLE_KIND) == "page"
+                and int(child.data(0, USER_ROLE_ID)) == int(target_page_id)
+            ):
+                child.setText(0, new_title)
+                return True
+            # Recursively search this child's children
+            if _find_and_update_page(child, target_page_id, new_title):
+                return True
+        return False
+
     try:
         tree_widget = window.findChild(QtWidgets.QTreeWidget, "notebookName")
         if not tree_widget:
@@ -176,15 +196,9 @@ def update_left_tree_page_title(window, section_id: int, page_id: int, new_title
                     and sec_item.data(0, USER_ROLE_KIND) == "section"
                     and int(sec_item.data(0, USER_ROLE_ID)) == int(section_id)
                 ):
-                    for k in range(sec_item.childCount()):
-                        page_item = sec_item.child(k)
-                        if (
-                            page_item
-                            and page_item.data(0, USER_ROLE_KIND) == "page"
-                            and int(page_item.data(0, USER_ROLE_ID)) == int(page_id)
-                        ):
-                            page_item.setText(0, new_title)
-                            return
+                    # Recursively search and update the page title
+                    if _find_and_update_page(sec_item, page_id, new_title):
+                        return
     except Exception:
         pass
 
@@ -364,7 +378,8 @@ def restore_last_position(window):
                 _select_tree_section(window, int(section_id))
             except Exception:
                 pass
-        # Load page or first page
+        # Restore page selection in left tree, but DON'T load it automatically
+        # User must click a page to see content
         try:
             if page_id is not None and section_id is not None:
                 if not hasattr(window, "_current_page_by_section"):
@@ -373,26 +388,30 @@ def restore_last_position(window):
                     window._current_page_by_section[int(section_id)] = int(page_id)
                 except Exception:
                     window._current_page_by_section[section_id] = page_id
-                load_page(window, int(page_id))
+                # Select the page in the tree, but leave editor empty
                 try:
                     from left_tree import select_left_tree_page as _select_left_tree_page
                     _select_left_tree_page(window, int(section_id), int(page_id))
                 except Exception:
                     pass
-            else:
-                load_first_page(window)
+        except Exception:
+            pass
+        # Clear editor and set read-only until user clicks a page
+        try:
+            load_page(window, None)  # Clears editor, disables title, sets read-only
         except Exception:
             pass
     except Exception:
         pass
 
 
-def ensure_left_tree_sections(window, notebook_id: int, select_section_id: int = None):
+def ensure_left_tree_sections(window, notebook_id: int, select_section_id: int = None, expand_page_id: int = None):
     """Ensure the left tree shows Sections and Pages under the given binder.
 
     - Finds the top-level binder item with id == notebook_id
     - Rebuilds its children using ui_sections.add_sections_as_children
     - Expands the binder and optionally selects a Section
+    - Optionally expands a parent page to show newly created subpages
     """
     try:
         tree_widget = window.findChild(QtWidgets.QTreeWidget, "notebookName")
@@ -435,6 +454,8 @@ def ensure_left_tree_sections(window, notebook_id: int, select_section_id: int =
                 int(notebook_id),
                 binder_item,
                 getattr(window, "_db_path", None) or "notes.db",
+                expand_section_id=select_section_id,
+                expand_page_id=expand_page_id,
             )
         except Exception:
             pass
@@ -443,12 +464,31 @@ def ensure_left_tree_sections(window, notebook_id: int, select_section_id: int =
             binder_item.setExpanded(True)
         except Exception:
             pass
-        # Optionally select a section in the rebuilt tree
+        # Optionally select the section in the rebuilt tree
         if select_section_id is not None:
             try:
-                _select_tree_section(window, int(select_section_id))
+                # Find and select the section (it's already expanded from add_sections_as_children)
+                for j in range(binder_item.childCount()):
+                    sec_item = binder_item.child(j)
+                    try:
+                        if sec_item.data(0, USER_ROLE_KIND) == "section" and int(sec_item.data(0, USER_ROLE_ID)) == int(select_section_id):
+                            tree_widget.setCurrentItem(sec_item)
+                            break
+                    except Exception:
+                        pass
             except Exception:
                 pass
+        # Force tree widget to update its display - multiple strategies
+        try:
+            from PyQt5.QtWidgets import QApplication
+            QApplication.processEvents()
+            tree_widget.viewport().update()
+            tree_widget.update()
+            tree_widget.repaint()
+            tree_widget.viewport().repaint()
+            QApplication.processEvents()
+        except Exception:
+            pass
     except Exception:
         pass
 
@@ -778,7 +818,24 @@ def select_left_tree_page(window, section_id: int, page_id: int):
     """Select a page under the given section in the left binder tree.
 
     Expands the binder and section as needed so the page is visible.
+    Recursively searches for pages, including subpages nested under other pages.
     """
+    def _find_page_recursive(parent_item, target_page_id):
+        """Recursively search for a page item by ID."""
+        for i in range(parent_item.childCount()):
+            child = parent_item.child(i)
+            if (
+                child
+                and child.data(0, USER_ROLE_KIND) == "page"
+                and int(child.data(0, USER_ROLE_ID)) == int(target_page_id)
+            ):
+                return child
+            # Recursively search this child's children
+            result = _find_page_recursive(child, target_page_id)
+            if result is not None:
+                return result
+        return None
+
     try:
         tree_widget = window.findChild(QtWidgets.QTreeWidget, "notebookName")
         if not tree_widget:
@@ -802,14 +859,16 @@ def select_left_tree_page(window, section_id: int, page_id: int):
                             sec_item.setExpanded(True)
                     except Exception:
                         pass
-                    for k in range(sec_item.childCount()):
-                        page_item = sec_item.child(k)
-                        if (
-                            page_item
-                            and page_item.data(0, USER_ROLE_KIND) == "page"
-                            and int(page_item.data(0, USER_ROLE_ID)) == int(page_id)
-                        ):
-                            tree_widget.setCurrentItem(page_item)
-                            return
+                    # Recursively search for the page (handles subpages)
+                    page_item = _find_page_recursive(sec_item, page_id)
+                    if page_item is not None:
+                        # Expand all parent pages along the path to make the target visible
+                        parent = page_item.parent()
+                        while parent is not None and parent != sec_item:
+                            if parent.data(0, USER_ROLE_KIND) == "page":
+                                parent.setExpanded(True)
+                            parent = parent.parent()
+                        tree_widget.setCurrentItem(page_item)
+                        return
     except Exception:
         pass

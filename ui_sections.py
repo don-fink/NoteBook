@@ -61,7 +61,7 @@ def _add_child_pages_recursively(section_id: int, parent_page_id: int, parent_it
         _add_child_pages_recursively(section_id, int(page_id), page_item, db_path)
 
 
-def add_sections_as_children(tree_widget, notebook_id, parent_item, db_path):
+def add_sections_as_children(tree_widget, notebook_id, parent_item, db_path, expand_section_id=None, expand_page_id=None):
     """Populate the given binder item with its sections and pages.
 
     Creates one child per Section under the provided parent binder item, and
@@ -70,6 +70,10 @@ def add_sections_as_children(tree_widget, notebook_id, parent_item, db_path):
     Roles used:
       - column 0, role 1000: id (section_id or page_id)
       - column 0, role 1001: kind ('section' or 'page')
+    
+    Args:
+        expand_section_id: If provided, expand this section after adding its pages
+        expand_page_id: If provided, expand this page to show its subpages
     """
     sections = get_sections_by_notebook_id(notebook_id, db_path)
     for section in sections:
@@ -133,6 +137,13 @@ def add_sections_as_children(tree_widget, notebook_id, parent_item, db_path):
             sec_item.addChild(page_item)
             # Recursively add subpages
             _add_child_pages_recursively(section_id, int(page_id), page_item, db_path)
+            # Expand this page if requested (to show newly created subpages)
+            if expand_page_id is not None and int(page_id) == int(expand_page_id):
+                page_item.setExpanded(True)
+        
+        # Expand this section if requested
+        if expand_section_id is not None and int(section_id) == int(expand_section_id):
+            sec_item.setExpanded(True)
 
 
 def on_notebook_clicked(item, column):

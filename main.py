@@ -574,7 +574,18 @@ def add_page(window):
         title = (title or "").strip() or "Untitled Page"
         pid = db_create_page(int(section_id), title, db_path)
         # Refresh children for the section's binder and select the new page
-        nb_id = getattr(window, "_current_notebook_id", None)
+        # Look up the notebook_id for this section instead of using the current active notebook
+        nb_id = None
+        try:
+            import sqlite3
+            con = sqlite3.connect(db_path)
+            cur = con.cursor()
+            cur.execute("SELECT notebook_id FROM sections WHERE id = ?", (int(section_id),))
+            row = cur.fetchone()
+            con.close()
+            nb_id = int(row[0]) if row else None
+        except Exception:
+            nb_id = getattr(window, "_current_notebook_id", None)
         if nb_id is not None:
             ensure_left_tree_sections(window, int(nb_id), select_section_id=int(section_id))
         try:
@@ -1255,17 +1266,23 @@ def main():
                             except Exception:
                                 new_pid = None
                             # Refresh left tree for this binder and select the new subpage
+                            # Look up the notebook_id for this section instead of traversing the tree
+                            nb_id = None
                             try:
-                                # Find owning notebook id from parent binder item
-                                nb_item = item
-                                while nb_item is not None and nb_item.parent() is not None:
-                                    nb_item = nb_item.parent()
-                                nb_id = nb_item.data(0, 1000) if nb_item is not None else None
+                                import sqlite3
+                                con = sqlite3.connect(db_path)
+                                cur = con.cursor()
+                                cur.execute("SELECT notebook_id FROM sections WHERE id = ?", (int(section_id),))
+                                row = cur.fetchone()
+                                con.close()
+                                nb_id = int(row[0]) if row else None
                             except Exception:
                                 nb_id = getattr(window, "_current_notebook_id", None)
                             if nb_id is not None:
                                 try:
-                                    ensure_left_tree_sections(window, int(nb_id), select_section_id=int(section_id))
+                                    # Pass parent page_id to expand_page_id so the parent opens to show the new subpage
+                                    # Don't pass select_section_id - let select_left_tree_page handle the selection below
+                                    ensure_left_tree_sections(window, int(nb_id), expand_page_id=int(page_id))
                                 except Exception:
                                     pass
                             # Select the newly created subpage
@@ -1382,35 +1399,58 @@ def main():
                                 db_delete_page(int(page_id), db_path)
                             except Exception:
                                 pass
-                            # Two-column: refresh section's children and load first page
+                            # Determine if this was a subpage by checking if parent is a page
+                            parent_page_id = None
+                            try:
+                                parent_item = item.parent()
+                                if parent_item is not None and parent_item.data(0, 1001) == "page":
+                                    parent_page_id = parent_item.data(0, 1000)
+                            except Exception:
+                                pass
+                            # Two-column: refresh section's children and select parent page or section
                             try:
                                 if _is_two_column_ui(window):
-                                    # Determine notebook id for this section
-                                    nb_id = getattr(window, "_current_notebook_id", None)
-                                    if nb_id is None and section_id is not None:
-                                        import sqlite3
+                                    # Determine notebook id for this section (always look up from section, not current notebook)
+                                    nb_id = None
+                                    if section_id is not None:
+                                        try:
+                                            import sqlite3
 
-                                        con = sqlite3.connect(db_path)
-                                        cur = con.cursor()
-                                        cur.execute(
-                                            "SELECT notebook_id FROM sections WHERE id = ?",
-                                            (int(section_id),),
-                                        )
-                                        row = cur.fetchone()
-                                        con.close()
-                                        nb_id = int(row[0]) if row else None
+                                            con = sqlite3.connect(db_path)
+                                            cur = con.cursor()
+                                            cur.execute(
+                                                "SELECT notebook_id FROM sections WHERE id = ?",
+                                                (int(section_id),),
+                                            )
+                                            row = cur.fetchone()
+                                            con.close()
+                                            nb_id = int(row[0]) if row else None
+                                        except Exception:
+                                            nb_id = getattr(window, "_current_notebook_id", None)
                                     if nb_id is not None:
-                                        ensure_left_tree_sections(
-                                            window, int(nb_id), select_section_id=int(section_id) if section_id is not None else None
-                                        )
-                                    # Clear current if we deleted the active page, then load first page
+                                        # If this was a subpage, expand the parent page instead of selecting the section
+                                        if parent_page_id is not None:
+                                            ensure_left_tree_sections(window, int(nb_id), expand_page_id=int(parent_page_id))
+                                        else:
+                                            ensure_left_tree_sections(
+                                                window, int(nb_id), select_section_id=int(section_id) if section_id is not None else None
+                                            )
+                                    # Select the parent page or load first page
                                     try:
-                                        if section_id is not None:
-                                            sid_int = int(section_id)
-                                            cur_pid = getattr(window, "_current_page_by_section", {}).get(sid_int)
-                                            if cur_pid is not None and int(cur_pid) == int(page_id):
-                                                window._current_page_by_section[sid_int] = None
-                                        _load_first_page_two_column(window)
+                                        if parent_page_id is not None:
+                                            # Select and load the parent page
+                                            from left_tree import select_left_tree_page as _select_left_tree_page
+                                            from page_editor import load_page as _load_page_two_column
+                                            _select_left_tree_page(window, int(section_id), int(parent_page_id))
+                                            _load_page_two_column(window, int(parent_page_id))
+                                        else:
+                                            # Clear current if we deleted the active page, then load first page
+                                            if section_id is not None:
+                                                sid_int = int(section_id)
+                                                cur_pid = getattr(window, "_current_page_by_section", {}).get(sid_int)
+                                                if cur_pid is not None and int(cur_pid) == int(page_id):
+                                                    window._current_page_by_section[sid_int] = None
+                                            _load_first_page_two_column(window)
                                     except Exception:
                                         pass
                                 else:
