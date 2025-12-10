@@ -113,6 +113,10 @@
     <addaction name="actionOpen"/>
     <addaction name="actionSave"/>
     <addaction name="actionSave_As"/>
+    <addaction name="separator"/>
+    <addaction name="actionPrint"/>
+    <addaction name="actionPrint_Preview"/>
+    <addaction name="separator"/>
     <addaction name="actionRename_Database"/>
     <addaction name="actionNew_Database"/>
     <addaction name="separator"/>
@@ -501,6 +505,16 @@
   <action name="actionAbout">
    <property name="text">
     <string>About NoteBook</string>
+   </property>
+  </action>
+  <action name="actionPrint">
+   <property name="text">
+    <string>Print</string>
+   </property>
+  </action>
+  <action name="actionPrint_Preview">
+   <property name="text">
+    <string>Print Preview</string>
    </property>
   </action>
  </widget>

@@ -891,6 +891,257 @@ def restart_application():
     QtWidgets.QApplication.quit()
 
 
+def print_current_selection(window):
+    """Print the currently selected item (page, section, or binder)."""
+    try:
+        from PyQt5.QtPrintSupport import QPrinter, QPrintDialog
+        from PyQt5.QtGui import QTextDocument
+        
+        # Get HTML content for selected item
+        html_content = _get_print_html_content(window)
+        if not html_content:
+            return
+        
+        # Create printer and dialog
+        printer = QPrinter(QPrinter.HighResolution)
+        dialog = QPrintDialog(printer, window)
+        dialog.setWindowTitle("Print")
+        
+        if dialog.exec_() == QtWidgets.QDialog.Accepted:
+            # Create document and print
+            document = QTextDocument()
+            document.setHtml(html_content)
+            document.print_(printer)
+            
+    except Exception as e:
+        QtWidgets.QMessageBox.critical(window, "Print Error", f"Failed to print: {str(e)}")
+
+
+def print_preview_current_selection(window):
+    """Show print preview for the currently selected item (page, section, or binder)."""
+    try:
+        from PyQt5.QtPrintSupport import QPrinter, QPrintPreviewDialog
+        from PyQt5.QtGui import QTextDocument
+        
+        # Get HTML content for selected item
+        html_content = _get_print_html_content(window)
+        if not html_content:
+            return
+        
+        # Create document
+        document = QTextDocument()
+        document.setHtml(html_content)
+        
+        # Create printer and preview dialog
+        printer = QPrinter(QPrinter.HighResolution)
+        preview = QPrintPreviewDialog(printer, window)
+        preview.setWindowTitle("Print Preview")
+        
+        # Connect the paintRequested signal to render the document
+        preview.paintRequested.connect(lambda p: document.print_(p))
+        
+        # Show preview dialog (which includes print button)
+        preview.exec_()
+            
+    except Exception as e:
+        QtWidgets.QMessageBox.critical(window, "Print Error", f"Failed to print: {str(e)}")
+
+
+def _get_print_html_content(window):
+    """Build HTML content for printing based on current selection."""
+    try:
+        # Determine what's selected in the left tree
+        tree_widget = window.findChild(QtWidgets.QTreeWidget, "notebookName")
+        if tree_widget is None:
+            QtWidgets.QMessageBox.information(window, "Print", "Please select a page, section, or binder to print.")
+            return None
+        
+        current_item = tree_widget.currentItem()
+        if current_item is None:
+            QtWidgets.QMessageBox.information(window, "Print", "Please select a page, section, or binder to print.")
+            return None
+        
+        # Get item type and ID
+        item_kind = current_item.data(0, 1001)  # 'page', 'section', or None (binder)
+        item_id = current_item.data(0, 1000)
+        
+        db_path = getattr(window, "_db_path", None) or "notes.db"
+        
+        # Build HTML content based on selection
+        html_content = "<html><head><style>"
+        html_content += "body { font-family: Arial, sans-serif; margin: 20px; }"
+        html_content += ".page-header { text-align: center; font-size: 10pt; color: #666; border-bottom: 1px solid #ccc; padding-bottom: 5px; margin-bottom: 15px; }"
+        html_content += ".page-title { text-align: center; font-size: 14pt; font-weight: bold; margin: 15px 0; }"
+        html_content += ".page-content { margin-top: 10px; }"
+        html_content += ".page-break { page-break-before: always; }"
+        html_content += "</style></head><body>"
+        
+        if item_kind == "page":
+            # Print single page - get binder and section context
+            binder_name, section_name = _get_page_context(current_item)
+            html_content += _get_page_html(item_id, db_path, binder_name, section_name)
+        elif item_kind == "section":
+            # Print all pages in section - get binder context
+            section_title = current_item.text(0)
+            binder_name = current_item.parent().text(0) if current_item.parent() else "Unknown Binder"
+            html_content += _get_section_pages_html(item_id, db_path, binder_name, section_title)
+        else:
+            # Print entire binder (notebook)
+            binder_title = current_item.text(0)
+            html_content += _get_binder_html(item_id, db_path, binder_title)
+        
+        html_content += "</body></html>"
+        return html_content
+        
+    except Exception as e:
+        QtWidgets.QMessageBox.critical(window, "Print Error", f"Failed to build print content: {str(e)}")
+        return None
+
+
+def _get_page_context(tree_item):
+    """Get binder and section names for a page tree item."""
+    binder_name = "Unknown Binder"
+    section_name = "Unknown Section"
+    
+    # Walk up the tree to find section and binder
+    parent = tree_item.parent()
+    if parent:
+        if parent.data(0, 1001) == "section":
+            section_name = parent.text(0)
+            grandparent = parent.parent()
+            if grandparent:
+                binder_name = grandparent.text(0)
+        elif parent.data(0, 1001) == "page":
+            # This is a subpage - find section through parent page
+            while parent and parent.data(0, 1001) == "page":
+                parent = parent.parent()
+            if parent and parent.data(0, 1001) == "section":
+                section_name = parent.text(0)
+                grandparent = parent.parent()
+                if grandparent:
+                    binder_name = grandparent.text(0)
+    
+    return binder_name, section_name
+
+
+def _get_page_html(page_id, db_path, binder_name=None, section_name=None):
+    """Get HTML for a single page with hierarchical header."""
+    try:
+        from db_pages import get_page_by_id
+        import sqlite3
+        
+        page = get_page_by_id(int(page_id), db_path)
+        if not page:
+            return "<p>Page not found.</p>"
+        
+        title = page[2]  # title is at index 2
+        content = page[3]  # content is at index 3
+        
+        html = ""
+        # Add hierarchical header if we have context
+        if binder_name and section_name:
+            html += f'<div class="page-header">{binder_name} &gt; {section_name} &gt; {title}</div>'
+        html += f'<div class="page-title">{title}</div>'
+        html += f'<div class="page-content">{content}</div>'
+        return html
+    except Exception:
+        return "<p>Error loading page.</p>"
+
+
+def _get_section_pages_html(section_id, db_path, binder_name, section_name):
+    """Get HTML for all pages in a section with hierarchical headers."""
+    try:
+        from db_pages import get_root_pages_by_section_id
+        import sqlite3
+        
+        html = ""
+        pages = get_root_pages_by_section_id(int(section_id), db_path)
+        
+        for idx, page in enumerate(pages):
+            page_id = page[0]
+            if idx > 0:
+                html += '<div class="page-break"></div>'
+            html += _get_page_html(page_id, db_path, binder_name, section_name)
+            # Recursively get subpages
+            html += _get_subpages_html(page_id, db_path, binder_name, section_name)
+        
+        return html if html else "<p>No pages in this section.</p>"
+    except Exception:
+        return "<p>Error loading section pages.</p>"
+
+
+def _get_subpages_html(parent_page_id, db_path, binder_name, section_name):
+    """Recursively get HTML for subpages with hierarchical headers."""
+    try:
+        import sqlite3
+        
+        html = ""
+        con = sqlite3.connect(db_path)
+        cur = con.cursor()
+        cur.execute(
+            "SELECT id FROM pages WHERE parent_page_id = ? ORDER BY order_index, id",
+            (int(parent_page_id),)
+        )
+        subpages = cur.fetchall()
+        con.close()
+        
+        for (page_id,) in subpages:
+            html += '<div class="page-break"></div>'
+            html += _get_page_html(page_id, db_path, binder_name, section_name)
+            # Recursively get children of this subpage
+            html += _get_subpages_html(page_id, db_path, binder_name, section_name)
+        
+        return html
+    except Exception:
+        return ""
+
+
+def _get_binder_html(notebook_id, db_path, binder_name):
+    """Get HTML for all sections and pages in a binder with hierarchical headers."""
+    try:
+        from db_sections import get_sections_by_notebook_id
+        
+        html = ""
+        sections = get_sections_by_notebook_id(int(notebook_id), db_path)
+        first_page = True
+        
+        for section in sections:
+            section_id = section[0]
+            section_title = section[2]
+            
+            # Get pages for this section - pass context and first_page flag
+            section_html = _get_section_pages_html_for_binder(section_id, db_path, binder_name, section_title, first_page)
+            if section_html:
+                html += section_html
+                first_page = False
+        
+        return html if html else "<p>No sections in this binder.</p>"
+    except Exception:
+        return "<p>Error loading binder content.</p>"
+
+
+def _get_section_pages_html_for_binder(section_id, db_path, binder_name, section_name, first_page):
+    """Get HTML for section pages within a binder print, handling first page specially."""
+    try:
+        from db_pages import get_root_pages_by_section_id
+        
+        html = ""
+        pages = get_root_pages_by_section_id(int(section_id), db_path)
+        
+        for idx, page in enumerate(pages):
+            page_id = page[0]
+            # Add page break before every page except the very first one
+            if not (first_page and idx == 0):
+                html += '<div class="page-break"></div>'
+            html += _get_page_html(page_id, db_path, binder_name, section_name)
+            # Recursively get subpages
+            html += _get_subpages_html(page_id, db_path, binder_name, section_name)
+        
+        return html
+    except Exception:
+        return ""
+
+
 def main():
     # Suppress noisy SIP deprecation warning from PyQt5 about sipPyTypeDict
     warnings.filterwarnings("ignore", category=DeprecationWarning, message=".*sipPyTypeDict.*")
@@ -1594,13 +1845,42 @@ def main():
     act_delete_wb = window.findChild(QtWidgets.QAction, "actionDelete_Workbook")
     if act_delete_wb:
         act_delete_wb.triggered.connect(lambda: delete_binder(window))
+    # File menu: Open
     action_open = window.findChild(QtWidgets.QAction, "actionOpen")
     if action_open:
         action_open.triggered.connect(lambda: open_database(window))
-    # Save As: copy current db and media to new path
+        # Add Ctrl+O shortcut
+        from PyQt5.QtGui import QKeySequence
+        action_open.setShortcut(QKeySequence.Open)  # Ctrl+O
+    
+    # File menu: Save (saves current page)
+    action_save = window.findChild(QtWidgets.QAction, "actionSave")
+    if action_save:
+        from PyQt5.QtGui import QKeySequence
+        action_save.setShortcut(QKeySequence.Save)  # Ctrl+S
+        action_save.triggered.connect(lambda: save_current_page(window))
+    
+    # File menu: Save As (copy database to new location)
     action_save_as = window.findChild(QtWidgets.QAction, "actionSave_As")
     if action_save_as:
         action_save_as.triggered.connect(lambda: save_database_as(window))
+        # Add Ctrl+Shift+S shortcut (standard for Save As)
+        from PyQt5.QtGui import QKeySequence
+        action_save_as.setShortcut(QKeySequence.SaveAs)  # Ctrl+Shift+S
+    
+    # File menu: Print (print selected page/section/binder)
+    action_print = window.findChild(QtWidgets.QAction, "actionPrint")
+    if action_print:
+        from PyQt5.QtGui import QKeySequence
+        action_print.setShortcut(QKeySequence.Print)  # Ctrl+P
+        action_print.triggered.connect(lambda: print_current_selection(window))
+    
+    # File menu: Print Preview (show preview before printing)
+    action_print_preview = window.findChild(QtWidgets.QAction, "actionPrint_Preview")
+    if action_print_preview:
+        from PyQt5.QtGui import QKeySequence
+        action_print_preview.setShortcut(QKeySequence("Ctrl+Shift+P"))
+        action_print_preview.triggered.connect(lambda: print_preview_current_selection(window))
     # Insert menu wiring for quick content creation
     act_add_section = window.findChild(QtWidgets.QAction, "actionAdd_Scction")
     if act_add_section:
