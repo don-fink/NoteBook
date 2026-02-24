@@ -1,3 +1,4 @@
 PyQt5==5.15.9
 PyQt5_sip==12.17.0
+pyenchant>=3.2.0
 # Runtime-only dependencies. For developer tools (Qt Designer, etc.), use requirements-dev.txt

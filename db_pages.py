@@ -6,40 +6,55 @@ Provides functions to retrieve pages for a given section from the database.
 import sqlite3
 
 
-def get_pages_by_section_id(section_id, db_path):
+def get_pages_by_section_id(section_id, db_path, include_deleted: bool = False):
     """Return all pages for a section (flat). Legacy helper.
 
     Note: With hierarchical pages, prefer get_root_pages_by_section_id() and get_child_pages().
     """
     conn = sqlite3.connect(db_path)
     cursor = conn.cursor()
-    cursor.execute("SELECT * FROM pages WHERE section_id = ?", (section_id,))
+    if include_deleted:
+        cursor.execute("SELECT * FROM pages WHERE section_id = ?", (section_id,))
+    else:
+        cursor.execute("SELECT * FROM pages WHERE section_id = ? AND deleted_at IS NULL", (section_id,))
     rows = cursor.fetchall()
     conn.close()
     return rows
 
 
-def get_root_pages_by_section_id(section_id: int, db_path: str):
+def get_root_pages_by_section_id(section_id: int, db_path: str, include_deleted: bool = False):
     """Return top-level pages in a section (parent_page_id IS NULL)."""
     conn = sqlite3.connect(db_path)
     cur = conn.cursor()
-    cur.execute(
-        "SELECT * FROM pages WHERE section_id = ? AND (parent_page_id IS NULL OR parent_page_id = '') ORDER BY order_index ASC, id ASC",
-        (int(section_id),),
-    )
+    if include_deleted:
+        cur.execute(
+            "SELECT * FROM pages WHERE section_id = ? AND (parent_page_id IS NULL OR parent_page_id = '') ORDER BY order_index ASC, id ASC",
+            (int(section_id),),
+        )
+    else:
+        cur.execute(
+            "SELECT * FROM pages WHERE section_id = ? AND (parent_page_id IS NULL OR parent_page_id = '') AND deleted_at IS NULL ORDER BY order_index ASC, id ASC",
+            (int(section_id),),
+        )
     rows = cur.fetchall()
     conn.close()
     return rows
 
 
-def get_child_pages(section_id: int, parent_page_id: int, db_path: str):
+def get_child_pages(section_id: int, parent_page_id: int, db_path: str, include_deleted: bool = False):
     """Return direct child pages under a parent page within the same section."""
     conn = sqlite3.connect(db_path)
     cur = conn.cursor()
-    cur.execute(
-        "SELECT * FROM pages WHERE section_id = ? AND parent_page_id = ? ORDER BY order_index ASC, id ASC",
-        (int(section_id), int(parent_page_id)),
-    )
+    if include_deleted:
+        cur.execute(
+            "SELECT * FROM pages WHERE section_id = ? AND parent_page_id = ? ORDER BY order_index ASC, id ASC",
+            (int(section_id), int(parent_page_id)),
+        )
+    else:
+        cur.execute(
+            "SELECT * FROM pages WHERE section_id = ? AND parent_page_id = ? AND deleted_at IS NULL ORDER BY order_index ASC, id ASC",
+            (int(section_id), int(parent_page_id)),
+        )
     rows = cur.fetchall()
     conn.close()
     return rows
@@ -60,12 +75,12 @@ def _get_next_page_order_index(section_id: int, db_path: str, parent_page_id=Non
     cur = conn.cursor()
     if parent_page_id is None:
         cur.execute(
-            "SELECT COALESCE(MAX(order_index), 0) FROM pages WHERE section_id = ? AND (parent_page_id IS NULL OR parent_page_id = '')",
+            "SELECT COALESCE(MAX(order_index), 0) FROM pages WHERE section_id = ? AND (parent_page_id IS NULL OR parent_page_id = '') AND deleted_at IS NULL",
             (section_id,),
         )
     else:
         cur.execute(
-            "SELECT COALESCE(MAX(order_index), 0) FROM pages WHERE section_id = ? AND parent_page_id = ?",
+            "SELECT COALESCE(MAX(order_index), 0) FROM pages WHERE section_id = ? AND parent_page_id = ? AND deleted_at IS NULL",
             (section_id, int(parent_page_id)),
         )
     max_idx = cur.fetchone()[0] or 0
@@ -114,7 +129,57 @@ def update_page_content(page_id: int, content_html: str, db_path: str):
 
 
 def delete_page(page_id: int, db_path: str):
-    """Delete a page and all its descendants (app-level cascade)."""
+    """Soft-delete a page and all its descendants by setting deleted_at timestamp."""
+    conn = sqlite3.connect(db_path)
+    cur = conn.cursor()
+    try:
+        # Collect descendants with iterative BFS to avoid Python recursion limits
+        to_delete = [int(page_id)]
+        idx = 0
+        while idx < len(to_delete):
+            pid = to_delete[idx]
+            cur.execute("SELECT id FROM pages WHERE parent_page_id = ?", (int(pid),))
+            children = [r[0] for r in cur.fetchall()]
+            to_delete.extend(int(c) for c in children)
+            idx += 1
+        # Soft-delete all pages (parent and descendants)
+        for pid in to_delete:
+            cur.execute(
+                "UPDATE pages SET deleted_at = datetime('now') WHERE id = ? AND deleted_at IS NULL",
+                (int(pid),)
+            )
+        conn.commit()
+    finally:
+        conn.close()
+
+
+def restore_page(page_id: int, db_path: str):
+    """Restore a soft-deleted page and all its descendants."""
+    conn = sqlite3.connect(db_path)
+    cur = conn.cursor()
+    try:
+        # Collect descendants with iterative BFS
+        to_restore = [int(page_id)]
+        idx = 0
+        while idx < len(to_restore):
+            pid = to_restore[idx]
+            cur.execute("SELECT id FROM pages WHERE parent_page_id = ?", (int(pid),))
+            children = [r[0] for r in cur.fetchall()]
+            to_restore.extend(int(c) for c in children)
+            idx += 1
+        # Restore all pages (parent and descendants)
+        for pid in to_restore:
+            cur.execute(
+                "UPDATE pages SET deleted_at = NULL WHERE id = ?",
+                (int(pid),)
+            )
+        conn.commit()
+    finally:
+        conn.close()
+
+
+def permanently_delete_page(page_id: int, db_path: str):
+    """Permanently delete a page and all its descendants from the database."""
     conn = sqlite3.connect(db_path)
     cur = conn.cursor()
     try:

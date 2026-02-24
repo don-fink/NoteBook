@@ -107,7 +107,7 @@ def create_new_database_file(db_path: str):
             conn.executescript(schema_sql)
         # Set initial user_version
         try:
-            conn.execute("PRAGMA user_version = 4")
+            conn.execute("PRAGMA user_version = 5")
         except Exception:
             pass
         conn.commit()
@@ -135,7 +135,7 @@ def ensure_database_initialized(db_path: str):
                 with open(schema_file, "r", encoding="utf-8") as f:
                     conn.executescript(f.read())
                 try:
-                    conn.execute("PRAGMA user_version = 4")
+                    conn.execute("PRAGMA user_version = 5")
                 except Exception:
                     pass
                 conn.commit()
@@ -144,25 +144,95 @@ def ensure_database_initialized(db_path: str):
     finally:
         conn.close()
 
-def migrate_database_if_needed(db_path: str):
+def migrate_database_if_needed(db_path: str, parent_window=None) -> bool:
     """Apply in-place migrations based on PRAGMA user_version.
 
-    Current target version = 4. Future migrations can extend this helper.
+    Current target version = 5. Returns True if migration succeeded or wasn't needed,
+    False if user cancelled/chose to load a different database.
+    
+    Version history:
+    - Version 4: Base schema (notebooks, sections, pages with order_index, parent_page_id)
+    - Version 5: Added deleted_at column to notebooks, sections, pages for soft-delete
     """
     import sqlite3
-    TARGET = 4
+    TARGET = 5
     conn = sqlite3.connect(db_path)
     try:
         cur = conn.cursor()
         cur.execute("PRAGMA user_version")
         version = cur.fetchone()[0]
-        # Example placeholder migrations; currently just bumps version if lower.
-        if version < TARGET:
+        
+        if version >= TARGET:
+            return True  # Already up to date
+        
+        # Check if deleted_at column exists (handles case where version wasn't bumped)
+        def column_exists(table, column):
+            cur.execute(f"PRAGMA table_info({table})")
+            columns = [row[1] for row in cur.fetchall()]
+            return column in columns
+        
+        needs_soft_delete = (
+            not column_exists('notebooks', 'deleted_at') or
+            not column_exists('sections', 'deleted_at') or
+            not column_exists('pages', 'deleted_at')
+        )
+        
+        if needs_soft_delete:
+            # Prompt user before upgrading
+            if parent_window is not None:
+                msg_box = QtWidgets.QMessageBox(parent_window)
+                msg_box.setWindowTitle("Database Upgrade Required")
+                msg_box.setIcon(QtWidgets.QMessageBox.Question)
+                msg_box.setText(
+                    f"The database '{os.path.basename(db_path)}' uses an older schema.\n\n"
+                    "This version of NoteBook requires a schema upgrade to support "
+                    "the new soft-delete/restore feature.\n\n"
+                    "It's recommended to back up your database before proceeding.\n\n"
+                    "Would you like to upgrade now?"
+                )
+                upgrade_btn = msg_box.addButton("Upgrade", QtWidgets.QMessageBox.AcceptRole)
+                different_btn = msg_box.addButton("Open Different Database", QtWidgets.QMessageBox.RejectRole)
+                cancel_btn = msg_box.addButton(QtWidgets.QMessageBox.Cancel)
+                msg_box.exec_()
+                clicked = msg_box.clickedButton()
+                
+                if clicked == cancel_btn or clicked == different_btn:
+                    conn.close()
+                    return False  # Caller should handle - either exit or prompt for different DB
+            
+            # Apply migration: add deleted_at columns
             try:
-                cur.execute(f"PRAGMA user_version = {int(TARGET)}")
-            except Exception:
-                pass
+                if not column_exists('notebooks', 'deleted_at'):
+                    cur.execute("ALTER TABLE notebooks ADD COLUMN deleted_at TEXT NULL")
+                if not column_exists('sections', 'deleted_at'):
+                    cur.execute("ALTER TABLE sections ADD COLUMN deleted_at TEXT NULL")
+                if not column_exists('pages', 'deleted_at'):
+                    cur.execute("ALTER TABLE pages ADD COLUMN deleted_at TEXT NULL")
+                
+                # Create indexes for soft-delete queries
+                cur.execute("CREATE INDEX IF NOT EXISTS idx_notebooks_deleted ON notebooks(deleted_at)")
+                cur.execute("CREATE INDEX IF NOT EXISTS idx_sections_deleted ON sections(deleted_at)")
+                cur.execute("CREATE INDEX IF NOT EXISTS idx_pages_deleted ON pages(deleted_at)")
+                
+                conn.commit()
+            except Exception as e:
+                if parent_window is not None:
+                    QtWidgets.QMessageBox.critical(
+                        parent_window,
+                        "Migration Failed",
+                        f"Failed to upgrade database schema:\n{e}"
+                    )
+                conn.close()
+                return False
+        
+        # Bump version to target
+        try:
+            cur.execute(f"PRAGMA user_version = {int(TARGET)}")
             conn.commit()
+        except Exception:
+            pass
+        
+        return True
     finally:
         conn.close()
 
@@ -178,7 +248,9 @@ def open_database(window):
         return
     try:
         ensure_database_initialized(dlg_path)
-        migrate_database_if_needed(dlg_path)
+        if not migrate_database_if_needed(dlg_path, parent_window=window):
+            # User cancelled upgrade or chose to open different database
+            return
     except Exception as e:
         QtWidgets.QMessageBox.critical(window, "Open Database", f"Failed to open DB: {e}")
         return
@@ -1212,7 +1284,22 @@ def main():
     # Ensure database exists and is initialized before any queries
     try:
         ensure_database_initialized(db_path)
-        migrate_database_if_needed(db_path)
+        if not migrate_database_if_needed(db_path, parent_window=window):
+            # User cancelled upgrade - offer to create new or open different database
+            msg_box = QtWidgets.QMessageBox(window)
+            msg_box.setWindowTitle("Database Not Upgraded")
+            msg_box.setIcon(QtWidgets.QMessageBox.Question)
+            msg_box.setText("The database was not upgraded. What would you like to do?")
+            create_btn = msg_box.addButton("Create New Database", QtWidgets.QMessageBox.AcceptRole)
+            open_btn = msg_box.addButton("Open Different Database", QtWidgets.QMessageBox.ActionRole)
+            exit_btn = msg_box.addButton("Exit", QtWidgets.QMessageBox.RejectRole)
+            msg_box.exec_()
+            clicked = msg_box.clickedButton()
+            if clicked == create_btn:
+                create_new_database(window)
+            elif clicked == open_btn:
+                open_database(window)
+            return
     except Exception as e:
         # If database initialization fails, show error and create new database dialog
         QtWidgets.QMessageBox.critical(
@@ -1253,6 +1340,18 @@ def main():
             # Install image context menu and keyboard shortcuts regardless of toolbar wiring
             try:
                 install_image_support(te)
+            except Exception:
+                pass
+            # Install spell checking
+            try:
+                from spell_check import install_spell_check, is_spell_check_available
+                from settings_manager import get_spell_check_enabled, get_spell_check_language
+                if is_spell_check_available():
+                    spell_enabled = get_spell_check_enabled()
+                    spell_lang = get_spell_check_language()
+                    spell_checker = install_spell_check(te, enabled=spell_enabled, language=spell_lang)
+                    if spell_checker:
+                        window._spell_checker = spell_checker
             except Exception:
                 pass
     except Exception:
@@ -1326,12 +1425,47 @@ def main():
                 try:
                     item = tree.itemAt(pos)
                     global_pos = tree.viewport().mapToGlobal(pos)
+                    
+                    # Helper to get show_deleted setting
+                    def _get_show_deleted_setting():
+                        try:
+                            from settings_manager import get_show_deleted
+                            return get_show_deleted()
+                        except Exception:
+                            return False
+                    
+                    # Helper to toggle show_deleted and refresh tree
+                    def _toggle_show_deleted():
+                        try:
+                            from settings_manager import get_show_deleted, set_show_deleted
+                            current = get_show_deleted()
+                            set_show_deleted(not current)
+                            # Sync the File menu's Show Deleted Items action
+                            if hasattr(window, "_show_deleted_action"):
+                                window._show_deleted_action.setChecked(not current)
+                        except Exception:
+                            pass
+                        # Refresh the tree
+                        try:
+                            db_path = getattr(window, "_db_path", None) or get_last_db() or "notes.db"
+                            populate_notebook_names(window, db_path)
+                            nb_id = getattr(window, "_current_notebook_id", None)
+                            if nb_id is not None:
+                                ensure_left_tree_sections(window, int(nb_id))
+                        except Exception:
+                            pass
+                    
                     # Blank area: offer New Binder
                     if item is None:
                         m = QtWidgets.QMenu(tree)
                         act_new = m.addAction("New Binder")
                         m.addSeparator()
                         act_collapse_all = m.addAction("Collapse All Binders")
+                        m.addSeparator()
+                        # Show Deleted Items toggle
+                        act_show_deleted = m.addAction("Show Deleted Items")
+                        act_show_deleted.setCheckable(True)
+                        act_show_deleted.setChecked(_get_show_deleted_setting())
                         chosen = m.exec_(global_pos)
                         if chosen == act_new:
                             add_binder(window)
@@ -1349,11 +1483,59 @@ def main():
                                     pass
                             except Exception:
                                 pass
+                        elif chosen == act_show_deleted:
+                            _toggle_show_deleted()
                         return
+                    
+                    # Check if item is deleted
+                    is_item_deleted = bool(item.data(0, 1003))
+                    
                     # Top-level binder item
                     if item.parent() is None:
                         tree.setCurrentItem(item)
                         m = QtWidgets.QMenu(tree)
+                        
+                        if is_item_deleted:
+                            # Deleted binder: show restore/permanent delete options
+                            act_restore = m.addAction("Restore Binder")
+                            act_perm_delete = m.addAction("Delete Permanently")
+                            m.addSeparator()
+                            act_show_deleted = m.addAction("Show Deleted Items")
+                            act_show_deleted.setCheckable(True)
+                            act_show_deleted.setChecked(_get_show_deleted_setting())
+                            chosen = m.exec_(global_pos)
+                            if chosen == act_restore:
+                                try:
+                                    from db_access import restore_notebook
+                                    nb_id = item.data(0, 1000)
+                                    db_path = getattr(window, "_db_path", None) or get_last_db() or "notes.db"
+                                    restore_notebook(int(nb_id), db_path)
+                                    populate_notebook_names(window, db_path)
+                                    ensure_left_tree_sections(window, int(nb_id))
+                                except Exception:
+                                    pass
+                            elif chosen == act_perm_delete:
+                                nb_name = item.text(0) or "(untitled)"
+                                confirm = QtWidgets.QMessageBox.warning(
+                                    tree,
+                                    "Delete Permanently",
+                                    f'Permanently delete binder "{nb_name}" and all its contents?\n\nThis cannot be undone.',
+                                    QtWidgets.QMessageBox.Yes | QtWidgets.QMessageBox.No,
+                                )
+                                if confirm == QtWidgets.QMessageBox.Yes:
+                                    try:
+                                        from db_access import permanently_delete_notebook
+                                        nb_id = item.data(0, 1000)
+                                        db_path = getattr(window, "_db_path", None) or get_last_db() or "notes.db"
+                                        permanently_delete_notebook(int(nb_id), db_path)
+                                        populate_notebook_names(window, db_path)
+                                    except Exception:
+                                        pass
+                            elif chosen == act_show_deleted:
+                                _toggle_show_deleted()
+                            return
+                        
+                        # Normal binder menu
                         # Place 'New Section' at the very top, followed by a separator
                         act_new_section = m.addAction("New Section")
                         m.addSeparator()
@@ -1361,6 +1543,12 @@ def main():
                         act_new = m.addAction("New Binder")
                         act_rename = m.addAction("Rename Binder")
                         act_delete = m.addAction("Delete Binder")
+                        m.addSeparator()
+                        act_collapse_all = m.addAction("Collapse All Binders")
+                        m.addSeparator()
+                        act_show_deleted = m.addAction("Show Deleted Items")
+                        act_show_deleted.setCheckable(True)
+                        act_show_deleted.setChecked(_get_show_deleted_setting())
                         m.addSeparator()
                         act_collapse_all = m.addAction("Collapse All Binders")
                         chosen = m.exec_(global_pos)
@@ -1385,18 +1573,77 @@ def main():
                                     pass
                             except Exception:
                                 pass
+                        elif chosen == act_show_deleted:
+                            _toggle_show_deleted()
                         return
                     # Non top-level (section or page)
                     tree.setCurrentItem(item)
                     m = QtWidgets.QMenu(tree)
                     kind = item.data(0, 1001)
                     if kind == "section":
-                        # Section menu
+                        if is_item_deleted:
+                            # Deleted section: show restore/permanent delete options
+                            act_restore = m.addAction("Restore Section")
+                            act_perm_delete = m.addAction("Delete Permanently")
+                            m.addSeparator()
+                            act_show_deleted = m.addAction("Show Deleted Items")
+                            act_show_deleted.setCheckable(True)
+                            act_show_deleted.setChecked(_get_show_deleted_setting())
+                            chosen = m.exec_(global_pos)
+                            if chosen == act_restore:
+                                try:
+                                    # Check if parent binder is deleted - can't restore into a deleted binder
+                                    parent = item.parent()
+                                    if parent is not None and bool(parent.data(0, 1003)):
+                                        QtWidgets.QMessageBox.warning(
+                                            tree,
+                                            "Cannot Restore",
+                                            "Cannot restore this section because its parent binder is deleted.\n\nPlease restore the binder first.",
+                                        )
+                                        return
+                                    from db_sections import restore_section
+                                    section_id = item.data(0, 1000)
+                                    nb_id = parent.data(0, 1000) if parent is not None else None
+                                    db_path = getattr(window, "_db_path", None) or get_last_db() or "notes.db"
+                                    restore_section(int(section_id), db_path)
+                                    if nb_id is not None:
+                                        ensure_left_tree_sections(window, int(nb_id))
+                                except Exception:
+                                    pass
+                            elif chosen == act_perm_delete:
+                                sec_name = item.text(0) or "(untitled)"
+                                confirm = QtWidgets.QMessageBox.warning(
+                                    tree,
+                                    "Delete Permanently",
+                                    f'Permanently delete section "{sec_name}" and all its pages?\n\nThis cannot be undone.',
+                                    QtWidgets.QMessageBox.Yes | QtWidgets.QMessageBox.No,
+                                )
+                                if confirm == QtWidgets.QMessageBox.Yes:
+                                    try:
+                                        from db_sections import permanently_delete_section
+                                        section_id = item.data(0, 1000)
+                                        parent = item.parent()
+                                        nb_id = parent.data(0, 1000) if parent is not None else None
+                                        db_path = getattr(window, "_db_path", None) or get_last_db() or "notes.db"
+                                        permanently_delete_section(int(section_id), db_path)
+                                        if nb_id is not None:
+                                            ensure_left_tree_sections(window, int(nb_id))
+                                    except Exception:
+                                        pass
+                            elif chosen == act_show_deleted:
+                                _toggle_show_deleted()
+                            return
+                        
+                        # Normal section menu
                         act_add_page = m.addAction("Add Page")
                         m.addSeparator()
                         act_new_section = m.addAction("New Section")
                         act_rename_section = m.addAction("Rename Section")
                         act_delete_section = m.addAction("Delete Section")
+                        m.addSeparator()
+                        act_show_deleted = m.addAction("Show Deleted Items")
+                        act_show_deleted.setCheckable(True)
+                        act_show_deleted.setChecked(_get_show_deleted_setting())
                         chosen = m.exec_(global_pos)
                         if chosen is None:
                             return
@@ -1405,6 +1652,9 @@ def main():
                             return
                         if chosen == act_new_section:
                             add_section(window)
+                            return
+                        if chosen == act_show_deleted:
+                            _toggle_show_deleted()
                             return
                         # Get ids/context
                         section_id = item.data(0, 1000)
@@ -1463,13 +1713,102 @@ def main():
                                     pass
                             return
                     elif kind == "page":
-                        # Page menu
+                        if is_item_deleted:
+                            # Deleted page: show restore/permanent delete options
+                            act_restore = m.addAction("Restore Page")
+                            act_perm_delete = m.addAction("Delete Permanently")
+                            m.addSeparator()
+                            act_show_deleted = m.addAction("Show Deleted Items")
+                            act_show_deleted.setCheckable(True)
+                            act_show_deleted.setChecked(_get_show_deleted_setting())
+                            chosen = m.exec_(global_pos)
+                            if chosen == act_restore:
+                                try:
+                                    # Check if parent section (or binder) is deleted - can't restore into deleted parent
+                                    parent = item.parent()
+                                    # Find the section by traversing up (parent could be another page or a section)
+                                    section_item = parent
+                                    while section_item is not None and section_item.data(0, 1001) == "page":
+                                        section_item = section_item.parent()
+                                    # Check if section is deleted
+                                    if section_item is not None and bool(section_item.data(0, 1003)):
+                                        QtWidgets.QMessageBox.warning(
+                                            tree,
+                                            "Cannot Restore",
+                                            "Cannot restore this page because its parent section is deleted.\n\nPlease restore the section first.",
+                                        )
+                                        return
+                                    # Check if binder (grandparent) is deleted
+                                    binder_item = section_item.parent() if section_item is not None else None
+                                    if binder_item is not None and bool(binder_item.data(0, 1003)):
+                                        QtWidgets.QMessageBox.warning(
+                                            tree,
+                                            "Cannot Restore",
+                                            "Cannot restore this page because its binder is deleted.\n\nPlease restore the binder first.",
+                                        )
+                                        return
+                                    from db_pages import restore_page
+                                    page_id = item.data(0, 1000)
+                                    section_id = item.data(0, 1002)
+                                    db_path = getattr(window, "_db_path", None) or get_last_db() or "notes.db"
+                                    restore_page(int(page_id), db_path)
+                                    # Refresh tree
+                                    import sqlite3
+                                    con = sqlite3.connect(db_path)
+                                    cur = con.cursor()
+                                    cur.execute("SELECT notebook_id FROM sections WHERE id = ?", (int(section_id),))
+                                    row = cur.fetchone()
+                                    con.close()
+                                    nb_id = int(row[0]) if row else getattr(window, "_current_notebook_id", None)
+                                    if nb_id is not None:
+                                        ensure_left_tree_sections(window, int(nb_id), select_section_id=int(section_id))
+                                except Exception:
+                                    pass
+                            elif chosen == act_perm_delete:
+                                page_name = item.text(0) or "(untitled)"
+                                confirm = QtWidgets.QMessageBox.warning(
+                                    tree,
+                                    "Delete Permanently",
+                                    f'Permanently delete page "{page_name}" and all its subpages?\n\nThis cannot be undone.',
+                                    QtWidgets.QMessageBox.Yes | QtWidgets.QMessageBox.No,
+                                )
+                                if confirm == QtWidgets.QMessageBox.Yes:
+                                    try:
+                                        from db_pages import permanently_delete_page
+                                        page_id = item.data(0, 1000)
+                                        section_id = item.data(0, 1002)
+                                        db_path = getattr(window, "_db_path", None) or get_last_db() or "notes.db"
+                                        permanently_delete_page(int(page_id), db_path)
+                                        # Refresh tree
+                                        import sqlite3
+                                        con = sqlite3.connect(db_path)
+                                        cur = con.cursor()
+                                        cur.execute("SELECT notebook_id FROM sections WHERE id = ?", (int(section_id),))
+                                        row = cur.fetchone()
+                                        con.close()
+                                        nb_id = int(row[0]) if row else getattr(window, "_current_notebook_id", None)
+                                        if nb_id is not None:
+                                            ensure_left_tree_sections(window, int(nb_id), select_section_id=int(section_id))
+                                    except Exception:
+                                        pass
+                            elif chosen == act_show_deleted:
+                                _toggle_show_deleted()
+                            return
+                        
+                        # Normal page menu
                         act_add_page = m.addAction("Add Page")
                         act_add_subpage = m.addAction("Add Subpage")
                         act_rename_page = m.addAction("Rename Page")
                         act_delete_page = m.addAction("Delete Page")
+                        m.addSeparator()
+                        act_show_deleted = m.addAction("Show Deleted Items")
+                        act_show_deleted.setCheckable(True)
+                        act_show_deleted.setChecked(_get_show_deleted_setting())
                         chosen = m.exec_(global_pos)
                         if chosen is None:
+                            return
+                        if chosen == act_show_deleted:
+                            _toggle_show_deleted()
                             return
                         # Context: ids
                         page_id = item.data(0, 1000)
@@ -2078,6 +2417,37 @@ def main():
         normalize_action.triggered.connect(_normalize_order_indexes)
         tools_menu.addAction(normalize_action)
         # (Legacy formula actions removed during feature rollback.)
+        
+        # --- Spell Check toggle ---
+        tools_menu.addSeparator()
+        spell_check_action = QtWidgets.QAction("Spell Check", window)
+        spell_check_action.setCheckable(True)
+        try:
+            from settings_manager import get_spell_check_enabled
+            from spell_check import is_spell_check_available
+            spell_available = is_spell_check_available()
+            spell_check_action.setEnabled(spell_available)
+            if spell_available:
+                spell_check_action.setChecked(get_spell_check_enabled())
+            else:
+                spell_check_action.setChecked(False)
+                spell_check_action.setToolTip("Spell check unavailable (pyenchant not installed)")
+        except Exception:
+            spell_check_action.setChecked(False)
+        
+        def _toggle_spell_check(checked):
+            try:
+                from settings_manager import set_spell_check_enabled
+                set_spell_check_enabled(checked)
+                # Toggle the spell checker on the editor
+                spell_checker = getattr(window, "_spell_checker", None)
+                if spell_checker:
+                    spell_checker.enabled = checked
+            except Exception:
+                pass
+        
+        spell_check_action.triggered.connect(_toggle_spell_check)
+        tools_menu.addAction(spell_check_action)
     except Exception:
         pass
     # Insert menu: Page ops
@@ -2406,6 +2776,112 @@ def main():
 
     except Exception:
         pass
+
+    # --- Show Deleted Items toggle and Empty All Deleted Items (File menu, before Exit) ---
+    try:
+        menubar = window.menuBar()
+        file_menu = None
+        for act in menubar.actions():
+            if act.menu() and act.text().replace("&", "").strip().lower() == "file":
+                file_menu = act.menu()
+                break
+        if file_menu is not None:
+            # Find the Exit action to insert before it
+            exit_action = window.findChild(QtWidgets.QAction, "actionExit")
+            
+            # Create separator
+            sep_action = QtWidgets.QAction(window)
+            sep_action.setSeparator(True)
+            
+            # Show Deleted Items - checkable action
+            show_deleted_action = QtWidgets.QAction("Show Deleted Items", window)
+            show_deleted_action.setCheckable(True)
+            try:
+                from settings_manager import get_show_deleted
+                show_deleted_action.setChecked(get_show_deleted())
+            except Exception:
+                show_deleted_action.setChecked(False)
+            # Store on window for syncing with context menus
+            window._show_deleted_action = show_deleted_action
+            
+            def _toggle_show_deleted(checked):
+                try:
+                    from settings_manager import set_show_deleted
+                    set_show_deleted(checked)
+                except Exception:
+                    pass
+                # Refresh the tree to show/hide deleted items
+                try:
+                    db_path = getattr(window, "_db_path", None) or get_last_db() or "notes.db"
+                    populate_notebook_names(window, db_path)
+                    # Re-expand current notebook if any
+                    nb_id = getattr(window, "_current_notebook_id", None)
+                    if nb_id is not None:
+                        ensure_left_tree_sections(window, int(nb_id))
+                except Exception:
+                    pass
+            
+            show_deleted_action.triggered.connect(_toggle_show_deleted)
+            
+            # Empty All Deleted Items
+            empty_deleted_action = QtWidgets.QAction("Empty All Deleted Items...", window)
+            
+            def _empty_all_deleted():
+                try:
+                    from db_access import get_deleted_counts, empty_all_deleted
+                    db_path = getattr(window, "_db_path", None) or get_last_db() or "notes.db"
+                    counts = get_deleted_counts(db_path)
+                    if counts['total'] == 0:
+                        QtWidgets.QMessageBox.information(
+                            window, "Empty Deleted Items", "No deleted items to remove."
+                        )
+                        return
+                    # Confirm before permanent deletion
+                    msg = (
+                        f"This will permanently delete:\n\n"
+                        f"  • {counts['notebooks']} binder(s)\n"
+                        f"  • {counts['sections']} section(s)\n"
+                        f"  • {counts['pages']} page(s)\n\n"
+                        f"This action cannot be undone. Continue?"
+                    )
+                    confirm = QtWidgets.QMessageBox.warning(
+                        window,
+                        "Empty All Deleted Items",
+                        msg,
+                        QtWidgets.QMessageBox.Yes | QtWidgets.QMessageBox.No,
+                    )
+                    if confirm != QtWidgets.QMessageBox.Yes:
+                        return
+                    empty_all_deleted(db_path)
+                    # Refresh tree
+                    populate_notebook_names(window, db_path)
+                    nb_id = getattr(window, "_current_notebook_id", None)
+                    if nb_id is not None:
+                        ensure_left_tree_sections(window, int(nb_id))
+                    QtWidgets.QMessageBox.information(
+                        window, "Empty Deleted Items", "All deleted items have been permanently removed."
+                    )
+                except Exception as e:
+                    QtWidgets.QMessageBox.warning(window, "Error", f"Failed to empty deleted items: {e}")
+            
+            empty_deleted_action.triggered.connect(_empty_all_deleted)
+            
+            # Insert before Exit action (or append if Exit not found)
+            if exit_action is not None:
+                file_menu.insertAction(exit_action, sep_action)
+                file_menu.insertAction(exit_action, show_deleted_action)
+                file_menu.insertAction(exit_action, empty_deleted_action)
+                # Add another separator before Exit
+                sep_before_exit = QtWidgets.QAction(window)
+                sep_before_exit.setSeparator(True)
+                file_menu.insertAction(exit_action, sep_before_exit)
+            else:
+                file_menu.addSeparator()
+                file_menu.addAction(show_deleted_action)
+                file_menu.addAction(empty_deleted_action)
+    except Exception:
+        pass
+    
     action_exit = window.findChild(QtWidgets.QAction, "actionExit")
     if action_exit:
         action_exit.triggered.connect(window.close)
@@ -3095,6 +3571,30 @@ def main():
                 pass
 
         # Shortcuts for right panel are handled by the unified dispatcher above; no duplicate page bindings here.
+    except Exception:
+        pass
+
+    # Edit: Undo/Redo actions
+    try:
+        te = window.findChild(QtWidgets.QTextEdit, "pageEdit")
+        act_undo = window.findChild(QtWidgets.QAction, "actionUndo")
+        act_redo = window.findChild(QtWidgets.QAction, "actionRedo")
+        
+        if act_undo and te:
+            from PyQt5.QtGui import QKeySequence
+            act_undo.setShortcut(QKeySequence.Undo)  # Ctrl+Z
+            act_undo.triggered.connect(te.undo)
+            # Enable/disable based on availability
+            act_undo.setEnabled(te.document().isUndoAvailable())
+            te.undoAvailable.connect(act_undo.setEnabled)
+        
+        if act_redo and te:
+            from PyQt5.QtGui import QKeySequence
+            act_redo.setShortcut(QKeySequence.Redo)  # Ctrl+Y / Ctrl+Shift+Z
+            act_redo.triggered.connect(te.redo)
+            # Enable/disable based on availability
+            act_redo.setEnabled(te.document().isRedoAvailable())
+            te.redoAvailable.connect(act_redo.setEnabled)
     except Exception:
         pass
 

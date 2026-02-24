@@ -11,6 +11,7 @@ loads the page content into the center editor.
 
 from PyQt5 import QtWidgets
 from PyQt5.QtCore import Qt
+from PyQt5.QtGui import QColor, QBrush
 
 from db_pages import (
     get_pages_by_section_id,
@@ -24,10 +25,23 @@ from two_pane_core import load_first_page as load_first_page_for_current_tab
 from two_pane_core import select_section as select_tab_for_section
 
 
-def _add_child_pages_recursively(section_id: int, parent_page_id: int, parent_item: QtWidgets.QTreeWidgetItem, db_path: str):
+# Color constants for deleted items
+DELETED_ITEM_COLOR = QColor(128, 128, 128)  # Grey
+
+
+def _get_show_deleted() -> bool:
+    """Get the show_deleted setting."""
+    try:
+        from settings_manager import get_show_deleted
+        return get_show_deleted()
+    except Exception:
+        return False
+
+
+def _add_child_pages_recursively(section_id: int, parent_page_id: int, parent_item: QtWidgets.QTreeWidgetItem, db_path: str, include_deleted: bool = False):
     """Add child pages under the given page item recursively."""
     try:
-        children = get_child_pages(section_id, int(parent_page_id), db_path)
+        children = get_child_pages(section_id, int(parent_page_id), db_path, include_deleted=include_deleted)
     except Exception:
         children = []
     try:
@@ -37,8 +51,22 @@ def _add_child_pages_recursively(section_id: int, parent_page_id: int, parent_it
     for p in children_sorted:
         page_id = p[0]
         page_title = str(p[2])
+        
+        # Check if page is deleted (column 8 = deleted_at)
+        is_deleted = False
+        try:
+            is_deleted = p[8] is not None
+        except (IndexError, TypeError):
+            pass
+        
         page_item = QtWidgets.QTreeWidgetItem([page_title])
         page_item.setData(0, 1000, page_id)
+        page_item.setData(0, 1003, is_deleted)  # 1003 = is_deleted flag
+        
+        # Grey out deleted items
+        if is_deleted:
+            page_item.setForeground(0, QBrush(DELETED_ITEM_COLOR))
+        
         try:
             page_item.setData(0, 1001, "page")
             page_item.setData(0, 1002, section_id)
@@ -47,8 +75,12 @@ def _add_child_pages_recursively(section_id: int, parent_page_id: int, parent_it
         try:
             pflags = page_item.flags()
             if _is_two_col(parent_item.treeWidget().window()):
-                # Subpages: enable selection + DnD for sibling-only reorder
-                pflags = pflags | Qt.ItemIsEnabled | Qt.ItemIsSelectable | Qt.ItemIsDragEnabled | Qt.ItemIsDropEnabled
+                if is_deleted:
+                    # Deleted items: selectable but not draggable
+                    pflags = (pflags | Qt.ItemIsEnabled | Qt.ItemIsSelectable) & ~(Qt.ItemIsDragEnabled | Qt.ItemIsDropEnabled)
+                else:
+                    # Subpages: enable selection + DnD for sibling-only reorder
+                    pflags = pflags | Qt.ItemIsEnabled | Qt.ItemIsSelectable | Qt.ItemIsDragEnabled | Qt.ItemIsDropEnabled
             else:
                 pflags = (pflags | Qt.ItemIsEnabled) & ~(
                     Qt.ItemIsSelectable | Qt.ItemIsDragEnabled | Qt.ItemIsDropEnabled
@@ -58,7 +90,7 @@ def _add_child_pages_recursively(section_id: int, parent_page_id: int, parent_it
             pass
         parent_item.addChild(page_item)
         # Recurse for this child's children
-        _add_child_pages_recursively(section_id, int(page_id), page_item, db_path)
+        _add_child_pages_recursively(section_id, int(page_id), page_item, db_path, include_deleted=include_deleted)
 
 
 def add_sections_as_children(tree_widget, notebook_id, parent_item, db_path, expand_section_id=None, expand_page_id=None):
@@ -70,32 +102,52 @@ def add_sections_as_children(tree_widget, notebook_id, parent_item, db_path, exp
     Roles used:
       - column 0, role 1000: id (section_id or page_id)
       - column 0, role 1001: kind ('section' or 'page')
+      - column 0, role 1003: is_deleted (bool)
     
     Args:
         expand_section_id: If provided, expand this section after adding its pages
         expand_page_id: If provided, expand this page to show its subpages
     """
-    sections = get_sections_by_notebook_id(notebook_id, db_path)
+    include_deleted = _get_show_deleted()
+    sections = get_sections_by_notebook_id(notebook_id, db_path, include_deleted=include_deleted)
     for section in sections:
-        # section: (id, notebook_id, title, ...)
+        # section: (id, notebook_id, title, color_hex, created_at, modified_at, order_index, deleted_at)
         section_id = section[0]
         section_title = str(section[2])
+        
+        # Check if section is deleted (column 7 = deleted_at)
+        is_deleted = False
+        try:
+            is_deleted = section[7] is not None
+        except (IndexError, TypeError):
+            pass
+        
         sec_item = QtWidgets.QTreeWidgetItem([section_title])
         sec_item.setData(0, 1000, section_id)  # Store section_id in UserRole
+        sec_item.setData(0, 1003, is_deleted)  # 1003 = is_deleted flag
+        
+        # Grey out deleted items
+        if is_deleted:
+            sec_item.setForeground(0, QBrush(DELETED_ITEM_COLOR))
+        
         try:
             sec_item.setData(0, 1001, "section")
         except Exception:
             pass
         # Sections: enabled + selectable + draggable; accept drops (for pages into root)
+        # But disable DnD for deleted items
         try:
             flags = sec_item.flags()
-            flags = (
-                flags
-                | Qt.ItemIsEnabled
-                | Qt.ItemIsSelectable
-                | Qt.ItemIsDragEnabled
-                | Qt.ItemIsDropEnabled
-            )
+            if is_deleted:
+                flags = (flags | Qt.ItemIsEnabled | Qt.ItemIsSelectable) & ~(Qt.ItemIsDragEnabled | Qt.ItemIsDropEnabled)
+            else:
+                flags = (
+                    flags
+                    | Qt.ItemIsEnabled
+                    | Qt.ItemIsSelectable
+                    | Qt.ItemIsDragEnabled
+                    | Qt.ItemIsDropEnabled
+                )
             sec_item.setFlags(flags)
         except Exception:
             pass
@@ -103,7 +155,7 @@ def add_sections_as_children(tree_widget, notebook_id, parent_item, db_path, exp
 
         # Add root pages under this section, then recursively add children
         try:
-            pages_root = get_root_pages_by_section_id(section_id, db_path)
+            pages_root = get_root_pages_by_section_id(section_id, db_path, include_deleted=include_deleted)
         except Exception:
             pages_root = []
         try:
@@ -113,8 +165,22 @@ def add_sections_as_children(tree_widget, notebook_id, parent_item, db_path, exp
         for p in pages_sorted:
             page_id = p[0]
             page_title = str(p[2])
+            
+            # Check if page is deleted (column 8 = deleted_at)
+            page_is_deleted = False
+            try:
+                page_is_deleted = p[8] is not None
+            except (IndexError, TypeError):
+                pass
+            
             page_item = QtWidgets.QTreeWidgetItem([page_title])
             page_item.setData(0, 1000, page_id)
+            page_item.setData(0, 1003, page_is_deleted)  # 1003 = is_deleted flag
+            
+            # Grey out deleted items
+            if page_is_deleted:
+                page_item.setForeground(0, QBrush(DELETED_ITEM_COLOR))
+            
             try:
                 page_item.setData(0, 1001, "page")
                 # Also store parent section id for convenience (1002 consistent with ui_tabs)
@@ -123,10 +189,14 @@ def add_sections_as_children(tree_widget, notebook_id, parent_item, db_path, exp
                 pass
             # Two-column mode: pages are selectable and draggable for reordering within a section.
             # Legacy tab mode: pages are enabled but not selectable or draggable here.
+            # Disable DnD for deleted items
             try:
                 pflags = page_item.flags()
                 if _is_two_col(tree_widget.window()):
-                    pflags = pflags | Qt.ItemIsEnabled | Qt.ItemIsSelectable | Qt.ItemIsDragEnabled | Qt.ItemIsDropEnabled
+                    if page_is_deleted:
+                        pflags = (pflags | Qt.ItemIsEnabled | Qt.ItemIsSelectable) & ~(Qt.ItemIsDragEnabled | Qt.ItemIsDropEnabled)
+                    else:
+                        pflags = pflags | Qt.ItemIsEnabled | Qt.ItemIsSelectable | Qt.ItemIsDragEnabled | Qt.ItemIsDropEnabled
                 else:
                     pflags = (pflags | Qt.ItemIsEnabled) & ~(
                         Qt.ItemIsSelectable | Qt.ItemIsDragEnabled | Qt.ItemIsDropEnabled
@@ -136,7 +206,7 @@ def add_sections_as_children(tree_widget, notebook_id, parent_item, db_path, exp
                 pass
             sec_item.addChild(page_item)
             # Recursively add subpages
-            _add_child_pages_recursively(section_id, int(page_id), page_item, db_path)
+            _add_child_pages_recursively(section_id, int(page_id), page_item, db_path, include_deleted=include_deleted)
             # Expand this page if requested (to show newly created subpages)
             if expand_page_id is not None and int(page_id) == int(expand_page_id):
                 page_item.setExpanded(True)

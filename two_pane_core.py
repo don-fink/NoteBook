@@ -49,6 +49,14 @@ def _set_page_edit_html(window, html: str):
             te.setHtml(html)
     finally:
         te.blockSignals(False)
+    # Trigger spell check after loading (since blockSignals prevented textChanged)
+    try:
+        from spell_check import get_spell_checker
+        spell_checker = get_spell_checker(te)
+        if spell_checker and spell_checker.enabled:
+            spell_checker.check_now()
+    except Exception:
+        pass
 
 
 def load_page(window, page_id: int = None, html: str = None):
@@ -100,8 +108,17 @@ def load_page(window, page_id: int = None, html: str = None):
     except Exception:
         pass
     _set_page_edit_html(window, html or "")
+    
+    # Check if page is deleted (deleted_at is column index 8)
+    is_deleted = False
     try:
-        te.setReadOnly(False)
+        if page_row and len(page_row) > 8 and page_row[8] is not None:
+            is_deleted = True
+    except Exception:
+        pass
+    
+    try:
+        te.setReadOnly(is_deleted)
     except Exception:
         pass
     try:
@@ -114,7 +131,8 @@ def load_page(window, page_id: int = None, html: str = None):
                 title = None
             title_le.blockSignals(True)
             title_le.setText(title if title else "Untitled Page")
-            title_le.setEnabled(True)
+            # Disable title editing for deleted pages
+            title_le.setEnabled(not is_deleted)
             title_le.blockSignals(False)
     except Exception:
         pass
@@ -219,6 +237,9 @@ def save_current_page(window):
                 return
         except Exception:
             pass
+        # Process any pending Qt events to ensure document changes are fully committed
+        from PyQt5.QtWidgets import QApplication
+        QApplication.processEvents()
         html = te.toHtml()
         try:
             from ui_richtext import sanitize_html_for_storage

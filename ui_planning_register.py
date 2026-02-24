@@ -424,8 +424,8 @@ class _PlanningRegisterWatcher(QtCore.QObject):
                     if table is not None and _is_planning_register_table(self._edit, table):
                         cell = table.cellAt(cur)
                         row, col = cell.row(), cell.column()
-                        # Block editing in protected cells
-                        if _is_protected_cell(table, row, col):
+                        # Block editing in protected cells (only columns 0, 1, 2 - user-added columns are editable)
+                        if col <= 2 and _is_protected_cell(table, row, col):
                             if (
                                 key in (Qt.Key_Backspace, Qt.Key_Delete, Qt.Key_Return, Qt.Key_Enter)
                                 or (event.text() and event.text().strip())

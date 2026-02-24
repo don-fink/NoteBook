@@ -46,6 +46,11 @@ def _default_settings_dir() -> str:
             return "."
 
 
+def get_app_data_dir() -> str:
+    """Return the app's data directory (where settings.json is stored)."""
+    return _default_settings_dir()
+
+
 def _pointer_file_path() -> str:
     return os.path.join(_default_settings_dir(), _POINTER_BASENAME)
 
@@ -665,4 +670,47 @@ def set_backups_to_keep(n: int):
         val = 999
     s = load_settings()
     s["backups_to_keep"] = val
+    save_settings(s)
+
+
+# --- Show Deleted Items setting ---
+
+def get_show_deleted() -> bool:
+    """Return True if soft-deleted items should be shown in the UI."""
+    s = load_settings()
+    return bool(s.get("show_deleted", False))
+
+
+def set_show_deleted(enabled: bool):
+    """Set whether soft-deleted items should be shown in the UI."""
+    s = load_settings()
+    s["show_deleted"] = bool(enabled)
+    save_settings(s)
+
+
+# --- Spell Check settings ---
+
+def get_spell_check_enabled() -> bool:
+    """Return True if spell check is enabled."""
+    s = load_settings()
+    return bool(s.get("spell_check_enabled", True))  # Default enabled
+
+
+def set_spell_check_enabled(enabled: bool):
+    """Set whether spell check is enabled."""
+    s = load_settings()
+    s["spell_check_enabled"] = bool(enabled)
+    save_settings(s)
+
+
+def get_spell_check_language() -> str:
+    """Return the spell check language code (e.g., 'en_US')."""
+    s = load_settings()
+    return str(s.get("spell_check_language", "en_US"))
+
+
+def set_spell_check_language(language: str):
+    """Set the spell check language code."""
+    s = load_settings()
+    s["spell_check_language"] = str(language)
     save_settings(s)

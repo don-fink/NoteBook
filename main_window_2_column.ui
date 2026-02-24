@@ -188,6 +188,9 @@
      <addaction name="actionPasteMode_Match_Style"/>
      <addaction name="actionPasteMode_Clean"/>
     </widget>
+    <addaction name="actionUndo"/>
+    <addaction name="actionRedo"/>
+    <addaction name="separator"/>
     <addaction name="actionPaste_Text_Only"/>
     <addaction name="actionPaste_and_Match_Style"/>
     <addaction name="actionPaste_Clean_Formatting"/>
@@ -515,6 +518,16 @@
   <action name="actionPrint_Preview">
    <property name="text">
     <string>Print Preview</string>
+   </property>
+  </action>
+  <action name="actionUndo">
+   <property name="text">
+    <string>Undo</string>
+   </property>
+  </action>
+  <action name="actionRedo">
+   <property name="text">
+    <string>Redo</string>
    </property>
   </action>
  </widget>

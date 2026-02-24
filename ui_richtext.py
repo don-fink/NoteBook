@@ -173,6 +173,10 @@ def _install_image_context_menu(text_edit: QtWidgets.QTextEdit):
 
 # Public installer: enable image support (menu, shortcuts, disable drops)
 def install_image_support(text_edit: QtWidgets.QTextEdit):
+    print(f"DEBUG: install_image_support called with {text_edit}")
+    import sys; sys.stdout.flush()
+    with open("debug_log.txt", "a") as f:
+        f.write(f"install_image_support called with {text_edit}\n")
     if text_edit is None:
         return
     try:
@@ -181,7 +185,7 @@ def install_image_support(text_edit: QtWidgets.QTextEdit):
             text_edit.viewport().setAcceptDrops(False)
     except Exception:
         pass
-        _install_image_context_menu(text_edit)
+    _install_image_context_menu(text_edit)
     try:
         _install_image_shortcuts(text_edit)
     except Exception:
@@ -739,7 +743,7 @@ def add_rich_text_toolbar(
         font_box.setMinimumContentsLength(8)
     except Exception:
         pass
-    font_box.currentFontChanged.connect(lambda f: _apply_font_family(text_edit, f.family()))
+    # Signal connection moved to later in setup to use guarded wrapper
     font_box.setToolTip("Font family")
     toolbar.addWidget(font_box)
 
@@ -751,9 +755,7 @@ def add_rich_text_toolbar(
         size_box.setMaximumWidth(72)
     except Exception:
         pass
-    size_box.currentIndexChanged.connect(
-        lambda _i: _apply_font_size(text_edit, size_box.currentData())
-    )
+    # Signal connection moved to later in setup to use guarded wrapper
     size_box.setToolTip("Font size")
     toolbar.addWidget(size_box)
 
@@ -889,48 +891,15 @@ def add_rich_text_toolbar(
                 cur.setPosition(pos)
             if cur.positionInBlock() != 0:
                 cur.insertBlock()
-            # Build a thin 1x1 table spanning full width with a 1px black top border on the cell
-            tf = QTextTableFormat()
-            try:
-                tf.setWidth(QTextLength(QTextLength.PercentageLength, 100.0))
-            except Exception:
-                pass
-            tf.setCellPadding(0)
-            tf.setCellSpacing(0)
-            tf.setBorder(0)
-            # Mark as HR so global border enforcement can skip it (runtime marker; HTML reload uses pattern detection)
-            try:
-                tf.setProperty(int(QTextFormat.UserProperty) + 101, True)
-            except Exception:
-                pass
-            tbl = cur.insertTable(1, 1, tf)
-            try:
-                cf = QTextTableCellFormat()
-                # Only top border to create a single visible line
-                cf.setTopBorder(1.0)
-                cf.setBottomBorder(0.0)
-                cf.setLeftBorder(0.0)
-                cf.setRightBorder(0.0)
-                try:
-                    cf.setBorderStyle(QTextFrameFormat.BorderStyle_Solid)
-                except Exception:
-                    pass
-                try:
-                    cf.setBorderBrush(QBrush(QColor("#000000")))
-                except Exception:
-                    pass
-                cell = tbl.cellAt(0, 0)
-                cell.setFormat(cf)
-            except Exception:
-                pass
-            # Move cursor after the table and insert a new block for continued typing
-            after = QTextCursor(text_edit.document())
-            try:
-                after.setPosition(tbl.lastPosition())
-            except Exception:
-                pass
-            text_edit.setTextCursor(after)
-            text_edit.textCursor().insertBlock()
+            # Insert a full-width table with inline style for the top border
+            # Using inline CSS ensures the styling persists through HTML save/reload
+            hr_html = (
+                '<table width="100%" cellpadding="0" cellspacing="0" border="0" '
+                'style="border-collapse: collapse;">'
+                '<tr><td style="border-top: 1px solid #000000; padding: 0; height: 1px;"></td></tr>'
+                '</table><p></p>'
+            )
+            cur.insertHtml(hr_html)
         finally:
             cur.endEditBlock()
 
@@ -1057,21 +1026,93 @@ def add_rich_text_toolbar(
     else:
         layout.insertWidget(0, toolbar)
 
+    # Guard flag to prevent circular toolbar sync during format application
+    _applying_format = [False]
+
     # Reflect current formatting in toolbar toggles when cursor moves
     def _sync_toolbar():
+        # Skip sync if we're in the middle of applying a format change
+        if _applying_format[0]:
+            return
         fmt = text_edit.currentCharFormat()
         act_bold.setChecked(fmt.fontWeight() == QFont.Bold)
         act_italic.setChecked(fmt.fontItalic())
         act_underline.setChecked(fmt.fontUnderline())
         act_strike.setChecked(fmt.fontStrikeOut())
+        # Block signals while updating font/size combos to prevent circular re-application
         try:
-            if fmt.fontPointSize() > 0:
-                _select_combo_value(size_box, int(fmt.fontPointSize()))
-            fam = fmt.fontFamily()
-            if fam:
-                font_box.setCurrentFont(QFont(fam))
+            old_size_blocked = size_box.blockSignals(True)
+            old_font_blocked = font_box.blockSignals(True)
+            try:
+                if fmt.fontPointSize() > 0:
+                    _select_combo_value(size_box, int(fmt.fontPointSize()))
+                fam = fmt.fontFamily()
+                if fam:
+                    font_box.setCurrentFont(QFont(fam))
+            finally:
+                size_box.blockSignals(old_size_blocked)
+                font_box.blockSignals(old_font_blocked)
         except Exception:
             pass
+
+    # Wrapper to apply format with guard
+    def _guarded_apply_font_family(fam):
+        # Skip if already applying a format (prevents circular re-application)
+        if _applying_format[0]:
+            return
+        _applying_format[0] = True
+        try:
+            _apply_font_family(text_edit, fam)
+            # Format changes don't trigger textChanged, so manually mark dirty and schedule save
+            try:
+                win = text_edit.window()
+                if win and hasattr(win, "_two_col_dirty"):
+                    win._two_col_dirty = True
+                    # Schedule immediate save via timer to persist font change
+                    from PyQt5.QtCore import QTimer
+                    QTimer.singleShot(50, lambda: _trigger_save_for_format_change(win))
+            except Exception:
+                pass
+        finally:
+            # Delay clearing the flag to allow pending signals to be ignored
+            from PyQt5.QtCore import QTimer
+            QTimer.singleShot(100, lambda: _clear_applying_flag())
+    
+    def _trigger_save_for_format_change(win):
+        """Save page after a format change (font, size, etc.) since these don't trigger textChanged."""
+        try:
+            from two_pane_core import save_current_page
+            save_current_page(win)
+        except Exception:
+            pass
+
+    def _guarded_apply_font_size(sz):
+        # Skip if already applying a format (prevents circular re-application)
+        if _applying_format[0]:
+            return
+        _applying_format[0] = True
+        try:
+            _apply_font_size(text_edit, sz)
+            # Format changes don't trigger textChanged, so manually mark dirty and schedule save
+            try:
+                win = text_edit.window()
+                if win and hasattr(win, "_two_col_dirty"):
+                    win._two_col_dirty = True
+                    from PyQt5.QtCore import QTimer
+                    QTimer.singleShot(50, lambda: _trigger_save_for_format_change(win))
+            except Exception:
+                pass
+        finally:
+            # Delay clearing the flag to allow pending signals to be ignored
+            from PyQt5.QtCore import QTimer
+            QTimer.singleShot(100, lambda: _clear_applying_flag())
+
+    def _clear_applying_flag():
+        _applying_format[0] = False
+
+    # Connect font/size combos to use guarded wrappers
+    font_box.currentFontChanged.connect(lambda f: _guarded_apply_font_family(f.family()))
+    size_box.currentIndexChanged.connect(lambda _i: _guarded_apply_font_size(size_box.currentData()))
 
     text_edit.cursorPositionChanged.connect(_sync_toolbar)
 
@@ -1767,7 +1808,7 @@ def sanitize_html_for_storage(raw_html: str) -> str:
                     # - table cell/row background-color and text-align
                     # - character styles: font-weight, font-style, text-decoration, color,
                     #   background/background-color, font-family, font-size
-                    if tag_l in ("ol", "ul", "li", "p", "div", "td", "th", "tr", "span", "a", "em", "strong", "b", "i", "u", "s", "hr"):
+                    if tag_l in ("ol", "ul", "li", "p", "div", "td", "th", "tr", "table", "span", "a", "em", "strong", "b", "i", "u", "s", "hr"):
                         try:
                             decls = [d.strip() for d in str(v).split(";") if d.strip()]
                             kept = []
@@ -1787,7 +1828,28 @@ def sanitize_html_for_storage(raw_html: str) -> str:
                                     "border-right",
                                     "border-bottom",
                                     "border-left",
+                                    "border-top-color",
+                                    "border-right-color",
+                                    "border-bottom-color",
+                                    "border-left-color",
+                                    "border-top-style",
+                                    "border-right-style",
+                                    "border-bottom-style",
+                                    "border-left-style",
+                                    "border-top-width",
+                                    "border-right-width",
+                                    "border-bottom-width",
+                                    "border-left-width",
+                                    "padding",
+                                    "padding-top",
+                                    "padding-right",
+                                    "padding-bottom",
+                                    "padding-left",
+                                    "height",
                                 ):
+                                    kept.append(d)
+                                # Preserve border-collapse on tables for HR styling
+                                elif tag_l == "table" and key == "border-collapse":
                                     kept.append(d)
                                 # Allow inline char formatting on common tags
                                 elif key in (
@@ -1867,7 +1929,7 @@ def sanitize_html_for_storage(raw_html: str) -> str:
                         allowed.append((k, v))
                     continue
                 if lk == "style":
-                    if tag_l in ("ol", "ul", "li", "p", "div", "td", "th", "tr", "span", "a", "em", "strong", "b", "i", "u", "s", "hr"):
+                    if tag_l in ("ol", "ul", "li", "p", "div", "td", "th", "tr", "table", "span", "a", "em", "strong", "b", "i", "u", "s", "hr"):
                         try:
                             decls = [d.strip() for d in str(v).split(";") if d.strip()]
                             kept = []
@@ -1887,7 +1949,28 @@ def sanitize_html_for_storage(raw_html: str) -> str:
                                     "border-right",
                                     "border-bottom",
                                     "border-left",
+                                    "border-top-color",
+                                    "border-right-color",
+                                    "border-bottom-color",
+                                    "border-left-color",
+                                    "border-top-style",
+                                    "border-right-style",
+                                    "border-bottom-style",
+                                    "border-left-style",
+                                    "border-top-width",
+                                    "border-right-width",
+                                    "border-bottom-width",
+                                    "border-left-width",
+                                    "padding",
+                                    "padding-top",
+                                    "padding-right",
+                                    "padding-bottom",
+                                    "padding-left",
+                                    "height",
                                 ):
+                                    kept.append(d)
+                                # Preserve border-collapse on tables for HR styling
+                                elif tag_l == "table" and key == "border-collapse":
                                     kept.append(d)
                                 elif key in (
                                     "font-weight",
@@ -2802,6 +2885,10 @@ class _ImageContextMenuHandler(QObject):
             return False
 
     def on_custom_menu(self, pos):
+        print("DEBUG: on_custom_menu ENTRY")
+        import sys; sys.stdout.flush()
+        with open("debug_log.txt", "a") as f:
+            f.write(f"on_custom_menu ENTRY pos={pos}\n")
         try:
             if not _is_alive(self._edit):
                 return
@@ -2842,11 +2929,28 @@ class _ImageContextMenuHandler(QObject):
                 except Exception:
                     pass
             if info is None:
-                # No image: show default menu
+                # No image: show default menu with spell suggestions
                 try:
                     menu = self._edit.createStandardContextMenu()
                 except Exception:
                     menu = QtWidgets.QMenu(self._edit)
+                # Add spell suggestions if available
+                try:
+                    from spell_check import get_spell_checker
+                    spell_checker = get_spell_checker(self._edit)
+                    print(f"DEBUG: spell_checker={spell_checker}, edit={self._edit}")
+                    if spell_checker:
+                        print(f"DEBUG: enabled={spell_checker.enabled}, dict={spell_checker._dictionary}")
+                        # Get word at cursor for debug
+                        cursor = self._edit.textCursor()
+                        cursor.select(QTextCursor.WordUnderCursor)
+                        print(f"DEBUG: word_at_cursor='{cursor.selectedText()}'")
+                    if spell_checker and spell_checker.enabled:
+                        spell_checker._add_spell_suggestions_to_menu(menu)
+                except Exception as e:
+                    print(f"DEBUG: Exception in spell check: {e}")
+                    import traceback
+                    traceback.print_exc()
                 menu.exec_(self._edit.mapToGlobal(pos_vp))
                 return
             # Show image-only menu
@@ -2958,6 +3062,14 @@ class _ImageContextMenuHandler(QObject):
         except Exception:
             try:
                 menu = self._edit.createStandardContextMenu()
+                # Add spell suggestions if available
+                try:
+                    from spell_check import get_spell_checker
+                    spell_checker = get_spell_checker(self._edit)
+                    if spell_checker and spell_checker.enabled:
+                        spell_checker._add_spell_suggestions_to_menu(menu)
+                except Exception:
+                    pass
                 menu.exec_(self._edit.mapToGlobal(pos if isinstance(pos, QPoint) else QPoint(0,0)))
             except Exception:
                 pass
@@ -3039,26 +3151,47 @@ def _install_image_hud(text_edit: QtWidgets.QTextEdit):
 
 
 def _install_image_context_menu(text_edit: QtWidgets.QTextEdit):
+    print(f"DEBUG: _install_image_context_menu called with {text_edit}")
+    import sys; sys.stdout.flush()
+    with open("debug_log.txt", "a") as f:
+        f.write(f"_install_image_context_menu called with {text_edit}\n")
     try:
         if text_edit is None:
             return
         handler = _ImageContextMenuHandler(text_edit)
         # Connect custom context menu signals from both editor and viewport
         try:
+            text_edit.setContextMenuPolicy(Qt.CustomContextMenu)
             text_edit.customContextMenuRequested.connect(handler.on_custom_menu)
-        except Exception:
-            pass
+            print(f"DEBUG: Connected customContextMenuRequested on {text_edit}")
+            import sys; sys.stdout.flush()
+            with open("debug_log.txt", "a") as f:
+                f.write(f"Connected customContextMenuRequested on {text_edit}\n")
+        except Exception as e:
+            print(f"DEBUG: Exception connecting to text_edit: {e}")
+            with open("debug_log.txt", "a") as f:
+                f.write(f"Exception connecting to text_edit: {e}\n")
         try:
             if text_edit.viewport() is not None:
                 text_edit.viewport().setContextMenuPolicy(Qt.CustomContextMenu)
                 text_edit.viewport().customContextMenuRequested.connect(handler.on_custom_menu)
-        except Exception:
-            pass
+                print(f"DEBUG: Connected customContextMenuRequested on viewport")
+                import sys; sys.stdout.flush()
+                with open("debug_log.txt", "a") as f:
+                    f.write(f"Connected customContextMenuRequested on viewport\n")
+        except Exception as e:
+            print(f"DEBUG: Exception connecting to viewport: {e}")
+            with open("debug_log.txt", "a") as f:
+                f.write(f"Exception connecting to viewport: {e}\n")
         if not hasattr(text_edit, "_imageContextHandlers"):
             text_edit._imageContextHandlers = []
         text_edit._imageContextHandlers.append(handler)
-    except Exception:
-        pass
+    except Exception as e:
+        print(f"DEBUG: Exception in _install_image_context_menu: {e}")
+        import traceback; traceback.print_exc()
+        with open("debug_log.txt", "a") as f:
+            import traceback
+            f.write(f"Exception in _install_image_context_menu: {e}\n{traceback.format_exc()}\n")
 
 
 def _install_image_resize_handler(text_edit: QtWidgets.QTextEdit):
@@ -3254,6 +3387,7 @@ def _enforce_uniform_table_borders(text_edit: QtWidgets.QTextEdit):
                     prop = fmt.property(int(QTextFormat.UserProperty) + 101)
                     skip = bool(prop)
                     # Additionally detect 1x1 top-border-only tables (HTML reload path)
+                    # HR tables are 1x1 with border=0 on the table itself and inline border-top styling
                     if not skip:
                         try:
                             rows, cols = tbl.rows(), tbl.columns()
@@ -3261,14 +3395,22 @@ def _enforce_uniform_table_borders(text_edit: QtWidgets.QTextEdit):
                             rows, cols = 0, 0
                         if rows == 1 and cols == 1:
                             try:
-                                cell = tbl.cellAt(0, 0)
-                                cf = QTextTableCellFormat(cell.format())
-                                tb = float(getattr(cf, 'topBorder', lambda: 0.0)() or 0.0)
-                                lb = float(getattr(cf, 'leftBorder', lambda: 0.0)() or 0.0)
-                                rb = float(getattr(cf, 'rightBorder', lambda: 0.0)() or 0.0)
-                                bb = float(getattr(cf, 'bottomBorder', lambda: 0.0)() or 0.0)
-                                if tb > 0.0 and lb == 0.0 and rb == 0.0 and bb == 0.0:
+                                # Check if table has zero border (indicates HR table)
+                                tbl_fmt = tbl.format()
+                                tbl_border = float(tbl_fmt.border())
+                                if tbl_border == 0.0:
+                                    # This is likely an HR table - skip border normalization
                                     skip = True
+                                else:
+                                    # Fallback: check cell border properties (for older HR format)
+                                    cell = tbl.cellAt(0, 0)
+                                    cf = QTextTableCellFormat(cell.format())
+                                    tb = float(getattr(cf, 'topBorder', lambda: 0.0)() or 0.0)
+                                    lb = float(getattr(cf, 'leftBorder', lambda: 0.0)() or 0.0)
+                                    rb = float(getattr(cf, 'rightBorder', lambda: 0.0)() or 0.0)
+                                    bb = float(getattr(cf, 'bottomBorder', lambda: 0.0)() or 0.0)
+                                    if tb > 0.0 and lb == 0.0 and rb == 0.0 and bb == 0.0:
+                                        skip = True
                             except Exception:
                                 pass
                 except Exception:
@@ -3959,44 +4101,26 @@ class _TableContextMenu(QObject):
             clicked_tbl = clicked_cur.currentTable()
             # Choose active table for the menu: prefer the one with a valid selection rect
             tbl = orig_tbl if (orig_tbl is not None and orig_rect is not None) else clicked_tbl
-            # When not over a table, show a simple menu (Paste + Insert)
+            # When not over a table, show standard context menu with spell suggestions
             if tbl is None:
-                menu = QtWidgets.QMenu(self._edit)
-                act_paste = menu.addAction("Paste")
+                try:
+                    menu = self._edit.createStandardContextMenu()
+                except Exception:
+                    menu = QtWidgets.QMenu(self._edit)
+                # Add spell suggestions at the top of the menu
+                try:
+                    from spell_check import get_spell_checker
+                    spell_checker = get_spell_checker(self._edit)
+                    if spell_checker and spell_checker.enabled:
+                        spell_checker._add_spell_suggestions_to_menu(menu, prepend=True, pos=widget_pos)
+                except Exception:
+                    pass
                 sub_ins = menu.addMenu("Insert")
                 act_ins_table = sub_ins.addAction("Table…")
                 # Insert Planning Register (dialog) under Insert submenu
                 act_ins_pr_dialog = sub_ins.addAction("Planning Register…")
                 chosen = menu.exec_(global_pos)
                 if chosen is None:
-                    return True
-                if chosen == act_paste:
-                    try:
-                        from settings_manager import get_default_paste_mode
-
-                        mode = get_default_paste_mode() or "rich"
-                    except Exception:
-                        mode = "rich"
-                    try:
-                        if mode == "text-only":
-                            from ui_richtext import paste_text_only
-
-                            paste_text_only(self._edit)
-                        elif mode == "match-style":
-                            from ui_richtext import paste_match_style
-
-                            paste_match_style(self._edit)
-                        elif mode == "clean":
-                            from ui_richtext import paste_clean_formatting
-
-                            paste_clean_formatting(self._edit)
-                        else:
-                            self._edit.paste()
-                    except Exception:
-                        try:
-                            self._edit.paste()
-                        except Exception:
-                            pass
                     return True
                 if chosen == act_ins_table:
                     _table_insert_dialog(self._edit)
@@ -4490,6 +4614,24 @@ def _table_set_cell_plain_text(text_edit: QtWidgets.QTextEdit, table, row: int, 
         pass
 
 
+def _table_cell_append_text(text_edit: QtWidgets.QTextEdit, table, row: int, col: int, suffix: str):
+    """Append text to a cell while preserving existing formatting."""
+    try:
+        cell = table.cellAt(row, col)
+        if not cell.isValid():
+            return
+        # Move cursor to the end of the cell content
+        last = cell.lastCursorPosition()
+        last.beginEditBlock()
+        try:
+            # Insert the suffix at the end - this preserves preceding formatting
+            last.insertText(str(suffix))
+        finally:
+            last.endEditBlock()
+    except Exception:
+        pass
+
+
 def _sum_range_in_table(table, start_addr: str, end_addr: str) -> float:
     r0, c0 = _parse_cell_address(start_addr)
     r1, c1 = _parse_cell_address(end_addr)
@@ -4573,12 +4715,12 @@ def _table_mark_currency_columns(text_edit: QtWidgets.QTextEdit, table, sel_rect
     # Append suffix to header cells and right-align numeric cells; also format existing numeric entries
     rows = table.rows()
     for c in cols_to_mark:
-        # Header cell suffix
+        # Header cell suffix - append while preserving formatting
         try:
             hdr_txt = _table_cell_plain_text(table, 0, c)
             # Allow empty headers - append suffix regardless
             if hdr_txt is not None and not hdr_txt.endswith(_CURRENCY_SUFFIX):
-                _table_set_cell_plain_text(text_edit, table, 0, c, hdr_txt + _CURRENCY_SUFFIX)
+                _table_cell_append_text(text_edit, table, 0, c, _CURRENCY_SUFFIX)
         except Exception:
             pass
         # Align all cells in column (excluding header maybe) to right
@@ -4748,7 +4890,7 @@ def ensure_currency_columns_watcher(text_edit: QtWidgets.QTextEdit):
                                                         break
                                             # If there are other currency columns, restore this one's suffix
                                             if has_other_currency:
-                                                _table_set_cell_plain_text(text_edit, prev_tbl, 0, prev_col, hdr_txt + _CURRENCY_SUFFIX)
+                                                _table_cell_append_text(text_edit, prev_tbl, 0, prev_col, _CURRENCY_SUFFIX)
                             finally:
                                 text_edit._currency_updating = False
                         # Recompute totals when leaving previous cell
@@ -4894,13 +5036,57 @@ def _apply_selection_colors(text_edit: QtWidgets.QTextEdit, bg: QColor, fg: QCol
 def _apply_font_family(text_edit: QtWidgets.QTextEdit, family: str):
     if not family:
         return
-    fmt = QTextCharFormat()
-    fmt.setFontFamily(str(family))
+    
     cursor = text_edit.textCursor()
-    if not cursor.hasSelection():
-        cursor.select(cursor.WordUnderCursor)
-    cursor.mergeCharFormat(fmt)
-    text_edit.mergeCurrentCharFormat(fmt)
+    
+    if cursor.hasSelection():
+        # IMPORTANT: mergeCharFormat() APPENDS to font stacks instead of replacing.
+        # We need to iterate through each character and REPLACE the font family
+        # while preserving other properties (bold, italic, color, etc.)
+        
+        start = cursor.selectionStart()
+        end = cursor.selectionEnd()
+        
+        cursor.beginEditBlock()
+        
+        # Iterate through each character position in the selection
+        for pos in range(start, end):
+            cursor.setPosition(pos)
+            cursor.setPosition(pos + 1, cursor.KeepAnchor)
+            
+            # Get current format to preserve other properties
+            current_fmt = cursor.charFormat()
+            
+            # REPLACE font - clear any existing font stack and set single font
+            try:
+                # Clear font families list and set our single font
+                current_fmt.setFontFamilies([str(family)])
+            except AttributeError:
+                current_fmt.setFontFamily(str(family))
+            
+            # Also set the primary font family directly
+            current_fmt.setFontFamily(str(family))
+            
+            # Use setCharFormat to REPLACE (not merge)
+            cursor.setCharFormat(current_fmt)
+        
+        cursor.endEditBlock()
+        
+        # Restore selection
+        cursor.setPosition(start)
+        cursor.setPosition(end, cursor.KeepAnchor)
+        text_edit.setTextCursor(cursor)
+        
+        # Force document to update
+        text_edit.document().setModified(True)
+        
+        # Force viewport repaint
+        text_edit.viewport().update()
+    else:
+        # No selection: set format for future typing
+        fmt = QTextCharFormat()
+        fmt.setFontFamily(str(family))
+        text_edit.mergeCurrentCharFormat(fmt)
 
 
 def _apply_font_size(text_edit: QtWidgets.QTextEdit, size_pt: float):
@@ -4910,13 +5096,19 @@ def _apply_font_size(text_edit: QtWidgets.QTextEdit, size_pt: float):
         size_f = float(size_pt)
     except Exception:
         return
-    fmt = QTextCharFormat()
-    fmt.setFontPointSize(size_f)
+    
     cursor = text_edit.textCursor()
-    if not cursor.hasSelection():
-        cursor.select(cursor.WordUnderCursor)
-    cursor.mergeCharFormat(fmt)
-    text_edit.mergeCurrentCharFormat(fmt)
+    
+    if cursor.hasSelection():
+        # Use QTextEdit's built-in setFontPointSize which properly handles selection
+        text_edit.setFontPointSize(size_f)
+        # Force viewport repaint
+        text_edit.viewport().update()
+    else:
+        # No selection: set format for future typing
+        fmt = QTextCharFormat()
+        fmt.setFontPointSize(size_f)
+        text_edit.mergeCurrentCharFormat(fmt)
 
 
 def _apply_text_color(text_edit: QtWidgets.QTextEdit, foreground: bool = True):
