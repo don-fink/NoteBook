@@ -30,7 +30,6 @@ Context.md
 *.db.media/
 
 # Saved backups/exports
-Saved DataBases/
 exports/
 backups/
 
@@ -44,9 +43,6 @@ NoteBook_Release.zip
 .mypy_cache/
 .pytest_cache/
 .ruff_cache/
-
-# Test/dev folders
-backups_test/
 
 # Misc
 .idea/
