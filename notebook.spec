@@ -1,12 +1,36 @@
 # -*- mode: python ; coding: utf-8 -*-
 
+# Collect pyenchant data files (DLLs and dictionaries)
+from PyInstaller.utils.hooks import collect_data_files, collect_dynamic_libs
+import os
+
+# Get enchant package location
+import enchant
+enchant_pkg_dir = os.path.dirname(enchant.__file__)
+enchant_data_dir = os.path.join(enchant_pkg_dir, 'data')
+
+# Manually collect all enchant data
+enchant_datas = []
+enchant_binaries = []
+
+if os.path.exists(enchant_data_dir):
+    for root, dirs, files in os.walk(enchant_data_dir):
+        for f in files:
+            src = os.path.join(root, f)
+            # Destination path relative to enchant package
+            rel_path = os.path.relpath(root, enchant_pkg_dir)
+            dest = os.path.join('enchant', rel_path)
+            if f.endswith('.dll'):
+                enchant_binaries.append((src, dest))
+            else:
+                enchant_datas.append((src, dest))
 
 a = Analysis(
     ['main.py'],
     pathex=[],
-    binaries=[],
-    datas=[('main_window_2_column.ui', '.'), ('settings_dialog.ui', '.'), ('themes', 'themes'), ('schema.sql', '.'), ('add_to_start_menu.cmd', '.'), ('clear_icon_cache.cmd', '.'), ('README.md', '.')],
-    hiddenimports=['PyQt5.QtCore', 'PyQt5.QtWidgets', 'PyQt5.QtGui', 'PyQt5.uic', 'sqlite3', 'settings_manager', 'db_access', 'db_pages', 'db_sections', 'db_version', 'media_store', 'ui_loader', 'ui_logic', 'ui_richtext', 'ui_sections', 'ui_planning_register', 'left_tree', 'page_editor', 'two_pane_core'],
+    binaries=enchant_binaries,
+    datas=[('main_window_2_column.ui', '.'), ('settings_dialog.ui', '.'), ('themes', 'themes'), ('schema.sql', '.'), ('add_to_start_menu.cmd', '.'), ('clear_icon_cache.cmd', '.'), ('README.md', '.')] + enchant_datas,
+    hiddenimports=['PyQt5.QtCore', 'PyQt5.QtWidgets', 'PyQt5.QtGui', 'PyQt5.uic', 'sqlite3', 'settings_manager', 'db_access', 'db_pages', 'db_sections', 'db_version', 'media_store', 'ui_loader', 'ui_logic', 'ui_richtext', 'ui_sections', 'ui_planning_register', 'left_tree', 'page_editor', 'two_pane_core', 'spell_check', 'enchant'],
     hookspath=[],
     hooksconfig={},
     runtime_hooks=[],

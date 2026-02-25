@@ -4138,6 +4138,14 @@ class _TableContextMenu(QObject):
                 return True
             # Otherwise, build the full table menu
             menu = QtWidgets.QMenu(self._edit)
+            # Add spell suggestions at the top if word is misspelled
+            try:
+                from spell_check import get_spell_checker
+                spell_checker = get_spell_checker(self._edit)
+                if spell_checker and spell_checker.enabled:
+                    spell_checker._add_spell_suggestions_to_menu(menu, prepend=False, pos=widget_pos)
+            except Exception:
+                pass
             # Precompute selection rectangle early (for multi-column operations)
             sel_rect = _table_selection_rect(self._edit, tbl)
             # Insert submenu with Table and Planning Register

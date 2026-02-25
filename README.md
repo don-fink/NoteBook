@@ -1,189 +1,162 @@
-Troubleshooting crashes
------------------------
-
-If the app crashes intermittently, try running in Safe Mode to disable the image resize overlay and some heavy event hooks temporarily.
-
-Windows PowerShell example:
-
-```
-$env:NOTEBOOK_SAFE_MODE='1'; & ./.venv/Scripts/python.exe ./main.py
-```
-
-Diagnostics will be written to two files in the project folder:
-
-- `crash.log`: Unhandled Python exceptions and Qt messages (warnings/errors)
-- `native_crash.log`: Low-level backtraces from Python faulthandler (e.g., segfaults)
-
-You can share the recent contents of those files to help pinpoint the issue.
-
 # NoteBook
 
-A PyQt5 desktop notebook app with binders, sections, and pages.
+A lightweight, portable desktop notebook application for Windows built with PyQt5. Organize your notes in binders, sections, and pages with rich text editing.
 
-## Two‑Pane UI (current)
-
-The app now uses a two‑column layout by default:
-- Left: Binder → Sections → Pages tree (`notebookName`).
-- Right: Page title (editable, bold) + rich text editor (`pageTitleEdit`, `pageEdit`).
-
-Behavior highlights:
-- Select a page to enable editing; otherwise the editor is read‑only.
-- Autosave on typing (debounced), focus‑out, and Ctrl+S.
-- Add/Rename/Delete Page/Section updates the tree immediately.
-- State persists: last notebook/section/page, expanded binders, splitter sizes, theme, paste mode.
-
-Shortcuts:
-- Ctrl+S — save current page.
-- Ctrl+Up / Ctrl+Down — reorder binders (focus left tree) and sections/pages (focus right panel).
-
-Notes:
-- Legacy tabbed UI fully removed; two‑pane initialization handled by `setup_two_pane`.
-
-### Order Index Normalization (Tools → Normalize Page Order)
-
-Pages, sections, and binders each have an `order_index` used for sorting. Over time inserts/deletes can leave gaps (e.g. 1,5,7) or duplicates (two items at 0). The Normalize action:
-
-1. Collects all sibling groups:
-	- Binders (top level notebooks)
-	- Sections within each binder
-	- Pages within each (section_id, parent_page_id) group (or just section if hierarchical pages disabled)
-2. Sorts items by `(order_index, id)` to preserve relative order.
-3. Reassigns sequential values `1..N` gap‑free where needed.
-4. Optionally creates a timestamped backup before applying.
-
-If no changes are needed you’ll see “Already normalized.”. Running normalization again immediately is idempotent (produces no further changes).
-
-Use when:
-- You notice unexpected jumpy ordering numbers while debugging.
-- After large import/migration operations.
-- Before implementing new relative move logic.
-
-This does not alter titles, hierarchy, or content—only the numeric ordering labels.
-## End‑User Installation (Windows)
-
-1. Download `NoteBook_Release.zip` from the latest release
-2. Extract the ZIP file to any folder (e.g., `C:\Program Files\NoteBook\`)
-3. Run `NoteBook.exe` directly - no installation required!
-4. (Optional) Run `add_to_start_menu.cmd` to add a Start Menu shortcut
-
-The app is fully portable - settings are stored in `%LOCALAPPDATA%\NoteBook\`
-
-## Building from Source
-
-If you want to build the executable yourself:
-
-1. Set up the development environment (see Dev setup below)
-2. Run `build.cmd` to create the executable
-3. Run `scripts\create_release_simple.ps1` to package for distribution
-
-### Release packaging notes
-
-- Do NOT include `settings.loc` in your ZIP/installer. It is a machine-specific pointer to a custom `settings.json` path and will break on other usernames/machines. If it exists in your working folder, delete it before packaging.
-- On target machines, settings will default to `%LOCALAPPDATA%\NoteBook\settings.json` unless the user selects a different location in the app’s Storage tab.
-
-### Legacy UI Notes
-- If you use a legacy `.ui` without `pageEdit`, setup becomes a no‑op; switch to `main_window_2_column.ui` for full functionality.
+![NoteBook Screenshot](screenshots/main_page.png)
 
 ## Features
 
-- Resizable split panes with saved layout
-- Rich text editing with:
-	- Bold/Italic/Underline/Strike, font family and size
-	- Bulleted and numbered lists with nested levels
-	- Classic outline numbering (I, A, 1, a, i, …) or Decimal
-	- Tab/Shift+Tab or Ctrl+]/Ctrl+[ to indent/outdent lists
-	- Insert horizontal rule and images
-	- Paste modes: Rich, Text-only, Match Style, Clean
-	- Single-click links open in your browser
-- Default paste mode and list schemes are persisted
-- Media storage and “Clean Unused Media” tool
+- **Two-pane interface** — Browse binders/sections/pages on the left, edit on the right
+- **Rich text editing** — Bold, italic, underline, strikethrough, fonts, sizes
+- **Lists** — Bulleted and numbered lists with nested levels and multiple numbering schemes
+- **Tables** — Insert tables with currency column formatting and auto-totals
+- **Images** — Embed images with resize handles
+- **Auto-save** — Changes saved automatically as you type
+- **Portable** — No installer required; settings stored in `%LOCALAPPDATA%\NoteBook\`
+- **Themes** — Default and high-contrast themes included
 
-### Removed / Deprecated Features
+### Keyboard Shortcuts
 
-The experimental table cell formula feature (inline `=A1+B2`, `SUM(A1:B3)`, recalculation action, and hidden sidecar storage) was fully rolled back in November 2025. All related menu items, context actions, and the `beautifulsoup4` dependency were removed to simplify the editor and avoid fragile HTML attribute persistence. The former `table_formulas.py` module no longer exists. Any lingering `data-formula` attributes in older saved pages are treated as plain text and ignored.
+| Action | Shortcut |
+|--------|----------|
+| Save | Ctrl+S |
+| Paste as plain text | Ctrl+Shift+V |
+| Indent list | Tab or Ctrl+] |
+| Outdent list | Shift+Tab or Ctrl+[ |
+| Reorder items | Ctrl+Up / Ctrl+Down |
 
-### Currency Columns (Selective Numeric Formatting)
+## Installation (Windows)
 
-You can right‑click inside any table and choose:
+### Download Release
 
-- Mark Column(s) as Currency + Total
+1. Download `NoteBook_Release.zip` from the [latest release](../../releases/latest)
+2. Extract to any folder (e.g., `C:\Program Files\NoteBook\`)
+3. Run `NoteBook.exe` — no installation required!
+4. (Optional) Run `add_to_start_menu.cmd` to add a Start Menu shortcut
 
-Marking a column:
-1. Appends " (Currency)" to the header cell text for each selected column.
-2. Right‑aligns and immediately currency‑formats every numeric cell in that column (e.g. `$1,234.56`, negatives as `-$1,234.56`).
-3. Ensures a bottom "Total" row exists (adds one if missing) and writes the column sum formatted as `$1,234.56`.
-
-Automatic updates: When you finish editing a cell (move the caret to a different cell or leave the table), that column’s numeric cells and its Total row are recomputed and re‑formatted automatically. No manual update action is required.
-
-
-Notes:
-- Detection relies on the header cell suffix; style/class attributes are stripped during sanitization so text content is used for persistence.
-- Non‑numeric cells are ignored during summation; empty cells count as 0.
-- If no Total row exists one is created automatically when marking or on first recompute.
-
-### Paste modes
-- Rich (default): standard paste.
-- Text-only (Ctrl+Shift+V): inserts plain text, no formatting.
-- Match Style: keeps structure but normalizes to current font and size.
-- Clean: drops most inline styles/classes; keeps links, images, lists.
-
-You can set the default paste mode from the Edit menu.
-
-### Lists and indenting
-- Use the toolbar buttons or keyboard:
-	- Indent: Tab or Ctrl+]
-	- Outdent: Shift+Tab or Ctrl+[
-- Switch list scheme (Classic/Decimal) from the Format menu.
-
-### Links
-- Paste a URL in Match Style or Clean to auto-link it (e.g., https://example.com).
-- Click a link to open it in your default browser.
-
-## Help Menu
-
-The Help menu provides quick access to documentation and information:
-
-- **Documentation** — Opens this README file in your default markdown viewer/browser
-- **Keyboard Shortcuts** — Displays a dialog with common keyboard shortcuts for editing, tables, and currency columns
-- **About NoteBook** — Shows version information and feature summary
-
-For detailed guidance on specific features, refer to the sections below or use the Documentation menu item.
-
-## Dev setup
-
-- Create and activate a virtual environment (recommended)
-- Install developer requirements (runtime + Qt Designer tools)
-- Run the app
-
-### Windows PowerShell
+### Build from Source
 
 ```powershell
-# From repo root
+# Clone and enter the repo
+git clone https://github.com/don-fink/NoteBook.git
+cd NoteBook
+
+# Create virtual environment
 python -m venv .venv
 & .\.venv\Scripts\Activate.ps1
 python -m pip install --upgrade pip
 python -m pip install -r requirements-dev.txt
 
-# Launch
-& .\.venv\Scripts\python.exe .\main.py
+# Run the app
+python main.py
+
+# Build executable (optional)
+.\build.cmd
 ```
 
-## VS Code
+## Usage
 
-- Open this folder in VS Code.
-- Accept the recommended extensions when prompted.
-- Run the task "Setup dev env (.venv + requirements-dev)" once from Terminal > Run Task.
-- To run the app:
-	- Use Run and Debug panel and select "Python: Run NoteBook", or
-	- Run the task "Run NoteBook".
+### Getting Started
 
-### Notes
-- Qt Designer binaries and tools come from `pyqt5-tools` and related packages.
-- If you only need runtime deps, use `requirements.txt` instead.
-- Settings are stored per-user at `%LOCALAPPDATA%\NoteBook\settings.json`. If you choose a custom location in the Storage tab, the app writes a pointer file `settings.loc` under the default settings directory to remember it (do not distribute this file).
-- The UI is loaded from `main_window_2_column.ui` via `ui_loader.py`.
+1. Launch the app — a default notebook is created automatically
+2. Use the left panel to create binders (notebooks), sections, and pages
+3. Click a page to start editing in the right panel
+4. Your changes are saved automatically
+
+### Paste Modes
+
+Access from the Edit menu:
+
+- **Rich** (default) — Standard paste with formatting
+- **Text-only** (Ctrl+Shift+V) — Plain text, no formatting
+- **Match Style** — Keeps structure, normalizes to current font
+- **Clean** — Removes most styling, keeps links and images
+
+### Currency Columns
+
+Right-click in a table and select "Mark Column(s) as Currency + Total" to:
+- Format numbers as currency (`$1,234.56`)
+- Auto-calculate column totals
+- Updates automatically when you edit cells
+
+## Development
+
+### VS Code Setup
+
+1. Open this folder in VS Code
+2. Accept the recommended extensions when prompted
+3. Run task: **Terminal → Run Task → Setup dev env**
+4. Debug with: **Run and Debug → Python: Run NoteBook**
+
+### Project Structure
+
+- `main.py` — Application entry point
+- `ui_logic.py` — Main window logic and event handling
+- `page_editor.py` — Rich text editor implementation
+- `db_*.py` — Database access layer
+- `services/` — Business logic services
+- `themes/` — QSS stylesheets
+
+## Contributing
+
+Contributions are welcome! Please see [CONTRIBUTING.md](CONTRIBUTING.md) for guidelines.
+
+## License
+
+This project is licensed under the MIT License — see [LICENSE](LICENSE) for details.
+
+---
 
 ## Troubleshooting
-- If the UI fails to load with an UnsupportedPropertyError for `list`, remove any `sizes` property on QSplitter in the `.ui` file; set sizes in code instead.
-- If panel sizes don’t restore, ensure `settings.json` is writable and that the app exits cleanly at least once to save initial sizes.
- - If the editor stays read‑only, make sure a page is selected in the left tree.
+
+### App crashes intermittently
+
+Run in Safe Mode to disable heavy overlays:
+
+```powershell
+$env:NOTEBOOK_SAFE_MODE='1'; python main.py
+```
+
+Check these log files for details:
+- `crash.log` — Python exceptions and Qt messages
+- `native_crash.log` — Low-level crash traces
+
+### Editor stays read-only
+
+Make sure a page is selected in the left tree panel.
+
+### Panel sizes don't restore
+
+Ensure `settings.json` is writable and exit the app cleanly at least once.
+
+### UI fails to load
+
+If you see `UnsupportedPropertyError for 'list'`, the `.ui` file may have incompatible properties. Use the included `main_window_2_column.ui`.
+
+---
+
+## Advanced
+
+<details>
+<summary>Order Index Normalization</summary>
+
+Over time, item ordering indexes can have gaps or duplicates. Use **Tools → Normalize Page Order** to fix:
+
+1. Sorts items by current order
+2. Reassigns sequential values (1, 2, 3...)
+3. Optionally creates a backup first
+
+This only changes ordering numbers, not content.
+
+</details>
+
+<details>
+<summary>Release Packaging Notes</summary>
+
+When building releases:
+
+- Do NOT include `settings.loc` — it's machine-specific
+- Settings default to `%LOCALAPPDATA%\NoteBook\settings.json`
+- Run `create_release_simple.ps1` to package for distribution
+
+</details>

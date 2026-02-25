@@ -18,6 +18,9 @@ Thumbs.db
 settings.json
 *.log
 
+# Personal notes (AI context)
+Context.md
+
 # SQLite databases & journals
 *.db
 *.db-shm
@@ -31,81 +34,19 @@ Saved DataBases/
 exports/
 backups/
 
+# Build artifacts
+build/
+dist/
+NoteBook_Release/
+NoteBook_Release.zip
+
+# Cache directories
+.mypy_cache/
+.pytest_cache/
+.ruff_cache/
+
+# Test/dev folders
+backups_test/
+
 # Misc
 .idea/
-*.cache/
-dist/NoteBook/_internal/PyQt5/Qt5/translations/qt_ar.qm
-dist/NoteBook/_internal/PyQt5/Qt5/translations/qt_bg.qm
-dist/NoteBook/_internal/PyQt5/Qt5/translations/qt_ca.qm
-dist/NoteBook/_internal/PyQt5/Qt5/translations/qt_cs.qm
-dist/NoteBook/_internal/PyQt5/Qt5/translations/qt_da.qm
-dist/NoteBook/_internal/PyQt5/Qt5/translations/qt_de.qm
-dist/NoteBook/_internal/PyQt5/Qt5/translations/qt_en.qm
-dist/NoteBook/_internal/PyQt5/Qt5/translations/qt_es.qm
-dist/NoteBook/_internal/PyQt5/Qt5/translations/qt_fa.qm
-dist/NoteBook/_internal/PyQt5/Qt5/translations/qt_fi.qm
-dist/NoteBook/_internal/PyQt5/Qt5/translations/qt_fr.qm
-dist/NoteBook/_internal/PyQt5/Qt5/translations/qt_gd.qm
-dist/NoteBook/_internal/PyQt5/Qt5/translations/qt_gl.qm
-dist/NoteBook/_internal/PyQt5/Qt5/translations/qt_he.qm
-dist/NoteBook/_internal/PyQt5/Qt5/translations/qt_help_ar.qm
-dist/NoteBook/_internal/PyQt5/Qt5/translations/qt_help_bg.qm
-dist/NoteBook/_internal/PyQt5/Qt5/translations/qt_help_ca.qm
-dist/NoteBook/_internal/PyQt5/Qt5/translations/qt_help_cs.qm
-dist/NoteBook/_internal/PyQt5/Qt5/translations/qt_help_da.qm
-dist/NoteBook/_internal/PyQt5/Qt5/translations/qt_help_de.qm
-dist/NoteBook/_internal/PyQt5/Qt5/translations/qt_help_en.qm
-dist/NoteBook/_internal/PyQt5/Qt5/translations/qt_help_es.qm
-dist/NoteBook/_internal/PyQt5/Qt5/translations/qt_help_fr.qm
-dist/NoteBook/_internal/PyQt5/Qt5/translations/qt_help_gl.qm
-dist/NoteBook/_internal/PyQt5/Qt5/translations/qt_help_hu.qm
-dist/NoteBook/_internal/PyQt5/Qt5/translations/qt_help_it.qm
-dist/NoteBook/_internal/PyQt5/Qt5/translations/qt_help_ja.qm
-dist/NoteBook/_internal/PyQt5/Qt5/translations/qt_help_ko.qm
-dist/NoteBook/_internal/PyQt5/Qt5/translations/qt_help_pl.qm
-dist/NoteBook/_internal/PyQt5/Qt5/translations/qt_help_ru.qm
-dist/NoteBook/_internal/PyQt5/Qt5/translations/qt_help_sk.qm
-dist/NoteBook/_internal/PyQt5/Qt5/translations/qt_help_sl.qm
-dist/NoteBook/_internal/PyQt5/Qt5/translations/qt_help_tr.qm
-dist/NoteBook/_internal/PyQt5/Qt5/translations/qt_help_uk.qm
-dist/NoteBook/_internal/PyQt5/Qt5/translations/qt_help_zh_CN.qm
-dist/NoteBook/_internal/PyQt5/Qt5/translations/qt_help_zh_TW.qm
-dist/NoteBook/_internal/PyQt5/Qt5/translations/qt_hu.qm
-dist/NoteBook/_internal/PyQt5/Qt5/translations/qt_it.qm
-dist/NoteBook/_internal/PyQt5/Qt5/translations/qt_ja.qm
-dist/NoteBook/_internal/PyQt5/Qt5/translations/qt_ko.qm
-dist/NoteBook/_internal/PyQt5/Qt5/translations/qt_lt.qm
-dist/NoteBook/_internal/PyQt5/Qt5/translations/qt_lv.qm
-dist/NoteBook/_internal/PyQt5/Qt5/translations/qt_pl.qm
-dist/NoteBook/_internal/PyQt5/Qt5/translations/qt_pt.qm
-dist/NoteBook/_internal/PyQt5/Qt5/translations/qt_ru.qm
-dist/NoteBook/_internal/PyQt5/Qt5/translations/qt_sk.qm
-dist/NoteBook/_internal/PyQt5/Qt5/translations/qt_sl.qm
-dist/NoteBook/_internal/PyQt5/Qt5/translations/qt_sv.qm
-dist/NoteBook/_internal/PyQt5/Qt5/translations/qt_tr.qm
-dist/NoteBook/_internal/PyQt5/Qt5/translations/qt_uk.qm
-dist/NoteBook/_internal/PyQt5/Qt5/translations/qt_zh_CN.qm
-dist/NoteBook/_internal/PyQt5/Qt5/translations/qt_zh_TW.qm
-dist/NoteBook/_internal/PyQt5/Qt5/translations/qtbase_ar.qm
-dist/NoteBook/_internal/PyQt5/Qt5/translations/qtbase_bg.qm
-dist/NoteBook/_internal/PyQt5/Qt5/translations/qtbase_ca.qm
-dist/NoteBook/_internal/PyQt5/Qt5/translations/qtbase_cs.qm
-dist/NoteBook/_internal/PyQt5/Qt5/translations/qtbase_da.qm
-dist/NoteBook/_internal/PyQt5/Qt5/translations/qtbase_de.qm
-dist/NoteBook/_internal/PyQt5/Qt5/translations/qtbase_en.qm
-dist/NoteBook/_internal/PyQt5/Qt5/translations/qtbase_es.qm
-dist/NoteBook/_internal/PyQt5/Qt5/translations/qtbase_fi.qm
-dist/NoteBook/_internal/PyQt5/Qt5/translations/qtbase_fr.qm
-dist/NoteBook/_internal/PyQt5/Qt5/translations/qtbase_gd.qm
-dist/NoteBook/_internal/PyQt5/Qt5/translations/qtbase_he.qm
-dist/NoteBook/_internal/PyQt5/Qt5/translations/qtbase_hu.qm
-dist/NoteBook/_internal/PyQt5/Qt5/translations/qtbase_it.qm
-dist/NoteBook/_internal/PyQt5/Qt5/translations/qtbase_ja.qm
-dist/NoteBook/_internal/PyQt5/Qt5/translations/qtbase_ko.qm
-dist/NoteBook/_internal/PyQt5/Qt5/translations/qtbase_lv.qm
-dist/NoteBook/_internal/PyQt5/Qt5/translations/qtbase_pl.qm
-dist/NoteBook/_internal/PyQt5/Qt5/translations/qtbase_ru.qm
-dist/NoteBook/_internal/PyQt5/Qt5/translations/qtbase_sk.qm
-dist/NoteBook/_internal/PyQt5/Qt5/translations/qtbase_tr.qm
-dist/NoteBook/_internal/PyQt5/Qt5/translations/qtbase_uk.qm
-dist/NoteBook/_internal/PyQt5/Qt5/translations/qtbase_zh_TW.qm
