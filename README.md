@@ -1,6 +1,7 @@
 # NoteBook
 
 A lightweight, portable desktop notebook application for Windows built with PyQt5. Organize your notes in binders, sections, and pages with rich text editing.
+For Mac and Linux, see the CROSS_PLATFORM.md file in Docs.
 
 ![NoteBook Screenshot](screenshots/main_page.png)
 
