@@ -188,9 +188,7 @@ class SpellCheckHighlighter:
             pos: Optional click position (QPoint) to determine which word was clicked
         """
         try:
-            print(f"DEBUG _add_spell_suggestions: enabled={self._enabled}, dict={self._dictionary}")
             if not self._enabled or not self._dictionary:
-                print("DEBUG: Returning early - not enabled or no dictionary")
                 return
             
             # Get the word at the click position or current cursor position
@@ -202,21 +200,16 @@ class SpellCheckHighlighter:
                 cursor = self._text_edit.textCursor()
                 cursor.select(QTextCursor.WordUnderCursor)
             word = cursor.selectedText()
-            print(f"DEBUG: word='{word}'")
             
             # Check if this word is misspelled
             if not word or len(word) < 2:
-                print(f"DEBUG: Returning - word too short or empty")
                 return
             is_correct = self._dictionary.check(word)
-            print(f"DEBUG: is_correct={is_correct}")
             if is_correct:
-                print("DEBUG: Word is spelled correctly, returning")
                 return
             
             # Get suggestions
             suggestions = self._dictionary.suggest(word)[:5]  # Top 5 suggestions
-            print(f"DEBUG: suggestions={suggestions}")
             
             # Insert suggestions at the top of the menu or append
             first_action = menu.actions()[0] if (prepend and menu.actions()) else None

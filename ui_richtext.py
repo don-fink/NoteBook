@@ -173,10 +173,6 @@ def _install_image_context_menu(text_edit: QtWidgets.QTextEdit):
 
 # Public installer: enable image support (menu, shortcuts, disable drops)
 def install_image_support(text_edit: QtWidgets.QTextEdit):
-    print(f"DEBUG: install_image_support called with {text_edit}")
-    import sys; sys.stdout.flush()
-    with open("debug_log.txt", "a") as f:
-        f.write(f"install_image_support called with {text_edit}\n")
     if text_edit is None:
         return
     try:
@@ -2885,10 +2881,6 @@ class _ImageContextMenuHandler(QObject):
             return False
 
     def on_custom_menu(self, pos):
-        print("DEBUG: on_custom_menu ENTRY")
-        import sys; sys.stdout.flush()
-        with open("debug_log.txt", "a") as f:
-            f.write(f"on_custom_menu ENTRY pos={pos}\n")
         try:
             if not _is_alive(self._edit):
                 return
@@ -2938,19 +2930,10 @@ class _ImageContextMenuHandler(QObject):
                 try:
                     from spell_check import get_spell_checker
                     spell_checker = get_spell_checker(self._edit)
-                    print(f"DEBUG: spell_checker={spell_checker}, edit={self._edit}")
-                    if spell_checker:
-                        print(f"DEBUG: enabled={spell_checker.enabled}, dict={spell_checker._dictionary}")
-                        # Get word at cursor for debug
-                        cursor = self._edit.textCursor()
-                        cursor.select(QTextCursor.WordUnderCursor)
-                        print(f"DEBUG: word_at_cursor='{cursor.selectedText()}'")
                     if spell_checker and spell_checker.enabled:
                         spell_checker._add_spell_suggestions_to_menu(menu)
-                except Exception as e:
-                    print(f"DEBUG: Exception in spell check: {e}")
-                    import traceback
-                    traceback.print_exc()
+                except Exception:
+                    pass
                 menu.exec_(self._edit.mapToGlobal(pos_vp))
                 return
             # Show image-only menu
@@ -3151,10 +3134,6 @@ def _install_image_hud(text_edit: QtWidgets.QTextEdit):
 
 
 def _install_image_context_menu(text_edit: QtWidgets.QTextEdit):
-    print(f"DEBUG: _install_image_context_menu called with {text_edit}")
-    import sys; sys.stdout.flush()
-    with open("debug_log.txt", "a") as f:
-        f.write(f"_install_image_context_menu called with {text_edit}\n")
     try:
         if text_edit is None:
             return
@@ -3163,35 +3142,19 @@ def _install_image_context_menu(text_edit: QtWidgets.QTextEdit):
         try:
             text_edit.setContextMenuPolicy(Qt.CustomContextMenu)
             text_edit.customContextMenuRequested.connect(handler.on_custom_menu)
-            print(f"DEBUG: Connected customContextMenuRequested on {text_edit}")
-            import sys; sys.stdout.flush()
-            with open("debug_log.txt", "a") as f:
-                f.write(f"Connected customContextMenuRequested on {text_edit}\n")
-        except Exception as e:
-            print(f"DEBUG: Exception connecting to text_edit: {e}")
-            with open("debug_log.txt", "a") as f:
-                f.write(f"Exception connecting to text_edit: {e}\n")
+        except Exception:
+            pass
         try:
             if text_edit.viewport() is not None:
                 text_edit.viewport().setContextMenuPolicy(Qt.CustomContextMenu)
                 text_edit.viewport().customContextMenuRequested.connect(handler.on_custom_menu)
-                print(f"DEBUG: Connected customContextMenuRequested on viewport")
-                import sys; sys.stdout.flush()
-                with open("debug_log.txt", "a") as f:
-                    f.write(f"Connected customContextMenuRequested on viewport\n")
-        except Exception as e:
-            print(f"DEBUG: Exception connecting to viewport: {e}")
-            with open("debug_log.txt", "a") as f:
-                f.write(f"Exception connecting to viewport: {e}\n")
+        except Exception:
+            pass
         if not hasattr(text_edit, "_imageContextHandlers"):
             text_edit._imageContextHandlers = []
         text_edit._imageContextHandlers.append(handler)
-    except Exception as e:
-        print(f"DEBUG: Exception in _install_image_context_menu: {e}")
-        import traceback; traceback.print_exc()
-        with open("debug_log.txt", "a") as f:
-            import traceback
-            f.write(f"Exception in _install_image_context_menu: {e}\n{traceback.format_exc()}\n")
+    except Exception:
+        pass
 
 
 def _install_image_resize_handler(text_edit: QtWidgets.QTextEdit):
@@ -3969,6 +3932,51 @@ def _table_properties_dialog(text_edit: QtWidgets.QTextEdit, table):
         pass
 
 
+def _table_refresh_currency_alignment_after_col_change(text_edit: QtWidgets.QTextEdit, table):
+    """
+    After inserting or removing columns, invalidate cached state and re-apply
+    right-alignment to all currency column cells. This fixes cursor positioning
+    issues that occur when column indices shift.
+    """
+    if text_edit is None or table is None:
+        return
+    try:
+        # Invalidate cached cell coordinate to force re-detection
+        if hasattr(text_edit, "_currency_last_cell"):
+            text_edit._currency_last_cell = None
+        # Detect currency columns and re-apply alignment
+        currency_cols = _detect_currency_columns(table)
+        if not currency_cols:
+            return
+        from PyQt5.QtCore import Qt as _Qt
+        from PyQt5.QtGui import QTextBlockFormat as _QTextBlockFormat
+        rows = table.rows()
+        for c in currency_cols:
+            for r in range(1, rows):  # Skip header row
+                try:
+                    cell = table.cellAt(r, c)
+                    if not cell.isValid():
+                        continue
+                    # Apply right-alignment to all blocks in the cell
+                    start_pos = cell.firstCursorPosition().position()
+                    end_pos = cell.lastCursorPosition().position()
+                    from PyQt5.QtGui import QTextCursor as _QTextCursor
+                    cur = _QTextCursor(text_edit.document())
+                    cur.setPosition(start_pos)
+                    while cur.position() <= end_pos:
+                        bf = _QTextBlockFormat()
+                        bf.setAlignment(_Qt.AlignRight)
+                        cur.mergeBlockFormat(bf)
+                        if cur.position() == end_pos:
+                            break
+                        if not cur.movePosition(_QTextCursor.NextBlock):
+                            break
+                except Exception:
+                    pass
+    except Exception:
+        pass
+
+
 def _table_add_remove(text_edit: QtWidgets.QTextEdit, action: str):
     cur = text_edit.textCursor()
     tbl = cur.currentTable()
@@ -3985,12 +3993,15 @@ def _table_add_remove(text_edit: QtWidgets.QTextEdit, action: str):
         tbl.insertRows(row + 1, 1)
     elif action == "col_left":
         tbl.insertColumns(col, 1)
+        _table_refresh_currency_alignment_after_col_change(text_edit, tbl)
     elif action == "col_right":
         tbl.insertColumns(col + 1, 1)
+        _table_refresh_currency_alignment_after_col_change(text_edit, tbl)
     elif action == "remove_row":
         tbl.removeRows(row, 1)
     elif action == "remove_col":
         tbl.removeColumns(col, 1)
+        _table_refresh_currency_alignment_after_col_change(text_edit, tbl)
 
 
 class _TableContextMenu(QObject):
@@ -4667,7 +4678,9 @@ def _sum_range_in_table(table, start_addr: str, end_addr: str) -> float:
 # (Removed legacy inline SUM formula recalculation support.)
 
 # --- Currency Column Helpers ---
-_CURRENCY_SUFFIX = " (Currency)"
+_CURRENCY_SUFFIX = " ($)"
+# Legacy suffix for backward compatibility with existing documents
+_CURRENCY_SUFFIX_LEGACY = " (Currency)"
 
 def _format_currency(value: float) -> str:
     try:
@@ -4676,15 +4689,56 @@ def _format_currency(value: float) -> str:
     except Exception:
         return str(value)
 
+def _has_currency_suffix(text: str) -> bool:
+    """Check if text ends with current or legacy currency suffix (whitespace-normalized)."""
+    if not isinstance(text, str):
+        return False
+    normalized = text.rstrip()
+    return normalized.endswith(_CURRENCY_SUFFIX) or normalized.endswith(_CURRENCY_SUFFIX_LEGACY)
+
+def _column_has_currency_data(table, col: int) -> bool:
+    """Check if a column contains currency-formatted values ($X.XX pattern)."""
+    try:
+        import re
+        currency_pattern = re.compile(r'^\s*-?\$[\d,]+\.?\d*\s*$')
+        rows = table.rows()
+        currency_count = 0
+        for r in range(1, rows):  # Skip header
+            cell_txt = _table_cell_plain_text(table, r, col)
+            if isinstance(cell_txt, str) and cell_txt.strip():
+                if currency_pattern.match(cell_txt.strip()):
+                    currency_count += 1
+                    if currency_count >= 2:  # Require at least 2 currency values
+                        return True
+    except Exception:
+        pass
+    return False
+
 def _detect_currency_columns(table) -> set:
+    """
+    Detect currency columns using:
+    1. Header suffix (current or legacy)
+    2. Fallback: column content pattern (if has Total row and $X.XX values)
+    """
     cols = set()
     try:
         if table.rows() == 0:
             return cols
         cols_count = table.columns()
+        
+        # Check for Total row (indicates currency formatting was applied)
+        has_total_row = False
+        if table.rows() > 1:
+            last_cell_txt = _table_cell_plain_text(table, table.rows() - 1, 0)
+            has_total_row = isinstance(last_cell_txt, str) and last_cell_txt.strip().lower() == "total"
+        
         for c in range(cols_count):
             hdr_txt = _table_cell_plain_text(table, 0, c)
-            if isinstance(hdr_txt, str) and hdr_txt.endswith(_CURRENCY_SUFFIX):
+            # Primary detection: header suffix
+            if _has_currency_suffix(hdr_txt):
+                cols.add(c)
+            # Fallback: if table has Total row, check column content
+            elif has_total_row and c > 0 and _column_has_currency_data(table, c):
                 cols.add(c)
     except Exception:
         pass
@@ -4727,7 +4781,7 @@ def _table_mark_currency_columns(text_edit: QtWidgets.QTextEdit, table, sel_rect
         try:
             hdr_txt = _table_cell_plain_text(table, 0, c)
             # Allow empty headers - append suffix regardless
-            if hdr_txt is not None and not hdr_txt.endswith(_CURRENCY_SUFFIX):
+            if hdr_txt is not None and not _has_currency_suffix(hdr_txt):
                 _table_cell_append_text(text_edit, table, 0, c, _CURRENCY_SUFFIX)
         except Exception:
             pass
@@ -4774,10 +4828,13 @@ def _table_mark_currency_columns(text_edit: QtWidgets.QTextEdit, table, sel_rect
                     raw = _table_cell_plain_text(table, r, c)
                     if not raw:
                         continue
-                    # Strip currency symbols/commas
+                    # Strip currency symbols/commas and any suffix
                     cleaned = raw.replace("$", "").replace(",", "").strip()
-                    if cleaned.endswith(_CURRENCY_SUFFIX):
-                        cleaned = cleaned[:-len(_CURRENCY_SUFFIX)]
+                    # Remove suffix (current or legacy) if present
+                    for suffix in (_CURRENCY_SUFFIX, _CURRENCY_SUFFIX_LEGACY):
+                        if cleaned.endswith(suffix):
+                            cleaned = cleaned[:-len(suffix)].strip()
+                            break
                     val = float(cleaned) if cleaned else 0.0
                     total += val
                 except Exception:
@@ -4853,6 +4910,48 @@ def _table_recompute_currency_columns(text_edit: QtWidgets.QTextEdit, table):
         _right_align_cell(last_row_idx, c)
 
 
+def _snap_cursor_if_currency_cell(text_edit, table, cell):
+    """Snap cursor to right side of cell if it's a currency column (not header/total).
+    Also ensures the cell has right-alignment (fixes missing alignment on page reload)."""
+    try:
+        if not cell.isValid():
+            return
+        currency_cols = _detect_currency_columns(table)
+        if not currency_cols or cell.column() not in currency_cols:
+            return
+        if cell.row() == 0:  # Skip header
+            return
+        # Skip Total row
+        last_row_text = _table_cell_plain_text(table, table.rows() - 1, 0)
+        if cell.row() == table.rows() - 1 and isinstance(last_row_text, str) and last_row_text.strip().lower() == "total":
+            return
+        # Ensure cell has right-alignment (may be lost on page reload for empty cells)
+        try:
+            from PyQt5.QtCore import Qt as _Qt
+            from PyQt5.QtGui import QTextBlockFormat as _QTextBlockFormat, QTextCursor as _QTextCursor
+            start_pos = cell.firstCursorPosition().position()
+            end_pos = cell.lastCursorPosition().position()
+            align_cur = _QTextCursor(text_edit.document())
+            align_cur.setPosition(start_pos)
+            while align_cur.position() <= end_pos:
+                bf = _QTextBlockFormat()
+                bf.setAlignment(_Qt.AlignRight)
+                align_cur.mergeBlockFormat(bf)
+                if align_cur.position() == end_pos:
+                    break
+                if not align_cur.movePosition(_QTextCursor.NextBlock):
+                    break
+        except Exception:
+            pass
+        # Snap cursor to right
+        cur = text_edit.textCursor()
+        last = cell.lastCursorPosition().position()
+        if (not cur.hasSelection()) and (cur.position() != last):
+            text_edit.setTextCursor(cell.lastCursorPosition())
+    except Exception:
+        pass
+
+
 def ensure_currency_columns_watcher(text_edit: QtWidgets.QTextEdit):
     if text_edit is None or not isinstance(text_edit, QtWidgets.QTextEdit):
         return
@@ -4875,6 +4974,8 @@ def ensure_currency_columns_watcher(text_edit: QtWidgets.QTextEdit):
                     coord = (tbl, cell.row(), cell.column())
                     if prev is None:
                         text_edit._currency_last_cell = coord
+                        # Snap cursor on first cell entry (e.g., page load)
+                        _snap_cursor_if_currency_cell(text_edit, tbl, cell)
                     elif prev != coord:
                         prev_tbl, prev_row, prev_col = prev
                         # If we just left a header cell (row 0), check if suffix needs restoring
@@ -4887,17 +4988,25 @@ def ensure_currency_columns_watcher(text_edit: QtWidgets.QTextEdit):
                                     if isinstance(last_cell_txt, str) and last_cell_txt.strip().lower() == "total":
                                         # This is a currency table - check if header lost its suffix
                                         hdr_txt = _table_cell_plain_text(prev_tbl, 0, prev_col)
-                                        if isinstance(hdr_txt, str) and hdr_txt and not hdr_txt.endswith(_CURRENCY_SUFFIX):
+                                        if isinstance(hdr_txt, str) and hdr_txt and not _has_currency_suffix(hdr_txt):
+                                            # Only restore suffix if this column has currency-formatted data
+                                            # (prevents auto-marking newly inserted empty columns)
+                                            has_currency_data = False
+                                            for r in range(1, prev_tbl.rows()):
+                                                cell_txt = _table_cell_plain_text(prev_tbl, r, prev_col)
+                                                if isinstance(cell_txt, str) and "$" in cell_txt:
+                                                    has_currency_data = True
+                                                    break
                                             # Check if OTHER columns have currency suffix
                                             has_other_currency = False
                                             for c in range(prev_tbl.columns()):
                                                 if c != prev_col and c > 0:
                                                     other_hdr = _table_cell_plain_text(prev_tbl, 0, c)
-                                                    if isinstance(other_hdr, str) and other_hdr.endswith(_CURRENCY_SUFFIX):
+                                                    if _has_currency_suffix(other_hdr):
                                                         has_other_currency = True
                                                         break
-                                            # If there are other currency columns, restore this one's suffix
-                                            if has_other_currency:
+                                            # Only restore suffix if column has currency data AND other columns are currency
+                                            if has_other_currency and has_currency_data:
                                                 _table_cell_append_text(text_edit, prev_tbl, 0, prev_col, _CURRENCY_SUFFIX)
                             finally:
                                 text_edit._currency_updating = False
@@ -4911,19 +5020,8 @@ def ensure_currency_columns_watcher(text_edit: QtWidgets.QTextEdit):
                             finally:
                                 text_edit._currency_updating = False
                         text_edit._currency_last_cell = coord
-                        # Snap caret to right when entering a currency cell (after recompute)
-                        currency_cols = _detect_currency_columns(tbl)
-                        if currency_cols and cell.column() in currency_cols and cell.row() > 0:
-                            # Skip Total row and header row
-                            last_row_text = _table_cell_plain_text(tbl, tbl.rows() - 1, 0)
-                            if cell.row() != tbl.rows() - 1 or last_row_text != "Total":
-                                try:
-                                    cur = text_edit.textCursor()
-                                    last = cell.lastCursorPosition().position()
-                                    if (not cur.hasSelection()) and (cur.position() != last):
-                                        text_edit.setTextCursor(cell.lastCursorPosition())
-                                except Exception:
-                                    pass
+                        # Snap caret to right when entering a currency cell
+                        _snap_cursor_if_currency_cell(text_edit, tbl, cell)
                 else:
                     if prev is not None:
                         prev_tbl = prev[0]

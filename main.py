@@ -1549,8 +1549,6 @@ def main():
                         act_show_deleted = m.addAction("Show Deleted Items")
                         act_show_deleted.setCheckable(True)
                         act_show_deleted.setChecked(_get_show_deleted_setting())
-                        m.addSeparator()
-                        act_collapse_all = m.addAction("Collapse All Binders")
                         chosen = m.exec_(global_pos)
                         if chosen == act_new:
                             add_binder(window)
