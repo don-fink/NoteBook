@@ -38,6 +38,7 @@ build/
 dist/
 NoteBook_Release/
 NoteBook_Release.zip
+NoteBook-v*.zip
 
 # Cache directories
 .mypy_cache/
