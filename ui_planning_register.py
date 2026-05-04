@@ -11,6 +11,7 @@ Layout requested:
 
 from PyQt5 import QtWidgets, QtCore
 from PyQt5.QtGui import (
+    QTextFormat,
     QTextTableFormat,
     QTextLength,
     QTextCharFormat,
@@ -23,6 +24,9 @@ from PyQt5.QtGui import (
 )
 from PyQt5.QtCore import Qt
 
+
+# Unique ID for Planning Register tables
+PLANNING_REG_PROPERTY = int(QTextFormat.UserProperty) + 500
 
 def _apply_cell_borders_to_table(tbl):
     """Set 1px solid black border on all sides for every cell in the given table."""
@@ -65,6 +69,8 @@ def _insert_inner_table_in_cursor(cursor):
             QTextLength(QTextLength.PercentageLength, 25.0),
         ]
     )
+    # Tag this table as a Planning Register
+    inner_fmt.setProperty(PLANNING_REG_PROPERTY, True)
 
     inner = cursor.insertTable(7, 3, inner_fmt)
 
@@ -259,21 +265,7 @@ def _format_currency(value: float) -> str:
 
 def _is_planning_register_table(text_edit: QtWidgets.QTextEdit, table) -> bool:
     try:
-        if table.columns() < 3 or table.rows() < 3:
-            return False
-        # Check header row labels (best-effort)
-        h0 = _cell_plain_text(text_edit, table, 0, 0).lower()
-        h1 = _cell_plain_text(text_edit, table, 0, 1).lower()
-        h2 = _cell_plain_text(text_edit, table, 0, 2).lower()
-        if not (
-            ("description" in h0)
-            and ("estimated" in h1)
-            and ("actual" in h2)
-        ):
-            return False
-        # Bottom-left must be "Total"
-        bl = _cell_plain_text(text_edit, table, table.rows() - 1, 0).strip().lower()
-        return bl == "total"
+        return bool(table.format().property(PLANNING_REG_PROPERTY))
     except Exception:
         return False
 

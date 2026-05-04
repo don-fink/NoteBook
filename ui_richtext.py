@@ -696,10 +696,26 @@ def add_rich_text_toolbar(
         elif flag_attr == "strike":
             fmt.setFontStrikeOut(on)
         cursor = text_edit.textCursor()
-        if not cursor.hasSelection():
-            # Apply to current word/cursor moving forward
+        if cursor.hasSelection():
+            start = cursor.selectionStart()
+            end = cursor.selectionEnd()
+            cursor.beginEditBlock()
+            for pos in range(start, end):
+                cursor.setPosition(pos)
+                cursor.setPosition(pos + 1, cursor.KeepAnchor)
+                current_fmt = cursor.charFormat()
+                if flag_attr == "bold": current_fmt.setFontWeight(QFont.Bold if on else QFont.Normal)
+                elif flag_attr == "italic": current_fmt.setFontItalic(on)
+                elif flag_attr == "underline": current_fmt.setFontUnderline(on)
+                elif flag_attr == "strike": current_fmt.setFontStrikeOut(on)
+                cursor.setCharFormat(current_fmt)
+            cursor.endEditBlock()
+            cursor.setPosition(start)
+            cursor.setPosition(end, cursor.KeepAnchor)
+            text_edit.setTextCursor(cursor)
+        else:
             cursor.select(cursor.WordUnderCursor)
-        cursor.mergeCharFormat(fmt)
+            cursor.mergeCharFormat(fmt)
         text_edit.mergeCurrentCharFormat(fmt)
 
     act_bold = QtWidgets.QAction(_make_icon("bold"), "", toolbar)
@@ -1738,7 +1754,7 @@ def _strip_match_style_html(html: str) -> str:
         kept = []
         for p in parts:
             key = p.split(":", 1)[0].strip().lower()
-            if key.startswith("background") or key in (
+            if key.startswith("background") or key in ("color", "font-weight", "font-style", "text-decoration",
                 "font-size",
                 "font-family",
                 "font",
@@ -3349,6 +3365,13 @@ def _enforce_uniform_table_borders(text_edit: QtWidgets.QTextEdit):
                         pass
                     prop = fmt.property(int(QTextFormat.UserProperty) + 101)
                     skip = bool(prop)
+                    
+                    # Do not overwrite borders if the table is NOT a Planning Register 
+                    # and already has a custom border setting (avoids "brittle" UI)
+                    from ui_planning_register import PLANNING_REG_PROPERTY
+                    if not fmt.property(PLANNING_REG_PROPERTY) and fmt.border() != 1.0 and fmt.border() > 0:
+                        skip = True
+
                     # Additionally detect 1x1 top-border-only tables (HTML reload path)
                     # HR tables are 1x1 with border=0 on the table itself and inline border-top styling
                     if not skip:
@@ -5206,8 +5229,20 @@ def _apply_font_size(text_edit: QtWidgets.QTextEdit, size_pt: float):
     cursor = text_edit.textCursor()
     
     if cursor.hasSelection():
-        # Use QTextEdit's built-in setFontPointSize which properly handles selection
-        text_edit.setFontPointSize(size_f)
+        # REPLACE font size character by character to avoid additive stacks
+        start = cursor.selectionStart()
+        end = cursor.selectionEnd()
+        cursor.beginEditBlock()
+        for pos in range(start, end):
+            cursor.setPosition(pos)
+            cursor.setPosition(pos + 1, cursor.KeepAnchor)
+            current_fmt = cursor.charFormat()
+            current_fmt.setFontPointSize(size_f)
+            cursor.setCharFormat(current_fmt)
+        cursor.endEditBlock()
+        cursor.setPosition(start)
+        cursor.setPosition(end, cursor.KeepAnchor)
+        text_edit.setTextCursor(cursor)
         # Force viewport repaint
         text_edit.viewport().update()
     else:
@@ -5566,36 +5601,26 @@ def paste_clean_formatting(text_edit: QtWidgets.QTextEdit):
     cursor = text_edit.textCursor()
     pre_fmt = text_edit.currentCharFormat()
     before = cursor.position()
+    
+    # Build a neutral format for "clean" paste
+    neutral_fmt = QTextCharFormat()
+    doc_font = _effective_default_font(text_edit)
+    neutral_fmt.setFontFamily(doc_font.family())
+    neutral_fmt.setFontPointSize(doc_font.pointSizeF() if doc_font.pointSizeF() > 0 else float(doc_font.pointSize()))
+    neutral_fmt.setForeground(text_edit.palette().text().color())
+    neutral_fmt.clearBackground()
+    neutral_fmt.setFontWeight(QFont.Normal)
+    neutral_fmt.setFontItalic(False)
+    neutral_fmt.setFontUnderline(False)
+    neutral_fmt.setFontStrikeOut(False)
+
     cursor.insertHtml(cleaned)
     after = cursor.position()
-    # Normalize inserted range to current family/size and transparent background
-    doc_font = _effective_default_font(text_edit)
-    fmt = QTextCharFormat(pre_fmt)
-    fam = fmt.fontFamily() or doc_font.family()
-    if fam:
-        fmt.setFontFamily(fam)
-    sz = fmt.fontPointSize()
-    if not sz or sz <= 0:
-        try:
-            sz = doc_font.pointSizeF() if doc_font.pointSizeF() > 0 else float(doc_font.pointSize())
-        except Exception:
-            sz = 12.0
-    fmt.setFontPointSize(float(sz))
-    try:
-        fmt.setBackground(Qt.transparent)
-    except Exception:
-        fmt.clearBackground()
-    rng = QTextCursor(text_edit.document())
-    rng.setPosition(before)
-    rng.setPosition(after, QTextCursor.KeepAnchor)
-    rng.mergeCharFormat(fmt)
+    # Force REPLACE formatting on inserted range
+    rng = QTextCursor(text_edit.document()); rng.setPosition(before); rng.setPosition(after, QTextCursor.KeepAnchor)
+    rng.setCharFormat(neutral_fmt)
     # Restore typing format
-    restored = QTextCharFormat(pre_fmt)
-    try:
-        restored.setBackground(Qt.transparent)
-    except Exception:
-        restored.clearBackground()
-    text_edit.setCurrentCharFormat(restored)
+    text_edit.setCurrentCharFormat(neutral_fmt)
     cursor.setPosition(after)
     text_edit.setTextCursor(cursor)
 

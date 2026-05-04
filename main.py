@@ -4315,70 +4315,93 @@ def main():
 
     # Help menu
     try:
+        def _open_help_doc(title: str, relative_path: str):
+            try:
+                doc_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), relative_path)
+                if not os.path.exists(doc_path):
+                    QtWidgets.QMessageBox.warning(window, title, f"Help file not found:\n{doc_path}")
+                    return
+
+                with open(doc_path, "r", encoding="utf-8") as handle:
+                    content = handle.read()
+
+                dlg = QtWidgets.QDialog(window)
+                dlg.setWindowTitle(title)
+                dlg.resize(900, 700)
+
+                layout = QtWidgets.QVBoxLayout(dlg)
+                browser = QtWidgets.QTextBrowser(dlg)
+                browser.setOpenExternalLinks(True)
+                if hasattr(browser, "setMarkdown"):
+                    browser.setMarkdown(content)
+                else:
+                    browser.setPlainText(content)
+                layout.addWidget(browser)
+
+                buttons = QtWidgets.QDialogButtonBox(QtWidgets.QDialogButtonBox.Close, parent=dlg)
+                buttons.rejected.connect(dlg.reject)
+                buttons.accepted.connect(dlg.accept)
+                buttons.button(QtWidgets.QDialogButtonBox.Close).clicked.connect(dlg.close)
+                layout.addWidget(buttons)
+
+                dlg.exec_()
+            except Exception as e:
+                QtWidgets.QMessageBox.warning(window, title, f"Failed to open help file: {e}")
+
         act_documentation = window.findChild(QtWidgets.QAction, "actionDocumentation")
         if act_documentation:
             def _open_documentation():
                 """Open the README.md file in the default browser."""
-                try:
-                    from PyQt5.QtCore import QUrl
-                    from PyQt5.QtGui import QDesktopServices
-                    import os
-                    
-                    readme_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "README.md")
-                    if os.path.exists(readme_path):
-                        QDesktopServices.openUrl(QUrl.fromLocalFile(readme_path))
-                    else:
-                        QtWidgets.QMessageBox.warning(
-                            window, "Documentation", "README.md not found."
-                        )
-                except Exception as e:
-                    QtWidgets.QMessageBox.warning(
-                        window, "Documentation", f"Failed to open documentation: {e}"
-                    )
+                _open_help_doc("Documentation", "README.md")
             act_documentation.triggered.connect(_open_documentation)
+
+        act_restore_bundles = window.findChild(QtWidgets.QAction, "actionRestore_Backup_Bundles")
+        if act_restore_bundles:
+            def _open_restore_bundle_help():
+                _open_help_doc("Restore Backup Bundles", os.path.join("docs", "Restore_Backup_Bundles.md"))
+            act_restore_bundles.triggered.connect(_open_restore_bundle_help)
 
         act_shortcuts = window.findChild(QtWidgets.QAction, "actionKeyboard_Shortcuts")
         if act_shortcuts:
-            def _show_shortcuts():
-                """Show a dialog with keyboard shortcuts."""
-                try:
-                    msg = """<h3>Keyboard Shortcuts</h3>
-<table border="0" cellpadding="5">
-<tr><td><b>General</b></td><td></td></tr>
-<tr><td>Ctrl+N</td><td>New Database</td></tr>
-<tr><td>Ctrl+O</td><td>Open Database</td></tr>
-<tr><td>Ctrl+S</td><td>Save (auto-saves on edit)</td></tr>
-<tr><td>Ctrl+Shift+S</td><td>Save Database As...</td></tr>
-<tr><td></td><td></td></tr>
-<tr><td><b>Editing</b></td><td></td></tr>
-<tr><td>Ctrl+B</td><td>Bold</td></tr>
-<tr><td>Ctrl+I</td><td>Italic</td></tr>
-<tr><td>Ctrl+U</td><td>Underline</td></tr>
-<tr><td>Ctrl+V</td><td>Paste (mode set in Edit menu)</td></tr>
-<tr><td>Ctrl+Shift+V</td><td>Paste as Plain Text</td></tr>
-<tr><td></td><td></td></tr>
-<tr><td><b>Tables</b></td><td></td></tr>
-<tr><td>Tab</td><td>Next cell (or insert row at end)</td></tr>
-<tr><td>Shift+Tab</td><td>Previous cell</td></tr>
-<tr><td>Right-click</td><td>Table context menu</td></tr>
-<tr><td></td><td></td></tr>
-<tr><td><b>Currency Columns</b></td><td></td></tr>
-<tr><td>Click header</td><td>Mark/unmark column as currency</td></tr>
-<tr><td>Auto-format</td><td>Numbers formatted as $#,##0.00</td></tr>
-<tr><td>Auto-total</td><td>Sum appears in bottom Total row</td></tr>
-</table>
-"""
-                    dlg = QtWidgets.QMessageBox(window)
-                    dlg.setWindowTitle("Keyboard Shortcuts")
-                    dlg.setTextFormat(Qt.RichText)
-                    dlg.setText(msg)
-                    dlg.setIcon(QtWidgets.QMessageBox.Information)
-                    dlg.exec_()
-                except Exception as e:
-                    QtWidgets.QMessageBox.warning(
-                        window, "Shortcuts", f"Failed to display shortcuts: {e}"
-                    )
-            act_shortcuts.triggered.connect(_show_shortcuts)
+            def _open_shortcuts():
+                _open_help_doc("Keyboard Shortcuts", os.path.join("docs", "Keyboard_Shortcuts.md"))
+            act_shortcuts.triggered.connect(_open_shortcuts)
+
+        act_getting_started = window.findChild(QtWidgets.QAction, "actionGetting_Started")
+        if act_getting_started:
+            def _open_getting_started():
+                _open_help_doc("Getting Started", os.path.join("docs", "Getting_Started.md"))
+            act_getting_started.triggered.connect(_open_getting_started)
+
+        act_organizing = window.findChild(QtWidgets.QAction, "actionOrganizing_Notes")
+        if act_organizing:
+            def _open_organizing():
+                _open_help_doc("Organizing Your Notes", os.path.join("docs", "Organizing_Notes.md"))
+            act_organizing.triggered.connect(_open_organizing)
+
+        act_rich_text = window.findChild(QtWidgets.QAction, "actionRich_Text_Editing")
+        if act_rich_text:
+            def _open_rich_text():
+                _open_help_doc("Rich Text Editing", os.path.join("docs", "Rich_Text_Editing.md"))
+            act_rich_text.triggered.connect(_open_rich_text)
+
+        act_tables = window.findChild(QtWidgets.QAction, "actionTables_and_Currency")
+        if act_tables:
+            def _open_tables():
+                _open_help_doc("Tables and Currency Columns", os.path.join("docs", "Tables_and_Currency.md"))
+            act_tables.triggered.connect(_open_tables)
+
+        act_backups = window.findChild(QtWidgets.QAction, "actionBackups_and_Recovery")
+        if act_backups:
+            def _open_backups():
+                _open_help_doc("Backups and Recovery", os.path.join("docs", "Backups_and_Recovery.md"))
+            act_backups.triggered.connect(_open_backups)
+
+        act_troubleshooting = window.findChild(QtWidgets.QAction, "actionTroubleshooting")
+        if act_troubleshooting:
+            def _open_troubleshooting():
+                _open_help_doc("Troubleshooting", os.path.join("docs", "Troubleshooting.md"))
+            act_troubleshooting.triggered.connect(_open_troubleshooting)
 
         act_about = window.findChild(QtWidgets.QAction, "actionAbout")
         if act_about:
@@ -4386,7 +4409,7 @@ def main():
                 """Show About dialog with version and credits."""
                 try:
                     msg = """<h2>NoteBook</h2>
-<p><b>Version:</b> 1.0.0</p>
+<p><b>Version:</b> 1.0.2</p>
 <p>A rich-text note-taking application with binders, sections, and pages.</p>
 <p><b>Features:</b></p>
 <ul>

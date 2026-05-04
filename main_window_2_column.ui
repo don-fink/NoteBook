@@ -170,9 +170,17 @@
     <property name="title">
      <string>Help</string>
     </property>
-    <addaction name="actionDocumentation"/>
+    <addaction name="actionGetting_Started"/>
+    <addaction name="actionOrganizing_Notes"/>
+    <addaction name="actionRich_Text_Editing"/>
+    <addaction name="actionTables_and_Currency"/>
+    <addaction name="actionBackups_and_Recovery"/>
+    <addaction name="actionRestore_Backup_Bundles"/>
     <addaction name="actionKeyboard_Shortcuts"/>
     <addaction name="separator"/>
+    <addaction name="actionTroubleshooting"/>
+    <addaction name="separator"/>
+    <addaction name="actionDocumentation"/>
     <addaction name="actionAbout"/>
    </widget>
    <widget class="QMenu" name="menuEdit">
@@ -500,6 +508,11 @@
     <string>Documentation</string>
    </property>
   </action>
+    <action name="actionRestore_Backup_Bundles">
+     <property name="text">
+        <string>Restore Backup Bundles</string>
+     </property>
+    </action>
   <action name="actionKeyboard_Shortcuts">
    <property name="text">
     <string>Keyboard Shortcuts</string>
@@ -508,6 +521,36 @@
   <action name="actionAbout">
    <property name="text">
     <string>About NoteBook</string>
+   </property>
+  </action>
+  <action name="actionGetting_Started">
+   <property name="text">
+    <string>Getting Started</string>
+   </property>
+  </action>
+  <action name="actionOrganizing_Notes">
+   <property name="text">
+    <string>Organizing Your Notes</string>
+   </property>
+  </action>
+  <action name="actionRich_Text_Editing">
+   <property name="text">
+    <string>Rich Text Editing</string>
+   </property>
+  </action>
+  <action name="actionTables_and_Currency">
+   <property name="text">
+    <string>Tables and Currency Columns</string>
+   </property>
+  </action>
+  <action name="actionBackups_and_Recovery">
+   <property name="text">
+    <string>Backups and Recovery</string>
+   </property>
+  </action>
+  <action name="actionTroubleshooting">
+   <property name="text">
+    <string>Troubleshooting</string>
    </property>
   </action>
   <action name="actionPrint">
