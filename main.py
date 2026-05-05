@@ -4397,6 +4397,12 @@ def main():
                 _open_help_doc("Backups and Recovery", os.path.join("docs", "Backups_and_Recovery.md"))
             act_backups.triggered.connect(_open_backups)
 
+        act_storage = window.findChild(QtWidgets.QAction, "actionStorage_Locations")
+        if act_storage:
+            def _open_storage_locations():
+                _open_help_doc("Choosing Storage Locations", os.path.join("docs", "Storage_Locations.md"))
+            act_storage.triggered.connect(_open_storage_locations)
+
         act_troubleshooting = window.findChild(QtWidgets.QAction, "actionTroubleshooting")
         if act_troubleshooting:
             def _open_troubleshooting():

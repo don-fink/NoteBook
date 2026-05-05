@@ -175,6 +175,7 @@
     <addaction name="actionRich_Text_Editing"/>
     <addaction name="actionTables_and_Currency"/>
     <addaction name="actionBackups_and_Recovery"/>
+    <addaction name="actionStorage_Locations"/>
     <addaction name="actionRestore_Backup_Bundles"/>
     <addaction name="actionKeyboard_Shortcuts"/>
     <addaction name="separator"/>
@@ -546,6 +547,11 @@
   <action name="actionBackups_and_Recovery">
    <property name="text">
     <string>Backups and Recovery</string>
+   </property>
+  </action>
+  <action name="actionStorage_Locations">
+   <property name="text">
+    <string>Choosing Storage Locations</string>
    </property>
   </action>
   <action name="actionTroubleshooting">
