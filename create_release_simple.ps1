@@ -49,6 +49,13 @@ Write-Host "  Copied PyInstaller output (NoteBook + dependencies)" -ForegroundCo
 Copy-Item (Join-Path $Root 'add_to_start_menu.cmd') $distFolder
 Write-Host "  Copied Start Menu installer" -ForegroundColor Green
 
+# Copy installation guide
+$installGuide = Join-Path $Root 'README-INSTALL.md'
+if (Test-Path $installGuide) {
+    Copy-Item $installGuide $distFolder
+    Write-Host "  Copied README-INSTALL.md" -ForegroundColor Green
+}
+
 # Create README
 $readme = @'
 # NoteBook - Rich Text Note-Taking Application
