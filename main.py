@@ -3865,7 +3865,10 @@ def main():
 
                                 def _open_settings_folder():
                                     try:
-                                        folder = os.path.dirname(spath)
+                                        current_path = (edp.text() or "").strip() if edp is not None else ""
+                                        if not current_path:
+                                            current_path = get_settings_file_path()
+                                        folder = os.path.dirname(current_path)
                                         from PyQt5.QtCore import QUrl
                                         from PyQt5.QtGui import QDesktopServices
 
@@ -3879,7 +3882,8 @@ def main():
                                 def _change_settings_location():
                                     try:
                                         from settings_manager import get_settings_dir
-                                        start_dir = os.path.dirname(spath) if os.path.isdir(os.path.dirname(spath)) else get_settings_dir()
+                                        current_src = (edp.text() or "").strip() or spath
+                                        start_dir = os.path.dirname(current_src) if os.path.isdir(os.path.dirname(current_src)) else get_settings_dir()
                                         new_dir = QtWidgets.QFileDialog.getExistingDirectory(window, "Choose Settings Folder", start_dir)
                                         if not new_dir:
                                             return
@@ -3899,8 +3903,8 @@ def main():
                                         if not test_ok:
                                             return
                                         # Perform migration of settings.json
-                                        src = spath
-                                        dst = os.path.join(new_dir, os.path.basename(spath))
+                                        src = current_src
+                                        dst = os.path.join(new_dir, "settings.json")
                                         if os.path.abspath(src) == os.path.abspath(dst):
                                             edp.setText(dst)
                                             return
@@ -3913,14 +3917,14 @@ def main():
                                         )
                                         if resp != QtWidgets.QMessageBox.Yes:
                                             return
-                                        # Copy (not move) first, ensure integrity
+                                        # Copy (not move) first when possible; otherwise create a new file.
                                         import shutil
                                         try:
-                                            shutil.copy2(src, dst)
-                                        except FileNotFoundError:
-                                            # No existing file, create empty settings.json
-                                            with open(dst, "w", encoding="utf-8") as nf:
-                                                nf.write("{}\n")
+                                            if src and os.path.isfile(src):
+                                                shutil.copy2(src, dst)
+                                            else:
+                                                with open(dst, "w", encoding="utf-8") as nf:
+                                                    nf.write("{}\n")
                                         except Exception as e:
                                             QtWidgets.QMessageBox.warning(window, "Settings", f"Failed to migrate settings:\n{e}")
                                             return
@@ -4118,8 +4122,6 @@ def main():
                             set_theme_name(name)
                             # Apply selected theme immediately
                             try:
-                                import os
-
                                 themes_dir = os.path.join(os.path.dirname(__file__), "themes")
                                 name_to_file = {
                                     "Default": "default.qss",
@@ -4178,6 +4180,53 @@ def main():
                     )
 
             act_settings.triggered.connect(_open_settings)
+
+        # Temporary diagnostics entry to quickly inspect settings and DB path resolution.
+        try:
+            tools_menu = None
+            menubar = window.menuBar() if hasattr(window, "menuBar") else None
+            if menubar is not None:
+                for _a in menubar.actions():
+                    m = _a.menu()
+                    if m and _a.text().replace("&", "").strip().lower() == "tools":
+                        tools_menu = m
+                        break
+            if tools_menu is not None and window.findChild(QtWidgets.QAction, "actionStorage_Diagnostics") is None:
+                tools_menu.addSeparator()
+                act_storage_diag = QtWidgets.QAction("Storage Diagnostics", window)
+                act_storage_diag.setObjectName("actionStorage_Diagnostics")
+
+                def _show_storage_diagnostics():
+                    try:
+                        from settings_manager import get_storage_diagnostics
+
+                        diag = get_storage_diagnostics()
+                        current_db = getattr(window, "_db_path", None) or get_last_db() or "notes.db"
+                        lines = [
+                            f"Current DB (runtime): {current_db}",
+                            f"Last DB (settings): {diag.get('last_db') or '(none)'}",
+                            "",
+                            f"Settings file: {diag.get('settings_file')}",
+                            f"Pointer source: {diag.get('pointer_source')}",
+                            f"Pointer target: {diag.get('pointer_target') or '(none)'}",
+                            "",
+                            f"Local pointer file: {diag.get('local_pointer_file')}",
+                            f"Local pointer exists: {diag.get('local_pointer_exists')}",
+                            f"Global pointer file: {diag.get('global_pointer_file')}",
+                            f"Global pointer exists: {diag.get('global_pointer_exists')}",
+                            "",
+                            f"App base dir: {diag.get('app_base_dir')}",
+                            f"Default settings dir: {diag.get('default_settings_dir')}",
+                            f"Databases root: {diag.get('databases_root') or '(not set)'}",
+                        ]
+                        QtWidgets.QMessageBox.information(window, "Storage Diagnostics", "\n".join(lines))
+                    except Exception as e:
+                        QtWidgets.QMessageBox.warning(window, "Storage Diagnostics", f"Failed: {e}")
+
+                act_storage_diag.triggered.connect(_show_storage_diagnostics)
+                tools_menu.addAction(act_storage_diag)
+        except Exception:
+            pass
     except Exception:
         pass
 
@@ -4325,24 +4374,28 @@ def main():
                 with open(doc_path, "r", encoding="utf-8") as handle:
                     content = handle.read()
 
-                dlg = QtWidgets.QDialog(window)
+                from ui_loader import load_dialog
+
+                dlg = load_dialog("help_markdown_viewer.ui", parent=window)
                 dlg.setWindowTitle(title)
                 dlg.resize(900, 700)
 
-                layout = QtWidgets.QVBoxLayout(dlg)
-                browser = QtWidgets.QTextBrowser(dlg)
-                browser.setOpenExternalLinks(True)
+                browser = dlg.findChild(QtWidgets.QTextBrowser, "textBrowser")
+                if browser is None:
+                    QtWidgets.QMessageBox.warning(window, title, "Help dialog UI is missing textBrowser.")
+                    return
                 if hasattr(browser, "setMarkdown"):
                     browser.setMarkdown(content)
                 else:
                     browser.setPlainText(content)
-                layout.addWidget(browser)
 
-                buttons = QtWidgets.QDialogButtonBox(QtWidgets.QDialogButtonBox.Close, parent=dlg)
-                buttons.rejected.connect(dlg.reject)
-                buttons.accepted.connect(dlg.accept)
-                buttons.button(QtWidgets.QDialogButtonBox.Close).clicked.connect(dlg.close)
-                layout.addWidget(buttons)
+                buttons = dlg.findChild(QtWidgets.QDialogButtonBox, "buttonBox")
+                if buttons is not None:
+                    buttons.rejected.connect(dlg.reject)
+                    buttons.accepted.connect(dlg.accept)
+                    close_btn = buttons.button(QtWidgets.QDialogButtonBox.Close)
+                    if close_btn is not None:
+                        close_btn.clicked.connect(dlg.close)
 
                 dlg.exec_()
             except Exception as e:

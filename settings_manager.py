@@ -5,6 +5,7 @@ Manages loading and saving application settings, such as the last opened databas
 
 import json
 import os
+import re
 import shutil
 import sys
 
@@ -26,6 +27,7 @@ import sys
 _LEGACY_SETTINGS_FILE = "settings.json"  # in CWD / app directory
 _SETTINGS_BASENAME = "settings.json"
 _POINTER_BASENAME = "settings.loc"  # stores absolute path to settings.json (override)
+_LOCAL_POINTER_BASENAME = ".notebook_settings.loc"  # app-local pointer near executable/script
 _CACHED_SETTINGS_PATH = None  # memoize resolved path
 
 
@@ -51,22 +53,91 @@ def get_app_data_dir() -> str:
     return _default_settings_dir()
 
 
+def _app_base_dir() -> str:
+    """Return directory of running executable/script for app-local configuration."""
+    try:
+        if getattr(sys, "frozen", False):
+            return os.path.dirname(os.path.abspath(sys.executable))
+        return os.path.dirname(os.path.abspath(sys.argv[0]))
+    except Exception:
+        try:
+            return os.path.abspath(os.getcwd())
+        except Exception:
+            return "."
+
+
+def _local_pointer_file_path() -> str:
+    return os.path.join(_app_base_dir(), _LOCAL_POINTER_BASENAME)
+
+
 def _pointer_file_path() -> str:
     return os.path.join(_default_settings_dir(), _POINTER_BASENAME)
 
 
-def _read_settings_pointer() -> str:
-    """Return absolute path to settings.json from pointer file if present, else None."""
+def _normalize_pointer_path_value(raw: str) -> str:
+    """Best-effort cleanup for pointer file values.
+
+    Handles accidental concatenation of multiple absolute paths and strips
+    quoting/newlines so UI can recover even from malformed pointer contents.
+    """
     try:
-        p = _pointer_file_path()
-        if os.path.exists(p):
-            with open(p, "r", encoding="utf-8") as f:
-                line = f.readline().strip()
+        if raw is None:
+            return None
+        txt = str(raw).replace("\x00", "").strip().strip("\"'")
+        if not txt:
+            return None
+        # If multiple lines exist, use the first non-empty line.
+        if "\n" in txt or "\r" in txt:
+            for line in txt.replace("\r", "\n").split("\n"):
+                line = line.strip().strip("\"'")
                 if line:
-                    return line
+                    txt = line
+                    break
+        # Windows-specific recovery: if two drive roots were concatenated,
+        # keep the first segment only.
+        drive_hits = list(re.finditer(r"[A-Za-z]:\\", txt))
+        if len(drive_hits) > 1:
+            txt = txt[: drive_hits[1].start()].strip()
+        return os.path.abspath(txt)
+    except Exception:
+        return None
+
+
+def _read_settings_pointer_with_source():
+    """Return (path, source) for settings pointer resolution.
+
+    source is one of: "local", "global", or None.
+    """
+    try:
+        p_local = _local_pointer_file_path()
+        if os.path.exists(p_local):
+            with open(p_local, "r", encoding="utf-8") as f:
+                line = _normalize_pointer_path_value(f.readline())
+                if line:
+                    return line, "local"
     except Exception:
         pass
-    return None
+    try:
+        p_global = _pointer_file_path()
+        if os.path.exists(p_global):
+            with open(p_global, "r", encoding="utf-8") as f:
+                line = _normalize_pointer_path_value(f.readline())
+                if line:
+                    return line, "global"
+    except Exception:
+        pass
+    return None, None
+
+
+def _read_settings_pointer() -> str:
+    """Return absolute path to settings.json from pointer files if present, else None.
+
+    Priority:
+    1) app-local pointer (isolates dev/test and installed copies)
+    2) global pointer in app-data (legacy behavior)
+    """
+    path, _src = _read_settings_pointer_with_source()
+    return path
 
 
 def _write_settings_pointer(settings_full_path: str):
@@ -139,6 +210,42 @@ def get_settings_file_path() -> str:
     return os.path.abspath(_resolve_settings_path())
 
 
+def get_storage_diagnostics() -> dict:
+    """Return a diagnostics snapshot for settings and database path resolution."""
+    pointer_path, pointer_source = _read_settings_pointer_with_source()
+    settings_path = get_settings_file_path()
+    s = load_settings()
+    raw_local_pointer = None
+    raw_global_pointer = None
+    try:
+        if os.path.exists(_local_pointer_file_path()):
+            with open(_local_pointer_file_path(), "r", encoding="utf-8") as f:
+                raw_local_pointer = f.readline().strip()
+    except Exception:
+        pass
+    try:
+        if os.path.exists(_pointer_file_path()):
+            with open(_pointer_file_path(), "r", encoding="utf-8") as f:
+                raw_global_pointer = f.readline().strip()
+    except Exception:
+        pass
+    return {
+        "settings_file": settings_path,
+        "pointer_source": pointer_source or "default",
+        "pointer_target": os.path.abspath(pointer_path) if pointer_path else None,
+        "local_pointer_file": _local_pointer_file_path(),
+        "local_pointer_exists": os.path.exists(_local_pointer_file_path()),
+        "local_pointer_raw": raw_local_pointer,
+        "global_pointer_file": _pointer_file_path(),
+        "global_pointer_exists": os.path.exists(_pointer_file_path()),
+        "global_pointer_raw": raw_global_pointer,
+        "default_settings_dir": _default_settings_dir(),
+        "app_base_dir": _app_base_dir(),
+        "last_db": s.get("last_db"),
+        "databases_root": s.get("databases_root"),
+    }
+
+
 def load_settings():
     path = _resolve_settings_path()
     try:
@@ -162,14 +269,21 @@ def save_settings(settings):
 def set_settings_file_path(full_path: str):
     """Persistently switch settings.json location to the given absolute path.
 
-    This writes a pointer file under the default settings directory so the new
-    location is honored across restarts. Also updates the in-memory cache.
+    This writes an app-local pointer file so changing settings location in one
+    app copy (e.g., dev/test) does not affect another installed copy. Also
+    updates the in-memory cache.
     """
     if not isinstance(full_path, str) or not full_path:
         return
     try:
         os.makedirs(os.path.dirname(full_path), exist_ok=True)
-        _write_settings_pointer(os.path.abspath(full_path))
+        # Prefer app-local pointer to keep multiple installs isolated.
+        try:
+            with open(_local_pointer_file_path(), "w", encoding="utf-8") as f:
+                f.write(os.path.abspath(full_path))
+        except Exception:
+            # Fallback to legacy global pointer behavior if local write fails.
+            _write_settings_pointer(os.path.abspath(full_path))
         global _CACHED_SETTINGS_PATH
         _CACHED_SETTINGS_PATH = os.path.abspath(full_path)
     except Exception:

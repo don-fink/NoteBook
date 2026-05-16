@@ -18,15 +18,19 @@ from PyQt5.QtCore import Qt
 def _base_dir() -> str:
     """Return the directory where UI files are located.
 
-    In development this is the package directory. When packaged (PyInstaller one-folder),
-    .ui files are collected alongside the application in the same directory as this module.
-    If a frozen one-file variant is ever used, sys._MEIPASS can be added here.
+    UI files are now in the ui_forms/ subfolder. In development this is the ui_forms subdirectory.
+    When packaged (PyInstaller one-folder), ui_forms/ is collected as a subfolder alongside
+    the application in the same directory as this module.
     """
     try:
-        # Prefer the module directory
-        return os.path.dirname(__file__)
+        # UI files are in ui_forms/ subfolder relative to this module
+        module_dir = os.path.dirname(__file__)
+        return os.path.join(module_dir, "ui_forms")
     except Exception:
-        return os.path.abspath(os.getcwd())
+        try:
+            return os.path.join(os.path.abspath(os.getcwd()), "ui_forms")
+        except Exception:
+            return os.path.abspath(os.getcwd())
 
 
 def get_ui_path(name: str) -> str:

@@ -238,11 +238,15 @@ def _reapply_base_url(text_edit: QtWidgets.QTextEdit):
 
 
 def _open_html_source_dialog(text_edit: QtWidgets.QTextEdit):
-    dlg = QtWidgets.QDialog(text_edit)
+    from ui_loader import load_dialog
+
+    dlg = load_dialog("html_source_editor.ui", parent=text_edit)
     dlg.setWindowTitle("HTML Source")
     dlg.resize(800, 600)
-    v = QtWidgets.QVBoxLayout(dlg)
-    edit = QtWidgets.QPlainTextEdit(dlg)
+    edit = dlg.findChild(QtWidgets.QPlainTextEdit, "plainTextEdit")
+    if edit is None:
+        QtWidgets.QMessageBox.warning(text_edit, "HTML Source", "Dialog UI is missing plainTextEdit.")
+        return
     try:
         f = edit.font(); f.setFamily("Consolas"); f.setPointSize(10); edit.setFont(f)
     except Exception:
@@ -258,9 +262,11 @@ def _open_html_source_dialog(text_edit: QtWidgets.QTextEdit):
         _HtmlHighlighter(edit.document())
     except Exception:
         pass
-    v.addWidget(edit)
-    btns = QtWidgets.QDialogButtonBox(QtWidgets.QDialogButtonBox.Ok | QtWidgets.QDialogButtonBox.Cancel, parent=dlg)
-    v.addWidget(btns)
+
+    btns = dlg.findChild(QtWidgets.QDialogButtonBox, "buttonBox")
+    if btns is None:
+        QtWidgets.QMessageBox.warning(text_edit, "HTML Source", "Dialog UI is missing buttonBox.")
+        return
 
     def _apply():
         new_html = edit.toPlainText()

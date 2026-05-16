@@ -156,14 +156,6 @@
     <property name="title">
      <string>View</string>
     </property>
-    <widget class="QMenu" name="menuLayouts">
-     <property name="title">
-      <string>Layouts</string>
-     </property>
-     <addaction name="action3_Column"/>
-     <addaction name="action2_Column"/>
-    </widget>
-    <addaction name="menuLayouts"/>
     <addaction name="actionRich_Text_Tools"/>
    </widget>
    <widget class="QMenu" name="menuHelp">
@@ -452,16 +444,6 @@
   <action name="actionUnordered_Disc_Only">
    <property name="text">
     <string>Disc only</string>
-   </property>
-  </action>
-  <action name="action3_Column">
-   <property name="text">
-    <string>3 Column</string>
-   </property>
-  </action>
-  <action name="action2_Column">
-   <property name="text">
-    <string>2 Column</string>
    </property>
   </action>
   <action name="actionPlanning_Register">
