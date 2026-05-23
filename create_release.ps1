@@ -32,10 +32,10 @@ if (-not (Test-Path $distSource)) {
     $venvPy = Join-Path $Root '.venv\Scripts\python.exe'
     try {
         if (Test-Path $venvPy) {
-            & $venvPy -m PyInstaller 'notebook.spec' --clean
+            & $venvPy -m PyInstaller 'notebook.spec' --clean --noconfirm
         } else {
             Write-Host "No venv detected. Using system PyInstaller on PATH..." -ForegroundColor Yellow
-            pyinstaller 'notebook.spec' --clean
+            pyinstaller 'notebook.spec' --clean --noconfirm
         }
         if ($LASTEXITCODE -ne 0) {
             throw "PyInstaller exited with code $LASTEXITCODE"

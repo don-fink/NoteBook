@@ -8,10 +8,10 @@ REM Prefer project virtual environment's Python if present
 set "VENV_PY=.venv\Scripts\python.exe"
 if exist "%VENV_PY%" (
 	echo Using venv: %VENV_PY%
-	"%VENV_PY%" -m PyInstaller notebook.spec --clean
+	"%VENV_PY%" -m PyInstaller notebook.spec --clean --noconfirm
 ) else (
 	echo No venv found, falling back to system PyInstaller on PATH
-	pyinstaller notebook.spec --clean
+	pyinstaller notebook.spec --clean --noconfirm
 )
 
 if errorlevel 1 (
