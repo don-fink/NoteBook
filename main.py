@@ -7,9 +7,13 @@ import os
 import sys
 import warnings
 
-from PyQt5 import QtWidgets, uic
+from qt_compat import QtCore, QtWidgets, uic
 from ui_toast import show_toast
-from PyQt5.QtCore import QProcess, Qt, QTimer, QUrl
+
+QProcess = QtCore.QProcess
+Qt = QtCore.Qt
+QTimer = QtCore.QTimer
+QUrl = QtCore.QUrl
 
 from db_access import create_notebook as db_create_notebook
 from db_access import delete_notebook as db_delete_notebook
@@ -4366,9 +4370,36 @@ def main():
     try:
         def _open_help_doc(title: str, relative_path: str):
             try:
-                doc_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), relative_path)
-                if not os.path.exists(doc_path):
-                    QtWidgets.QMessageBox.warning(window, title, f"Help file not found:\n{doc_path}")
+                candidates = []
+                try:
+                    candidates.append(os.path.join(os.path.dirname(os.path.abspath(__file__)), relative_path))
+                except Exception:
+                    pass
+                try:
+                    candidates.append(os.path.join(os.path.dirname(os.path.abspath(sys.argv[0])), relative_path))
+                except Exception:
+                    pass
+                try:
+                    if getattr(sys, "frozen", False):
+                        candidates.append(os.path.join(os.path.dirname(os.path.abspath(sys.executable)), relative_path))
+                except Exception:
+                    pass
+                try:
+                    candidates.append(os.path.join(os.path.abspath(os.getcwd()), relative_path))
+                except Exception:
+                    pass
+
+                doc_path = None
+                for candidate in candidates:
+                    try:
+                        if candidate and os.path.exists(candidate):
+                            doc_path = candidate
+                            break
+                    except Exception:
+                        pass
+                if not doc_path or not os.path.exists(doc_path):
+                    shown_path = candidates[0] if candidates else relative_path
+                    QtWidgets.QMessageBox.warning(window, title, f"Help file not found:\n{shown_path}")
                     return
 
                 with open(doc_path, "r", encoding="utf-8") as handle:
@@ -4393,9 +4424,6 @@ def main():
                 if buttons is not None:
                     buttons.rejected.connect(dlg.reject)
                     buttons.accepted.connect(dlg.accept)
-                    close_btn = buttons.button(QtWidgets.QDialogButtonBox.Close)
-                    if close_btn is not None:
-                        close_btn.clicked.connect(dlg.close)
 
                 dlg.exec_()
             except Exception as e:

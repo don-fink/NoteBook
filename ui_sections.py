@@ -21,12 +21,21 @@ from db_pages import (
 from db_sections import get_sections_by_notebook_id
 from page_editor import is_two_column_ui as _is_two_col
 from page_editor import load_page as _load_page_2col
+from page_editor import save_current_page as _save_current_page_2col
 from two_pane_core import load_first_page as load_first_page_for_current_tab
 from two_pane_core import select_section as select_tab_for_section
 
 
 # Color constants for deleted items
 DELETED_ITEM_COLOR = QColor(128, 128, 128)  # Grey
+
+
+def _save_before_two_col_navigation(window):
+    try:
+        if _is_two_col(window):
+            _save_current_page_2col(window)
+    except Exception:
+        pass
 
 
 def _get_show_deleted() -> bool:
@@ -218,6 +227,10 @@ def add_sections_as_children(tree_widget, notebook_id, parent_item, db_path, exp
 
 def on_notebook_clicked(item, column):
     tree_widget = item.treeWidget()
+    try:
+        _save_before_two_col_navigation(tree_widget.window())
+    except Exception:
+        pass
     # Remove all children from all top-level items
     for i in range(tree_widget.topLevelItemCount()):
         tree_widget.topLevelItem(i).takeChildren()
@@ -251,6 +264,15 @@ def on_section_clicked(item, column, db_path):
         page_id = item.data(0, 1000)
         section_id = item.data(0, 1002)
         if page_id is not None and section_id is not None:
+            try:
+                current_section_id = getattr(window, "_current_section_id", None)
+                current_page_id = None
+                if current_section_id is not None:
+                    current_page_id = getattr(window, "_current_page_by_section", {}).get(int(current_section_id))
+                if int(section_id) != int(current_section_id) or int(page_id) != int(current_page_id):
+                    _save_before_two_col_navigation(window)
+            except Exception:
+                _save_before_two_col_navigation(window)
             try:
                 # Update current context map
                 if not hasattr(window, "_current_page_by_section"):

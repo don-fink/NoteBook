@@ -22,6 +22,18 @@ except ImportError:
     SpellChecker = None
 
 
+def _spellcheck_underline_style():
+    try:
+        return getattr(QTextCharFormat, "SpellCheckUnderline")
+    except Exception:
+        pass
+    try:
+        return getattr(QTextCharFormat.UnderlineStyle, "SpellCheckUnderline")
+    except Exception:
+        pass
+    return None
+
+
 def _get_user_dictionary_path(language: str = "en_US") -> str:
     """Get path to user dictionary file in app data folder."""
     try:
@@ -60,7 +72,9 @@ class SpellCheckHighlighter:
         
         # Underline format for misspelled words
         self._error_format = QTextCharFormat()
-        self._error_format.setUnderlineStyle(QTextCharFormat.SpellCheckUnderline)
+        underline_style = _spellcheck_underline_style()
+        if underline_style is not None:
+            self._error_format.setUnderlineStyle(underline_style)
         self._error_format.setUnderlineColor(QColor(255, 0, 0))  # Red squiggly
         
         # Initialize dictionary with personal word list (PWL)

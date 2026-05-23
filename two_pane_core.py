@@ -237,9 +237,6 @@ def save_current_page(window):
                 return
         except Exception:
             pass
-        # Process any pending Qt events to ensure document changes are fully committed
-        from PyQt5.QtWidgets import QApplication
-        QApplication.processEvents()
         html = te.toHtml()
         try:
             from ui_richtext import sanitize_html_for_storage
@@ -311,6 +308,10 @@ def load_first_page(window):
 
 def select_section(window, section_id):
     try:
+        try:
+            save_current_page(window)
+        except Exception:
+            pass
         try:
             window._current_section_id = int(section_id)
         except Exception:

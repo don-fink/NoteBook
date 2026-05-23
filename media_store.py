@@ -12,6 +12,7 @@ Note: UI wiring (normalizing HTML, hooks, etc.) will be added later.
 import hashlib
 import mimetypes
 import os
+import re
 import shutil
 import sqlite3
 from typing import Optional, Tuple
@@ -211,18 +212,46 @@ def resolve_media_path(db_path: str, rel_path: str) -> str:
     return os.path.join(media_root_for_db(db_path), rel_path)
 
 
+def _collect_html_referenced_media_paths(cur) -> set:
+    """Return relative media paths still referenced from active page HTML."""
+    refs = set()
+    try:
+        cur.execute(
+            "SELECT content_html FROM pages WHERE deleted_at IS NULL AND instr(lower(content_html), 'media/') > 0"
+        )
+        rows = cur.fetchall()
+    except Exception:
+        return refs
+
+    attr_re = re.compile(r"(?:src|href)=['\"]([^'\"]+)['\"]", re.IGNORECASE)
+    for (html,) in rows:
+        for value in attr_re.findall(html or ""):
+            try:
+                path = str(value).strip().replace("\\", "/")
+            except Exception:
+                continue
+            if not path or path.startswith(("http://", "https://", "data:")):
+                continue
+            if path.startswith("media/"):
+                refs.add(path)
+    return refs
+
+
 def garbage_collect_unused_media(db_path: str) -> int:
     """Remove unreferenced media files from disk and DB. Returns count removed."""
     con = _conn(db_path)
     removed = 0
     try:
         cur = con.cursor()
+        html_refs = _collect_html_referenced_media_paths(cur)
         cur.execute(
             "SELECT id, sha256, ext FROM media WHERE id NOT IN (SELECT DISTINCT media_id FROM media_refs)"
         )
         rows = cur.fetchall()
         for mid, sha_hex, ext in rows:
             rel = build_rel_path(sha_hex, ext)
+            if rel in html_refs:
+                continue
             abs_p = resolve_media_path(db_path, rel)
             try:
                 if os.path.exists(abs_p):

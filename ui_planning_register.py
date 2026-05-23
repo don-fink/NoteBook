@@ -28,6 +28,23 @@ from PyQt5.QtCore import Qt
 # Unique ID for Planning Register tables
 PLANNING_REG_PROPERTY = int(QTextFormat.UserProperty) + 500
 
+def _to_table_cell_format(fmt):
+    try:
+        if isinstance(fmt, QTextTableCellFormat):
+            return QTextTableCellFormat(fmt)
+    except Exception:
+        pass
+    try:
+        if hasattr(fmt, "isTableCellFormat") and fmt.isTableCellFormat():
+            return fmt.toTableCellFormat()
+    except Exception:
+        pass
+    try:
+        return QTextTableCellFormat(fmt)
+    except Exception:
+        return None
+
+
 def _apply_cell_borders_to_table(tbl):
     """Set 1px solid black border on all sides for every cell in the given table."""
     try:
@@ -41,7 +58,9 @@ def _apply_cell_borders_to_table(tbl):
             try:
                 cell = tbl.cellAt(r, c)
                 cf = cell.format()
-                tcf = QTextTableCellFormat(cf)
+                tcf = _to_table_cell_format(cf)
+                if tcf is None:
+                    continue
                 tcf.setBorder(1.0)
                 try:
                     tcf.setBorderBrush(black)

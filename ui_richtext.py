@@ -10,6 +10,7 @@ from PyQt5 import QtWidgets, QtCore, QtGui
 from PyQt5.QtGui import QTextBlockFormat
 import re
 import os
+from datetime import datetime
 from PyQt5.QtCore import QEvent, QObject, QPoint, QRect, QSize, Qt, QUrl, QTimer
 from PyQt5.QtGui import (
     QColor,
@@ -37,6 +38,7 @@ from PyQt5.QtGui import (
     QSyntaxHighlighter,
     QTextCharFormat as _QTextCharFormat,
 )
+from services.selection import current_context
 
 # ----------------------------- Image helpers -----------------------------
 _RAW_EXTS = {
@@ -330,7 +332,9 @@ class _ImagePropertiesDialog(QtWidgets.QDialog):
         layout.addRow("Alt:", self.le_alt)
         layout.addRow("Title:", self.le_title)
         layout.addRow("Alignment:", self.combo_align)
-        btns = QtWidgets.QDialogButtonBox(QtWidgets.QDialogButtonBox.Ok | QtWidgets.QDialogButtonBox.Cancel, parent=self)
+        ok_btn = _qdbb_standard_button("Ok")
+        cancel_btn = _qdbb_standard_button("Cancel")
+        btns = QtWidgets.QDialogButtonBox(ok_btn | cancel_btn, parent=self)
         layout.addRow(btns)
         btns.accepted.connect(self.accept)
         btns.rejected.connect(self.reject)
@@ -478,6 +482,18 @@ def _ensure_layout(widget: QtWidgets.QWidget) -> QtWidgets.QVBoxLayout:
     return layout
 
 
+def _qdbb_standard_button(name: str):
+    """Return QDialogButtonBox standard button across Qt5/Qt6 enum styles."""
+    qdbb = QtWidgets.QDialogButtonBox
+    try:
+        return getattr(qdbb, name)
+    except Exception:
+        try:
+            return getattr(qdbb.StandardButton, name)
+        except Exception:
+            return None
+
+
 # Defaults you can change
 DEFAULT_FONT_FAMILY = "Arial"  # e.g., "Arial", "Calibri", "Times New Roman"
 DEFAULT_FONT_SIZE_PT = 12  # in points
@@ -493,160 +509,164 @@ def _make_icon(kind: str, size: QSize = QSize(24, 24), fg: QColor = QColor("#303
     pm = QPixmap(size)
     pm.fill(Qt.transparent)
     p = QPainter(pm)
-    p.setRenderHint(QPainter.Antialiasing, True)
-    pen = QPen(fg)
-    pen.setWidth(2)
-    p.setPen(pen)
-    w, h = size.width(), size.height()
+    try:
+        p.setRenderHint(QPainter.Antialiasing, True)
+        pen = QPen(fg)
+        pen.setWidth(2)
+        p.setPen(pen)
+        w, h = size.width(), size.height()
 
-    def _draw_text(txt: str, bold=False, italic=False, underline=False, strike=False):
-        f = QFont()
-        f.setBold(bold)
-        f.setItalic(italic)
-        f.setPointSizeF(max(8.0, h * 0.48))
-        p.setFont(f)
-        metrics = QtWidgets.QStyleOption().fontMetrics
-        # Fallback: draw centered
-        rect = QRect(2, 2, w - 4, h - 4)
-        p.drawText(rect, Qt.AlignCenter, txt)
-        if underline:
-            y = int(h * 0.72)
-            p.drawLine(int(w * 0.25), y, int(w * 0.75), y)
-        if strike:
-            y = int(h * 0.5)
-            p.drawLine(int(w * 0.25), y, int(w * 0.75), y)
+        def _draw_text(txt: str, bold=False, italic=False, underline=False, strike=False):
+            f = QFont()
+            f.setBold(bold)
+            f.setItalic(italic)
+            f.setPointSizeF(max(8.0, h * 0.48))
+            p.setFont(f)
+            metrics = QtWidgets.QStyleOption().fontMetrics
+            # Fallback: draw centered
+            rect = QRect(2, 2, w - 4, h - 4)
+            p.drawText(rect, Qt.AlignCenter, txt)
+            if underline:
+                y = int(h * 0.72)
+                p.drawLine(int(w * 0.25), y, int(w * 0.75), y)
+            if strike:
+                y = int(h * 0.5)
+                p.drawLine(int(w * 0.25), y, int(w * 0.75), y)
 
-    def _draw_align(mode: str):
-        y = 5
-        lines = [
-            (0.9, 0.2),
-            (0.7, 0.2),
-            (0.9, 0.2),
-            (0.6, 0.2),
-        ]
-        for i, (lw, pad) in enumerate(lines):
-            yy = y + i * int(h * 0.18)
-            if mode == "left":
-                x1, x2 = 3, 3 + int((w - 6) * lw)
-            elif mode == "center":
-                span = int((w - 6) * lw)
-                x1 = (w - span) // 2
-                x2 = x1 + span
-            elif mode == "right":
-                span = int((w - 6) * lw)
-                x2 = w - 3
-                x1 = x2 - span
-            else:  # justify
-                x1, x2 = 3, w - 3
-            p.drawLine(x1, yy, x2, yy)
+        def _draw_align(mode: str):
+            y = 5
+            lines = [
+                (0.9, 0.2),
+                (0.7, 0.2),
+                (0.9, 0.2),
+                (0.6, 0.2),
+            ]
+            for i, (lw, pad) in enumerate(lines):
+                yy = y + i * int(h * 0.18)
+                if mode == "left":
+                    x1, x2 = 3, 3 + int((w - 6) * lw)
+                elif mode == "center":
+                    span = int((w - 6) * lw)
+                    x1 = (w - span) // 2
+                    x2 = x1 + span
+                elif mode == "right":
+                    span = int((w - 6) * lw)
+                    x2 = w - 3
+                    x1 = x2 - span
+                else:  # justify
+                    x1, x2 = 3, w - 3
+                p.drawLine(x1, yy, x2, yy)
 
-    def _draw_list(bullets: bool):
-        y = 5
-        for i in range(3):
-            yy = y + i * int(h * 0.24)
-            if bullets:
-                p.drawEllipse(QPoint(6, yy), 2, 2)
-            else:
-                # tiny '1.' like marker
-                p.drawText(
-                    QRect(2, yy - 6, 10, 12), Qt.AlignLeft | Qt.AlignVCenter, str(i + 1) + "."
-                )
-            p.drawLine(12, yy, w - 4, yy)
+        def _draw_list(bullets: bool):
+            y = 5
+            for i in range(3):
+                yy = y + i * int(h * 0.24)
+                if bullets:
+                    p.drawEllipse(QPoint(6, yy), 2, 2)
+                else:
+                    # tiny '1.' like marker
+                    p.drawText(
+                        QRect(2, yy - 6, 10, 12), Qt.AlignLeft | Qt.AlignVCenter, str(i + 1) + "."
+                    )
+                p.drawLine(12, yy, w - 4, yy)
 
-    if kind == "undo":
-        # left arrow
-        p.drawLine(int(w * 0.75), int(h * 0.3), int(w * 0.35), int(h * 0.3))
-        p.drawLine(int(w * 0.35), int(h * 0.3), int(w * 0.45), int(h * 0.2))
-        p.drawLine(int(w * 0.35), int(h * 0.3), int(w * 0.45), int(h * 0.4))
-    elif kind == "redo":
-        p.drawLine(int(w * 0.25), int(h * 0.3), int(w * 0.65), int(h * 0.3))
-        p.drawLine(int(w * 0.65), int(h * 0.3), int(w * 0.55), int(h * 0.2))
-        p.drawLine(int(w * 0.65), int(h * 0.3), int(w * 0.55), int(h * 0.4))
-    elif kind == "bold":
-        _draw_text("B", bold=True)
-    elif kind == "italic":
-        _draw_text("I", italic=True)
-    elif kind == "underline":
-        _draw_text("U", underline=True)
-    elif kind == "strike":
-        _draw_text("S", strike=True)
-    elif kind == "align_left":
-        _draw_align("left")
-    elif kind == "align_center":
-        _draw_align("center")
-    elif kind == "align_right":
-        _draw_align("right")
-    elif kind == "align_justify":
-        _draw_align("justify")
-    elif kind == "list_bullets":
-        _draw_list(True)
-    elif kind == "list_numbers":
-        _draw_list(False)
-    elif kind == "indent":
-        # right pointing arrow/step
-        p.drawLine(4, h // 2, w - 8, h // 2)
-        p.drawLine(w - 10, h // 2 - 6, w - 4, h // 2)
-        p.drawLine(w - 10, h // 2 + 6, w - 4, h // 2)
-        p.drawLine(4, 6, 4, h - 6)
-    elif kind == "outdent":
-        # left pointing arrow/step
-        p.drawLine(w - 4, h // 2, 8, h // 2)
-        p.drawLine(10, h // 2 - 6, 4, h // 2)
-        p.drawLine(10, h // 2 + 6, 4, h // 2)
-        p.drawLine(w - 4, 6, w - 4, h - 6)
-    elif kind == "hr":
-        y = h // 2
-        p.drawLine(4, y, w - 4, y)
-    elif kind == "image":
-        # simple picture: frame + mountain + sun
-        p.drawRect(3, 5, w - 6, h - 10)
-        p.drawLine(6, h - 8, w - 10, h - 14)
-        p.drawEllipse(QPoint(w - 10, 9), 2, 2)
-    elif kind == "table":
-        # 3x3 grid
-        p.drawRect(3, 5, w - 6, h - 10)
-        for i in range(1, 3):
-            x = 3 + i * (w - 6) // 3
-            p.drawLine(x, 5, x, h - 5)
-            y = 5 + i * (h - 10) // 3
-            p.drawLine(3, y, w - 3, y)
-    elif kind == "video":
-        # simple 'play' triangle inside a rounded rectangle
-        rect = QRect(3, 5, w - 6, h - 10)
-        p.drawRoundedRect(rect, 3, 3)
-        px = rect.center().x()
-        py = rect.center().y()
-        size = int(min(rect.width(), rect.height()) * 0.5)
-        pts = [QPoint(px - size // 3, py - size // 2), QPoint(px - size // 3, py + size // 2), QPoint(px + size // 2, py)]
-        p.setBrush(QBrush(QColor(60, 60, 60)))
-        p.setPen(Qt.NoPen)
-        p.drawPolygon(*pts)
-    elif kind == "code":
-        # simple HTML/code glyph: </>
-        pen2 = QPen(fg)
-        pen2.setWidth(2)
-        p.setPen(pen2)
-        # Draw '<' and '>' as angled lines and a slash in between
-        y_mid = h // 2
-        left_x = int(w * 0.22)
-        right_x = int(w * 0.78)
-        span_y = int(h * 0.22)
-        # '<'
-        p.drawLine(left_x + 8, y_mid - span_y, left_x, y_mid)
-        p.drawLine(left_x, y_mid, left_x + 8, y_mid + span_y)
-        # '/'
-        p.drawLine(w // 2 - 3, y_mid + span_y, w // 2 + 3, y_mid - span_y)
-        # '>'
-        p.drawLine(right_x - 8, y_mid - span_y, right_x, y_mid)
-        p.drawLine(right_x, y_mid, right_x - 8, y_mid + span_y)
-    elif kind == "color":
-        _draw_text("A")
-        p.drawRect(5, h - 8, w - 10, 4)
-    elif kind == "highlight":
-        p.fillRect(QRect(4, h - 10, w - 8, 6), QColor("#ffe680"))
-        _draw_text("A")
-
-    p.end()
+        if kind == "undo":
+            # left arrow
+            p.drawLine(int(w * 0.75), int(h * 0.3), int(w * 0.35), int(h * 0.3))
+            p.drawLine(int(w * 0.35), int(h * 0.3), int(w * 0.45), int(h * 0.2))
+            p.drawLine(int(w * 0.35), int(h * 0.3), int(w * 0.45), int(h * 0.4))
+        elif kind == "redo":
+            p.drawLine(int(w * 0.25), int(h * 0.3), int(w * 0.65), int(h * 0.3))
+            p.drawLine(int(w * 0.65), int(h * 0.3), int(w * 0.55), int(h * 0.2))
+            p.drawLine(int(w * 0.65), int(h * 0.3), int(w * 0.55), int(h * 0.4))
+        elif kind == "bold":
+            _draw_text("B", bold=True)
+        elif kind == "italic":
+            _draw_text("I", italic=True)
+        elif kind == "underline":
+            _draw_text("U", underline=True)
+        elif kind == "strike":
+            _draw_text("S", strike=True)
+        elif kind == "align_left":
+            _draw_align("left")
+        elif kind == "align_center":
+            _draw_align("center")
+        elif kind == "align_right":
+            _draw_align("right")
+        elif kind == "align_justify":
+            _draw_align("justify")
+        elif kind == "list_bullets":
+            _draw_list(True)
+        elif kind == "list_numbers":
+            _draw_list(False)
+        elif kind == "indent":
+            # right pointing arrow/step
+            p.drawLine(4, h // 2, w - 8, h // 2)
+            p.drawLine(w - 10, h // 2 - 6, w - 4, h // 2)
+            p.drawLine(w - 10, h // 2 + 6, w - 4, h // 2)
+            p.drawLine(4, 6, 4, h - 6)
+        elif kind == "outdent":
+            # left pointing arrow/step
+            p.drawLine(w - 4, h // 2, 8, h // 2)
+            p.drawLine(10, h // 2 - 6, 4, h // 2)
+            p.drawLine(10, h // 2 + 6, 4, h // 2)
+            p.drawLine(w - 4, 6, w - 4, h - 6)
+        elif kind == "hr":
+            y = h // 2
+            p.drawLine(4, y, w - 4, y)
+        elif kind == "image":
+            # simple picture: frame + mountain + sun
+            p.drawRect(3, 5, w - 6, h - 10)
+            p.drawLine(6, h - 8, w - 10, h - 14)
+            p.drawEllipse(QPoint(w - 10, 9), 2, 2)
+        elif kind == "table":
+            # 3x3 grid
+            p.drawRect(3, 5, w - 6, h - 10)
+            for i in range(1, 3):
+                x = 3 + i * (w - 6) // 3
+                p.drawLine(x, 5, x, h - 5)
+                y = 5 + i * (h - 10) // 3
+                p.drawLine(3, y, w - 3, y)
+        elif kind == "video":
+            # simple 'play' triangle inside a rounded rectangle
+            rect = QRect(3, 5, w - 6, h - 10)
+            p.drawRoundedRect(rect, 3, 3)
+            px = rect.center().x()
+            py = rect.center().y()
+            size = int(min(rect.width(), rect.height()) * 0.5)
+            pts = [QPoint(px - size // 3, py - size // 2), QPoint(px - size // 3, py + size // 2), QPoint(px + size // 2, py)]
+            p.setBrush(QBrush(QColor(60, 60, 60)))
+            p.setPen(Qt.NoPen)
+            p.drawPolygon(*pts)
+        elif kind == "code":
+            # simple HTML/code glyph: </>
+            pen2 = QPen(fg)
+            pen2.setWidth(2)
+            p.setPen(pen2)
+            # Draw '<' and '>' as angled lines and a slash in between
+            y_mid = h // 2
+            left_x = int(w * 0.22)
+            right_x = int(w * 0.78)
+            span_y = int(h * 0.22)
+            # '<'
+            p.drawLine(left_x + 8, y_mid - span_y, left_x, y_mid)
+            p.drawLine(left_x, y_mid, left_x + 8, y_mid + span_y)
+            # '/'
+            p.drawLine(w // 2 - 3, y_mid + span_y, w // 2 + 3, y_mid - span_y)
+            # '>'
+            p.drawLine(right_x - 8, y_mid - span_y, right_x, y_mid)
+            p.drawLine(right_x, y_mid, right_x - 8, y_mid + span_y)
+        elif kind == "color":
+            _draw_text("A")
+            p.drawRect(5, h - 8, w - 10, 4)
+        elif kind == "highlight":
+            p.fillRect(QRect(4, h - 10, w - 8, 6), QColor("#ffe680"))
+            _draw_text("A")
+    finally:
+        try:
+            p.end()
+        except Exception:
+            pass
     return QIcon(pm)
 
 
@@ -658,37 +678,65 @@ def add_rich_text_toolbar(
     if text_edit is None or parent_tab is None:
         return None
     layout = _ensure_layout(parent_tab)
-    toolbar = QtWidgets.QToolBar(parent_tab)
-    # Visual polish: icon-only toolbar, compact icons
-    toolbar.setIconSize(QSize(20, 20))
-    toolbar.setStyleSheet(
-        """
-        QToolBar {
+    # Plain QWidget ribbon — no QToolBar overflow / ">>" extension button.
+    toolbar = QtWidgets.QWidget(parent_tab)
+    toolbar.setObjectName("richTextToolbar")
+    toolbar.setSizePolicy(QtWidgets.QSizePolicy.Expanding, QtWidgets.QSizePolicy.Fixed)
+    toolbar.setStyleSheet("""
+        QWidget#richTextToolbar {
             background: #f6f6f6;
             border-bottom: 1px solid #d0d0d0;
-            spacing: 2px;
         }
         QToolButton {
             padding: 1px 3px;
+            border: none;
+            background: transparent;
         }
         QToolButton:checked {
             background: #e9f3ff;
             border: 1px solid #8ab9ff;
             border-radius: 3px;
         }
+        QToolButton:hover {
+            background: #e0e0e0;
+            border-radius: 3px;
+        }
         QToolButton::menu-indicator { image: none; }
-        """
-    )
-    toolbar.setToolButtonStyle(Qt.ToolButtonIconOnly)
+    """)
+    _tb = QtWidgets.QHBoxLayout(toolbar)
+    _tb.setContentsMargins(4, 2, 4, 2)
+    _tb.setSpacing(2)
+    _icon_sz = QSize(20, 20)
+
+    def _tb_btn(icon_name, tooltip="", callback=None, checkable=False):
+        btn = QtWidgets.QToolButton(toolbar)
+        btn.setIcon(_make_icon(icon_name))
+        btn.setIconSize(_icon_sz)
+        btn.setToolTip(tooltip)
+        btn.setCheckable(checkable)
+        if callback:
+            btn.clicked.connect(callback)
+        _tb.addWidget(btn)
+        return btn
+
+    def _tb_sep():
+        f = QtWidgets.QFrame(toolbar)
+        try:
+            f.setFrameShape(QtWidgets.QFrame.Shape.VLine)
+            f.setFrameShadow(QtWidgets.QFrame.Shadow.Sunken)
+        except Exception:
+            try:
+                f.setFrameShape(QtWidgets.QFrame.VLine)
+                f.setFrameShadow(QtWidgets.QFrame.Sunken)
+            except Exception:
+                pass
+        f.setFixedSize(8, 24)
+        _tb.addWidget(f)
 
     # Undo/Redo
-    act_undo = toolbar.addAction(_make_icon("undo"), "", text_edit.undo)
-    act_undo.setShortcut(QKeySequence.Undo)
-    act_undo.setToolTip("Undo (Ctrl+Z)")
-    act_redo = toolbar.addAction(_make_icon("redo"), "", text_edit.redo)
-    act_redo.setShortcut(QKeySequence.Redo)
-    act_redo.setToolTip("Redo (Ctrl+Y)")
-    toolbar.addSeparator()
+    act_undo = _tb_btn("undo", "Undo (Ctrl+Z)", text_edit.undo)
+    act_redo = _tb_btn("redo", "Redo (Ctrl+Y)", text_edit.redo)
+    _tb_sep()
 
     # Bold/Italic/Underline/Strike
     def toggle_format(flag_attr: str, on: bool):
@@ -724,58 +772,39 @@ def add_rich_text_toolbar(
             cursor.mergeCharFormat(fmt)
         text_edit.mergeCurrentCharFormat(fmt)
 
-    act_bold = QtWidgets.QAction(_make_icon("bold"), "", toolbar)
-    act_bold.setCheckable(True)
-    act_bold.setShortcut(QKeySequence.Bold)
-    act_bold.setToolTip("Bold (Ctrl+B)")
-    act_bold.triggered.connect(lambda on: toggle_format("bold", on))
-    toolbar.addAction(act_bold)
-
-    act_italic = QtWidgets.QAction(_make_icon("italic"), "", toolbar)
-    act_italic.setCheckable(True)
-    act_italic.setShortcut(QKeySequence.Italic)
-    act_italic.setToolTip("Italic (Ctrl+I)")
-    act_italic.triggered.connect(lambda on: toggle_format("italic", on))
-    toolbar.addAction(act_italic)
-
-    act_underline = QtWidgets.QAction(_make_icon("underline"), "", toolbar)
-    act_underline.setCheckable(True)
-    act_underline.setShortcut(QKeySequence.Underline)
-    act_underline.setToolTip("Underline (Ctrl+U)")
-    act_underline.triggered.connect(lambda on: toggle_format("underline", on))
-    toolbar.addAction(act_underline)
-
-    act_strike = QtWidgets.QAction(_make_icon("strike"), "", toolbar)
-    act_strike.setCheckable(True)
-    act_strike.setToolTip("Strikethrough")
-    act_strike.triggered.connect(lambda on: toggle_format("strike", on))
-    toolbar.addAction(act_strike)
-
-    toolbar.addSeparator()
+    act_bold = _tb_btn("bold", "Bold (Ctrl+B)", lambda checked: toggle_format("bold", checked), checkable=True)
+    act_italic = _tb_btn("italic", "Italic (Ctrl+I)", lambda checked: toggle_format("italic", checked), checkable=True)
+    act_underline = _tb_btn("underline", "Underline (Ctrl+U)", lambda checked: toggle_format("underline", checked), checkable=True)
+    act_strike = _tb_btn("strike", "Strikethrough", lambda checked: toggle_format("strike", checked), checkable=True)
+    _tb_sep()
 
     # Font family and size
     font_box = QtWidgets.QFontComboBox(toolbar)
     # Make the font family control more compact horizontally
     try:
-        font_box.setMaximumWidth(140)
+        font_box.setSizePolicy(QtWidgets.QSizePolicy.Fixed, QtWidgets.QSizePolicy.Fixed)
+        font_box.setMaximumWidth(120)
         font_box.setMinimumContentsLength(8)
     except Exception:
         pass
     # Signal connection moved to later in setup to use guarded wrapper
     font_box.setToolTip("Font family")
-    toolbar.addWidget(font_box)
+    _tb.addWidget(font_box)
 
     size_box = QtWidgets.QComboBox(toolbar)
     for sz in [8, 9, 10, 11, 12, 14, 16, 18, 20, 24, 28, 32]:
         size_box.addItem(str(sz), sz)
     size_box.setEditable(False)
     try:
-        size_box.setMaximumWidth(72)
+        size_box.setSizePolicy(QtWidgets.QSizePolicy.Fixed, QtWidgets.QSizePolicy.Fixed)
+        size_box.setMinimumWidth(60)
+        size_box.setMaximumWidth(100)
+        size_box.view().setMinimumWidth(80)  # Ensure dropdown is wide enough for two digits
     except Exception:
         pass
     # Signal connection moved to later in setup to use guarded wrapper
     size_box.setToolTip("Font size")
-    toolbar.addWidget(size_box)
+    _tb.addWidget(size_box)
 
     # Apply default font family and size for new content (does not overwrite existing styled HTML)
     try:
@@ -790,7 +819,7 @@ def add_rich_text_toolbar(
     except Exception:
         pass
 
-    toolbar.addSeparator()
+    _tb_sep()
 
     # Text color & highlight
     btn_color = QtWidgets.QToolButton(toolbar)
@@ -798,20 +827,22 @@ def add_rich_text_toolbar(
     btn_color.setToolTip("Text color")
     btn_color.clicked.connect(lambda: _apply_text_color(text_edit, foreground=True))
     try:
+        btn_color.setSizePolicy(QtWidgets.QSizePolicy.Fixed, QtWidgets.QSizePolicy.Fixed)
         btn_color.setFixedSize(24, 24)
     except Exception:
         pass
-    toolbar.addWidget(btn_color)
+    _tb.addWidget(btn_color)
 
     btn_bg = QtWidgets.QToolButton(toolbar)
     btn_bg.setText("Bg")
     btn_bg.setToolTip("Highlight")
     btn_bg.clicked.connect(lambda: _apply_text_color(text_edit, foreground=False))
     try:
+        btn_bg.setSizePolicy(QtWidgets.QSizePolicy.Fixed, QtWidgets.QSizePolicy.Fixed)
         btn_bg.setFixedSize(24, 24)
     except Exception:
         pass
-    toolbar.addWidget(btn_bg)
+    _tb.addWidget(btn_bg)
 
     # Clear only background highlight (keep bold/italic/etc.)
     btn_bg_clear = QtWidgets.QToolButton(toolbar)
@@ -819,63 +850,31 @@ def add_rich_text_toolbar(
     btn_bg_clear.setToolTip("Remove highlight (background)")
     btn_bg_clear.clicked.connect(lambda: _clear_background(text_edit))
     try:
+        btn_bg_clear.setSizePolicy(QtWidgets.QSizePolicy.Fixed, QtWidgets.QSizePolicy.Fixed)
         btn_bg_clear.setFixedSize(28, 24)
     except Exception:
         pass
-    toolbar.addWidget(btn_bg_clear)
-
-    toolbar.addSeparator()
+    _tb.addWidget(btn_bg_clear)
+    _tb_sep()
 
     # Alignment
-    group_align = QtWidgets.QActionGroup(toolbar)
-    group_align.setExclusive(True)
-    act_align_left = QtWidgets.QAction(_make_icon("align_left"), "", toolbar, checkable=True)
-    act_align_left.setToolTip("Align Left")
-    act_align_center = QtWidgets.QAction(_make_icon("align_center"), "", toolbar, checkable=True)
-    act_align_center.setToolTip("Align Center")
-    act_align_right = QtWidgets.QAction(_make_icon("align_right"), "", toolbar, checkable=True)
-    act_align_right.setToolTip("Align Right")
-    act_align_justify = QtWidgets.QAction(_make_icon("align_justify"), "", toolbar, checkable=True)
-    act_align_justify.setToolTip("Justify")
-    for a in (act_align_left, act_align_center, act_align_right, act_align_justify):
-        group_align.addAction(a)
-        toolbar.addAction(a)
-    act_align_left.triggered.connect(lambda: text_edit.setAlignment(Qt.AlignLeft))
-    act_align_center.triggered.connect(lambda: text_edit.setAlignment(Qt.AlignHCenter))
-    act_align_right.triggered.connect(lambda: text_edit.setAlignment(Qt.AlignRight))
-    act_align_justify.triggered.connect(lambda: text_edit.setAlignment(Qt.AlignJustify))
-
-    toolbar.addSeparator()
+    act_align_left = _tb_btn("align_left", "Align Left", lambda: text_edit.setAlignment(Qt.AlignLeft), checkable=True)
+    act_align_center = _tb_btn("align_center", "Align Center", lambda: text_edit.setAlignment(Qt.AlignHCenter), checkable=True)
+    act_align_right = _tb_btn("align_right", "Align Right", lambda: text_edit.setAlignment(Qt.AlignRight), checkable=True)
+    act_align_justify = _tb_btn("align_justify", "Justify", lambda: text_edit.setAlignment(Qt.AlignJustify), checkable=True)
+    _align_grp = QtWidgets.QButtonGroup(toolbar)
+    _align_grp.setExclusive(True)
+    for _ab in (act_align_left, act_align_center, act_align_right, act_align_justify):
+        _align_grp.addButton(_ab)
+    _tb_sep()
 
     # Lists
-    act_bullets = toolbar.addAction(
-        _make_icon("list_bullets"), "", lambda: _toggle_list(text_edit, ordered=False)
-    )
-    act_bullets.setToolTip("Bulleted list")
-    act_numbers = toolbar.addAction(
-        _make_icon("list_numbers"), "", lambda: _toggle_list(text_edit, ordered=True)
-    )
-    act_numbers.setToolTip("Numbered list")
+    act_bullets = _tb_btn("list_bullets", "Bulleted list", lambda: _toggle_list(text_edit, ordered=False))
+    act_numbers = _tb_btn("list_numbers", "Numbered list", lambda: _toggle_list(text_edit, ordered=True))
 
     # Indent/Outdent for list nesting
-    act_indent = toolbar.addAction(
-        _make_icon("indent"), "", lambda: _change_list_indent(text_edit, +1)
-    )
-    act_indent.setShortcut(QKeySequence("Ctrl+]"))
-    try:
-        act_indent.setShortcutContext(Qt.WidgetWithChildrenShortcut)
-    except Exception:
-        pass
-    act_indent.setToolTip("Indent (Tab, Ctrl+])")
-    act_outdent = toolbar.addAction(
-        _make_icon("outdent"), "", lambda: _change_list_indent(text_edit, -1)
-    )
-    act_outdent.setShortcut(QKeySequence("Ctrl["))
-    try:
-        act_outdent.setShortcutContext(Qt.WidgetWithChildrenShortcut)
-    except Exception:
-        pass
-    act_outdent.setToolTip("Outdent (Shift+Tab, Ctrl+[)")
+    act_indent = _tb_btn("indent", "Indent (Tab, Ctrl+])", lambda: _change_list_indent(text_edit, +1))
+    act_outdent = _tb_btn("outdent", "Outdent (Shift+Tab, Ctrl+[)", lambda: _change_list_indent(text_edit, -1))
 
     # Enable Tab/Shift+Tab to control list levels
     _install_list_tab_handler(text_edit)
@@ -883,6 +882,8 @@ def add_rich_text_toolbar(
     _install_table_tab_handler(text_edit)
     # Enable plain paragraph indent/outdent with Tab/Shift+Tab when not in lists/tables
     _install_plain_indent_tab_handler(text_edit)
+    # Ensure Enter reliably creates new paragraphs in plain blocks.
+    _install_plain_return_handler(text_edit)
 
     # Disable drag-and-drop into the editor per current requirements
     try:
@@ -892,13 +893,10 @@ def add_rich_text_toolbar(
     except Exception:
         pass
 
-    toolbar.addSeparator()
+    _tb_sep()
 
     # Clear formatting, HR, Insert image/video
-    act_clear = toolbar.addAction(
-        _make_icon("color"), "", lambda: text_edit.setCurrentCharFormat(QTextCharFormat())
-    )
-    act_clear.setToolTip("Clear formatting")
+    act_clear = _tb_btn("color", "Clear formatting", lambda: text_edit.setCurrentCharFormat(QTextCharFormat()))
     def _insert_horizontal_rule():
         cur = text_edit.textCursor()
         cur.beginEditBlock()
@@ -921,8 +919,7 @@ def add_rich_text_toolbar(
         finally:
             cur.endEditBlock()
 
-    act_hr = toolbar.addAction(_make_icon("hr"), "", _insert_horizontal_rule)
-    act_hr.setToolTip("Insert horizontal rule")
+    act_hr = _tb_btn("hr", "Insert horizontal rule", _insert_horizontal_rule)
     # Image insert: split-button with dropdown for sizing modes
     btn_img = QtWidgets.QToolButton(toolbar)
     btn_img.setIcon(_make_icon("image"))
@@ -954,7 +951,7 @@ def add_rich_text_toolbar(
     act_orig.triggered.connect(lambda: _insert_image_via_dialog(text_edit, mode="original"))
     act_cust.triggered.connect(_choose_custom_and_insert)
     btn_img.setMenu(img_menu)
-    toolbar.addWidget(btn_img)
+    _tb.addWidget(btn_img)
     # Video insert: split-button with options
     btn_vid = QtWidgets.QToolButton(toolbar)
     btn_vid.setIcon(_make_icon("video"))
@@ -1013,32 +1010,23 @@ def add_rich_text_toolbar(
     act_vc.triggered.connect(_choose_custom_video_time)
     act_vs.triggered.connect(lambda: _insert_video_via_dialog(text_edit, capture_seconds=None, force_synthetic=True, size_mode=_video_size_state["mode"], custom_width=_video_size_state["custom_width"]))
     btn_vid.setMenu(vid_menu)
-    toolbar.addWidget(btn_vid)
+    _tb.addWidget(btn_vid)
 
     # Paste Text Only quick action
-    act_paste_plain = toolbar.addAction(_make_icon("color"), "", lambda: paste_text_only(text_edit))
-    act_paste_plain.setToolTip("Paste Text Only (Ctrl+Shift+V)")
+    act_paste_plain = _tb_btn("color", "Paste Text Only (Ctrl+Shift+V)", lambda: paste_text_only(text_edit))
 
     # HTML Source editor
-    act_html = toolbar.addAction(_make_icon("code"), "", lambda: _open_html_source_dialog(text_edit))
-    act_html.setToolTip("HTML Source…")
+    act_html = _tb_btn("code", "HTML Source…", lambda: _open_html_source_dialog(text_edit))
 
-    # Table: insert or edit if caret is inside a table (as an action so it participates in overflow menu)
-    toolbar.addSeparator()
-    act_table = QtWidgets.QAction(_make_icon("table"), "", toolbar)
-    act_table.setToolTip("Insert/edit table")
-    try:
-        act_table.setPriority(QtWidgets.QAction.HighPriority)
-    except Exception:
-        pass
-    act_table.triggered.connect(lambda: _table_insert_or_edit(text_edit))
-    toolbar.addAction(act_table)
+    # Table: insert or edit if caret is inside a table
+    _tb_sep()
+    act_table = _tb_btn("table", "Insert/edit table", lambda: _table_insert_or_edit(text_edit))
+    _tb.addStretch(1)  # push all buttons to the left
 
     # (Image Actions toolbar button removed by request)
 
     # Place toolbar in layout
     if before_widget is not None:
-        # Insert before the specified widget if possible
         idx = layout.indexOf(before_widget)
         layout.insertWidget(max(0, idx), toolbar)
     else:
@@ -1049,27 +1037,16 @@ def add_rich_text_toolbar(
 
     # Reflect current formatting in toolbar toggles when cursor moves
     def _sync_toolbar():
-        # Skip sync if we're in the middle of applying a format change
-        if _applying_format[0]:
-            return
-        fmt = text_edit.currentCharFormat()
-        act_bold.setChecked(fmt.fontWeight() == QFont.Bold)
-        act_italic.setChecked(fmt.fontItalic())
-        act_underline.setChecked(fmt.fontUnderline())
-        act_strike.setChecked(fmt.fontStrikeOut())
-        # Block signals while updating font/size combos to prevent circular re-application
         try:
-            old_size_blocked = size_box.blockSignals(True)
-            old_font_blocked = font_box.blockSignals(True)
-            try:
-                if fmt.fontPointSize() > 0:
-                    _select_combo_value(size_box, int(fmt.fontPointSize()))
-                fam = fmt.fontFamily()
-                if fam:
-                    font_box.setCurrentFont(QFont(fam))
-            finally:
-                size_box.blockSignals(old_size_blocked)
-                font_box.blockSignals(old_font_blocked)
+            # Skip sync if we're in the middle of applying a format change.
+            # Also tolerate late signals while the toolbar is being torn down.
+            if _applying_format[0]:
+                return
+            fmt = text_edit.currentCharFormat()
+            act_bold.setChecked(fmt.fontWeight() == QFont.Bold)
+            act_italic.setChecked(fmt.fontItalic())
+            act_underline.setChecked(fmt.fontUnderline())
+            act_strike.setChecked(fmt.fontStrikeOut())
         except Exception:
             pass
 
@@ -1128,11 +1105,24 @@ def add_rich_text_toolbar(
     def _clear_applying_flag():
         _applying_format[0] = False
 
+    _sync_pending = [False]
+
+    def _schedule_sync_toolbar():
+        if _sync_pending[0]:
+            return
+        _sync_pending[0] = True
+
+        def _run_sync():
+            _sync_pending[0] = False
+            _sync_toolbar()
+
+        QtCore.QTimer.singleShot(0, _run_sync)
+
     # Connect font/size combos to use guarded wrappers
     font_box.currentFontChanged.connect(lambda f: _guarded_apply_font_family(f.family()))
     size_box.currentIndexChanged.connect(lambda _i: _guarded_apply_font_size(size_box.currentData()))
 
-    text_edit.cursorPositionChanged.connect(_sync_toolbar)
+    text_edit.cursorPositionChanged.connect(_schedule_sync_toolbar)
 
     # Install image context menu and shortcuts
     try:
@@ -1141,12 +1131,15 @@ def add_rich_text_toolbar(
     except Exception:
         pass
     try:
-        text_edit.selectionChanged.connect(_sync_toolbar)
+        text_edit.selectionChanged.connect(_schedule_sync_toolbar)
     except Exception:
         pass
 
     # Install Ctrl+V override to honor Default Paste Mode without relying on a window-level shortcut
     _install_default_paste_override(text_edit)
+    # Diagnostic logging for Enter/Return behavior in the rich text editor.
+    # Opt-in only to avoid log growth during normal use.
+    _install_richtext_key_debugger(text_edit)
     # Enable Ctrl+Click to open links in the system browser
     _install_link_click_handler(text_edit)
     # Enable right-click table context menu
@@ -2175,12 +2168,18 @@ def _insert_image_from_path(text_edit: QtWidgets.QTextEdit, src_path: str, mode:
         # If we have a DB/media root, store and use a relative path and ensure baseUrl
         if db_path and media_root:
             try:
-                from media_store import save_file_into_store
+                from media_store import add_media_ref, save_file_into_store
 
-                _, rel_path = save_file_into_store(db_path, src_path)
+                media_id, rel_path = save_file_into_store(db_path, src_path)
                 rel_or_abs = rel_path
                 base = media_root if media_root.endswith(os.sep) else media_root + os.sep
                 text_edit.document().setBaseUrl(QUrl.fromLocalFile(base))
+                try:
+                    _nb_id, _sid, page_id = current_context(win)
+                    if page_id is not None:
+                        add_media_ref(db_path, media_id, page_id=int(page_id), role="inline_image")
+                except Exception:
+                    pass
             except Exception:
                 rel_or_abs = src_path
 
@@ -2283,14 +2282,20 @@ def _insert_video_from_path(
         media_root = getattr(win, "_media_root", None)
         if db_path and media_root:
             try:
-                from media_store import save_file_into_store
+                from media_store import add_media_ref, save_file_into_store
 
                 # Save the video into the media store
-                _, rel_video = save_file_into_store(db_path, src_path)
+                video_media_id, rel_video = save_file_into_store(db_path, src_path)
                 # Ensure baseUrl so relative src/href resolve
                 try:
                     base = media_root if media_root.endswith(os.sep) else media_root + os.sep
                     text_edit.document().setBaseUrl(QUrl.fromLocalFile(base))
+                except Exception:
+                    pass
+                try:
+                    _nb_id, _sid, page_id = current_context(win)
+                    if page_id is not None:
+                        add_media_ref(db_path, video_media_id, page_id=int(page_id), role="inline_video")
                 except Exception:
                     pass
 
@@ -2397,7 +2402,13 @@ def _insert_video_from_path(
                 rel_thumb = None
                 if tmp_thumb and os.path.exists(tmp_thumb):
                     try:
-                        _, rel_thumb = save_file_into_store(db_path, tmp_thumb, original_filename=os.path.basename(src_path) + ".thumb.png")
+                        thumb_media_id, rel_thumb = save_file_into_store(db_path, tmp_thumb, original_filename=os.path.basename(src_path) + ".thumb.png")
+                        try:
+                            _nb_id, _sid, page_id = current_context(win)
+                            if page_id is not None:
+                                add_media_ref(db_path, thumb_media_id, page_id=int(page_id), role="video_thumbnail")
+                        except Exception:
+                            pass
                     except Exception:
                         rel_thumb = None
                     try:
@@ -3332,11 +3343,28 @@ def _current_table(text_edit: QtWidgets.QTextEdit):
         return None
 
 
+def _to_table_cell_format(fmt):
+    try:
+        if isinstance(fmt, QTextTableCellFormat):
+            return QTextTableCellFormat(fmt)
+    except Exception:
+        pass
+    try:
+        if hasattr(fmt, "isTableCellFormat") and fmt.isTableCellFormat():
+            return fmt.toTableCellFormat()
+    except Exception:
+        pass
+    try:
+        return QTextTableCellFormat(fmt)
+    except Exception:
+        return None
+
+
 def _enforce_uniform_table_borders(text_edit: QtWidgets.QTextEdit):
     """Ensure all tables in the editor use a single 1px solid black grid.
 
     Implementation:
-    - Set table cellSpacing to 0 and table border to 0 (avoid doubling with cell borders)
+    - Preserve the current table gap value within the supported preset range
     - Set every cell's border to 1px black, solid
     """
     if text_edit is None:
@@ -3363,12 +3391,6 @@ def _enforce_uniform_table_borders(text_edit: QtWidgets.QTextEdit):
                 skip = False
                 try:
                     fmt = tbl.format()
-                    # Always set zero spacing for consistency
-                    try:
-                        fmt.setCellSpacing(0.0)
-                        tbl.setFormat(fmt)
-                    except Exception:
-                        pass
                     prop = fmt.property(int(QTextFormat.UserProperty) + 101)
                     skip = bool(prop)
                     
@@ -3396,7 +3418,9 @@ def _enforce_uniform_table_borders(text_edit: QtWidgets.QTextEdit):
                                 else:
                                     # Fallback: check cell border properties (for older HR format)
                                     cell = tbl.cellAt(0, 0)
-                                    cf = QTextTableCellFormat(cell.format())
+                                    cf = _to_table_cell_format(cell.format())
+                                    if cf is None:
+                                        raise ValueError("Could not read table cell format")
                                     tb = float(getattr(cf, 'topBorder', lambda: 0.0)() or 0.0)
                                     lb = float(getattr(cf, 'leftBorder', lambda: 0.0)() or 0.0)
                                     rb = float(getattr(cf, 'rightBorder', lambda: 0.0)() or 0.0)
@@ -3411,9 +3435,12 @@ def _enforce_uniform_table_borders(text_edit: QtWidgets.QTextEdit):
                     # Normalize table format and apply per-cell borders
                     try:
                         fmt = tbl.format()
-                        # Remove spacing between cells for tight single-line appearance
                         try:
-                            fmt.setCellSpacing(0.0)
+                            gap = _clamp_table_gap_value(fmt.cellSpacing())
+                        except Exception:
+                            gap = 0.0
+                        try:
+                            fmt.setCellSpacing(gap)
                         except Exception:
                             pass
                         # Use table border for the outer frame
@@ -3440,7 +3467,9 @@ def _enforce_uniform_table_borders(text_edit: QtWidgets.QTextEdit):
                             try:
                                 cell = tbl.cellAt(r, c)
                                 cf = cell.format()
-                                tcf = QTextTableCellFormat(cf)
+                                tcf = _to_table_cell_format(cf)
+                                if tcf is None:
+                                    continue
                                 # All sides single line at configured width/color
                                 try:
                                     tcf.setBorder(float(grid_w))
@@ -3830,6 +3859,113 @@ def _table_insert_or_edit(text_edit: QtWidgets.QTextEdit):
         _table_properties_dialog(text_edit, tbl)
 
 
+_TABLE_GAP_PRESETS = [
+    ("None", 0.0),
+    ("Small", 2.0),
+    ("Medium", 4.0),
+    ("Large", 6.0),
+]
+
+
+def _clamp_table_gap_value(value: float) -> float:
+    try:
+        max_gap = max(float(v) for _label, v in _TABLE_GAP_PRESETS)
+    except Exception:
+        max_gap = 6.0
+    try:
+        return max(0.0, min(max_gap, float(value)))
+    except Exception:
+        return 0.0
+
+
+def _table_gap_preset_index_for_value(value: float) -> int:
+    gap = _clamp_table_gap_value(value)
+    best_idx = 0
+    best_delta = None
+    for idx, (_label, preset_value) in enumerate(_TABLE_GAP_PRESETS):
+        delta = abs(float(preset_value) - gap)
+        if best_delta is None or delta < best_delta:
+            best_idx = idx
+            best_delta = delta
+    return best_idx
+
+
+def _create_table_gap_combo(parent, current_value: float = 0.0):
+    combo = QtWidgets.QComboBox(parent)
+    for label, value in _TABLE_GAP_PRESETS:
+        combo.addItem(label, float(value))
+    try:
+        combo.setCurrentIndex(_table_gap_preset_index_for_value(current_value))
+    except Exception:
+        pass
+    combo.setToolTip(
+        "Controls the visible gap between cell borders while keeping the overall table width the same."
+    )
+    return combo
+
+
+def _table_gap_combo_value(combo) -> float:
+    try:
+        data = combo.currentData()
+        if data is not None:
+            return _clamp_table_gap_value(float(data))
+    except Exception:
+        pass
+    try:
+        idx = max(0, int(combo.currentIndex()))
+        return _clamp_table_gap_value(_TABLE_GAP_PRESETS[idx][1])
+    except Exception:
+        return 0.0
+
+
+def _build_plain_table_html(
+    rows: int,
+    cols: int,
+    border: float,
+    cell_padding: float,
+    cell_spacing: float,
+    table_width_pct: float,
+    fixed_width_px: float = None,
+) -> str:
+    rows = max(1, int(rows))
+    cols = max(1, int(cols))
+    table_width_pct = max(10.0, min(100.0, float(table_width_pct)))
+    cell_spacing = _clamp_table_gap_value(cell_spacing)
+    col_pct = 100.0 / float(cols)
+    fixed_width_px = float(fixed_width_px) if fixed_width_px is not None else None
+    if fixed_width_px is not None and fixed_width_px > 0.0:
+        width_attr = f'{int(round(fixed_width_px))}'
+        table_styles = [f"width:{fixed_width_px:.1f}px", "table-layout:fixed"]
+    else:
+        width_attr = f"{table_width_pct:.1f}%"
+        table_styles = [f"width:{table_width_pct:.1f}%", "table-layout:fixed"]
+    if float(cell_spacing) <= 0.0:
+        table_styles.append("border-collapse:collapse")
+    else:
+        table_styles.append("border-collapse:separate")
+        table_styles.append(f"border-spacing:{float(cell_spacing):.1f}px")
+
+    cell_style = (
+        f"width:{col_pct:.6f}%; "
+        f"padding:{float(cell_padding):.1f}px; "
+        f"border:{float(border):.1f}px solid #000000; "
+        "vertical-align:top"
+    )
+    row_html = "<tr>" + "".join(
+        f'<td width="{col_pct:.6f}%" style="{cell_style}"></td>' for _ in range(cols)
+    ) + "</tr>"
+    table_html = (
+        f'<table width="{width_attr}" '
+        f'cellpadding="{float(cell_padding):.1f}" '
+        f'cellspacing="{float(cell_spacing):.1f}" '
+        f'border="{float(border):.1f}" '
+        f'style="{"; ".join(table_styles)}">'
+        + (row_html * rows)
+        + "</table>"
+    )
+    return table_html
+
+
 def _table_insert_dialog(text_edit: QtWidgets.QTextEdit):
     dlg = QtWidgets.QDialog(text_edit)
     dlg.setWindowTitle("Insert Table")
@@ -3848,10 +3984,7 @@ def _table_insert_dialog(text_edit: QtWidgets.QTextEdit):
     sp_pad.setRange(0.0, 20.0)
     sp_pad.setSingleStep(0.5)
     sp_pad.setValue(2.0)
-    sp_space = QtWidgets.QDoubleSpinBox(dlg)
-    sp_space.setRange(0.0, 20.0)
-    sp_space.setSingleStep(0.5)
-    sp_space.setValue(0.0)
+    cb_gap = _create_table_gap_combo(dlg, 0.0)
     sp_width = QtWidgets.QDoubleSpinBox(dlg)
     sp_width.setRange(10.0, 100.0)
     sp_width.setSingleStep(5.0)
@@ -3860,36 +3993,77 @@ def _table_insert_dialog(text_edit: QtWidgets.QTextEdit):
     form.addRow("Columns:", sp_cols)
     form.addRow("Border width:", sp_border)
     form.addRow("Cell padding:", sp_pad)
-    form.addRow("Cell spacing:", sp_space)
-    form.addRow("Table width (% of editor):", sp_width)
-    btns = QtWidgets.QDialogButtonBox(
-        QtWidgets.QDialogButtonBox.Ok | QtWidgets.QDialogButtonBox.Cancel, parent=dlg
-    )
+    form.addRow("Cell border gap:", cb_gap)
+    form.addRow("Table width (% of current editor):", sp_width)
+    ok_btn = _qdbb_standard_button("Ok")
+    cancel_btn = _qdbb_standard_button("Cancel")
+    btns = QtWidgets.QDialogButtonBox(ok_btn | cancel_btn, parent=dlg)
     form.addRow(btns)
     btns.accepted.connect(dlg.accept)
     btns.rejected.connect(dlg.reject)
+    try:
+        hint = dlg.sizeHint()
+        dlg.resize(hint.width() + 30, hint.height())
+    except Exception:
+        pass
     if dlg.exec_() != QtWidgets.QDialog.Accepted:
         return
     rows = sp_rows.value()
     cols = sp_cols.value()
-    from PyQt5.QtGui import QTextLength, QTextTableFormat
-
-    fmt = QTextTableFormat()
-    fmt.setBorder(sp_border.value())
-    fmt.setCellPadding(sp_pad.value())
-    fmt.setCellSpacing(sp_space.value())
-    # Set percentage width and distribute columns evenly
+    cur = text_edit.textCursor()
+    fixed_width_px = None
     try:
-        fmt.setWidth(QTextLength(QTextLength.PercentageLength, sp_width.value()))
-        if cols > 0:
-            frac = 100.0 / float(cols)
-            fmt.setColumnWidthConstraints(
-                [QTextLength(QTextLength.PercentageLength, frac) for _ in range(cols)]
-            )
+        viewport = text_edit.viewport()
+        viewport_width = float(viewport.width()) if viewport is not None else 0.0
+        if viewport_width > 1.0:
+            usable_width = max(120.0, viewport_width - 8.0)
+            fixed_width_px = max(80.0, usable_width * (float(sp_width.value()) / 100.0))
+    except Exception:
+        fixed_width_px = None
+    html = _build_plain_table_html(
+        rows,
+        cols,
+        sp_border.value(),
+        sp_pad.value(),
+        _table_gap_combo_value(cb_gap),
+        sp_width.value(),
+        fixed_width_px=fixed_width_px,
+    )
+    start_pos = cur.position()
+    try:
+        cur.beginEditBlock()
+        if cur.hasSelection():
+            cur.removeSelectedText()
+        if cur.positionInBlock() != 0:
+            cur.insertBlock()
+        cur.insertHtml(html)
+        end_pos = cur.position()
+        found_table = None
+        scan = QTextCursor(text_edit.document())
+        scan.setPosition(start_pos)
+        iters = 0
+        while scan.position() <= end_pos and iters < 20000:
+            tbl = scan.currentTable()
+            if tbl is not None:
+                found_table = tbl
+                break
+            if not scan.movePosition(QTextCursor.NextCharacter):
+                break
+            iters += 1
+        if found_table is not None:
+            try:
+                _table_apply_viewport_widths(text_edit, found_table, table_pct=sp_width.value())
+                _table_schedule_width_apply(text_edit, found_table, table_pct=sp_width.value())
+            except Exception:
+                pass
+            text_edit.setTextCursor(found_table.cellAt(0, 0).firstCursorPosition())
     except Exception:
         pass
-    cur = text_edit.textCursor()
-    cur.insertTable(rows, cols, fmt)
+    finally:
+        try:
+            cur.endEditBlock()
+        except Exception:
+            pass
     try:
         _enforce_uniform_table_borders(text_edit)
     except Exception:
@@ -3909,10 +4083,7 @@ def _table_properties_dialog(text_edit: QtWidgets.QTextEdit, table):
     sp_pad.setRange(0.0, 20.0)
     sp_pad.setSingleStep(0.5)
     sp_pad.setValue(fmt.cellPadding())
-    sp_space = QtWidgets.QDoubleSpinBox(dlg)
-    sp_space.setRange(0.0, 20.0)
-    sp_space.setSingleStep(0.5)
-    sp_space.setValue(fmt.cellSpacing())
+    cb_gap = _create_table_gap_combo(dlg, fmt.cellSpacing())
     sp_width = QtWidgets.QDoubleSpinBox(dlg)
     sp_width.setRange(10.0, 100.0)
     sp_width.setSingleStep(5.0)
@@ -3935,11 +4106,11 @@ def _table_properties_dialog(text_edit: QtWidgets.QTextEdit, table):
         sp_width.setValue(100.0)
     form.addRow("Border width:", sp_border)
     form.addRow("Cell padding:", sp_pad)
-    form.addRow("Cell spacing:", sp_space)
-    form.addRow("Table width (% of editor):", sp_width)
-    btns = QtWidgets.QDialogButtonBox(
-        QtWidgets.QDialogButtonBox.Ok | QtWidgets.QDialogButtonBox.Cancel, parent=dlg
-    )
+    form.addRow("Cell border gap:", cb_gap)
+    form.addRow("Table width (% of current editor):", sp_width)
+    ok_btn = _qdbb_standard_button("Ok")
+    cancel_btn = _qdbb_standard_button("Cancel")
+    btns = QtWidgets.QDialogButtonBox(ok_btn | cancel_btn, parent=dlg)
     form.addRow(btns)
     btns.accepted.connect(dlg.accept)
     btns.rejected.connect(dlg.reject)
@@ -3947,16 +4118,19 @@ def _table_properties_dialog(text_edit: QtWidgets.QTextEdit, table):
         return
     fmt.setBorder(sp_border.value())
     fmt.setCellPadding(sp_pad.value())
-    fmt.setCellSpacing(sp_space.value())
-    try:
-        from PyQt5.QtGui import QTextLength
-
-        fmt.setWidth(QTextLength(QTextLength.PercentageLength, sp_width.value()))
-    except Exception:
-        pass
+    fmt.setCellSpacing(_table_gap_combo_value(cb_gap))
     table.setFormat(fmt)
     try:
+        _table_apply_viewport_widths(text_edit, table, table_pct=sp_width.value())
+        _table_schedule_width_apply(text_edit, table, table_pct=sp_width.value())
+    except Exception:
+        pass
+    try:
         _enforce_uniform_table_borders(text_edit)
+    except Exception:
+        pass
+    try:
+        _table_schedule_width_apply(text_edit, table, table_pct=sp_width.value())
     except Exception:
         pass
 
@@ -4017,9 +4191,13 @@ def _table_add_remove(text_edit: QtWidgets.QTextEdit, action: str):
     row = cell.row()
     col = cell.column()
     if action == "row_above":
+        rows_before = tbl.rows()
         tbl.insertRows(row, 1)
+        _table_copy_inserted_row_cell_formats(tbl, row, 1, rows_before)
     elif action == "row_below":
+        rows_before = tbl.rows()
         tbl.insertRows(row + 1, 1)
+        _table_copy_inserted_row_cell_formats(tbl, row + 1, 1, rows_before)
     elif action == "col_left":
         tbl.insertColumns(col, 1)
         _table_refresh_currency_alignment_after_col_change(text_edit, tbl)
@@ -4031,6 +4209,10 @@ def _table_add_remove(text_edit: QtWidgets.QTextEdit, action: str):
     elif action == "remove_col":
         tbl.removeColumns(col, 1)
         _table_refresh_currency_alignment_after_col_change(text_edit, tbl)
+    try:
+        _enforce_uniform_table_borders(text_edit)
+    except Exception:
+        pass
 
 
 class _TableContextMenu(QObject):
@@ -4262,9 +4444,9 @@ class _TableContextMenu(QObject):
             elif chosen == act_prop and has_tbl:
                 _table_properties_dialog(self._edit, tbl)
             elif chosen == act_fit and has_tbl:
-                _table_fit_width(tbl)
+                _table_fit_width(self._edit, tbl)
             elif chosen == act_dist and has_tbl:
-                _table_distribute_columns(tbl)
+                _table_distribute_columns(self._edit, tbl)
             elif chosen == act_set_col and has_tbl:
                 # For column-based actions, position the caret to clicked cell to define the column
                 try:
@@ -4369,6 +4551,39 @@ def _table_clear_selected_cells(text_edit: QtWidgets.QTextEdit, table, rect):
                 pass
 
 
+def _table_copy_inserted_row_cell_formats(table, insert_row: int, count: int, rows_before: int):
+    """Qt can drop cell formats when appending rows; copy a neighboring row's cell formats."""
+    try:
+        if table is None or count <= 0 or rows_before <= 0:
+            return
+        cols = table.columns()
+        if cols <= 0:
+            return
+        if insert_row < rows_before:
+            source_row = insert_row + count
+        else:
+            source_row = rows_before - 1
+        if source_row < 0:
+            return
+        template_formats = []
+        for cc in range(cols):
+            src_cell = table.cellAt(source_row, cc)
+            if src_cell.isValid():
+                src_fmt = _to_table_cell_format(src_cell.format())
+                template_formats.append(QTextTableCellFormat(src_fmt) if src_fmt is not None else None)
+            else:
+                template_formats.append(None)
+        for rr in range(insert_row, insert_row + count):
+            for cc, template_fmt in enumerate(template_formats):
+                if template_fmt is None:
+                    continue
+                dst_cell = table.cellAt(rr, cc)
+                if dst_cell.isValid():
+                    dst_cell.setFormat(QTextTableCellFormat(template_fmt))
+    except Exception:
+        pass
+
+
 def _table_insert_rows_from_selection(text_edit: QtWidgets.QTextEdit, table, rect, above: bool):
     cur = text_edit.textCursor()
     cell = table.cellAt(cur)
@@ -4388,6 +4603,10 @@ def _table_insert_rows_from_selection(text_edit: QtWidgets.QTextEdit, table, rec
     totals_before = (rows_before - 1) if rows_before is not None and rows_before > 0 else None
     try:
         table.insertRows(base_row, count)
+        try:
+            _table_copy_inserted_row_cell_formats(table, base_row, count, rows_before or 0)
+        except Exception:
+            pass
         # If inserting immediately before header (row 0) or immediately before previous totals row,
         # clear background on the newly inserted rows so they appear as normal data rows.
         if base_row == 0 or (totals_before is not None and base_row == totals_before):
@@ -4469,6 +4688,10 @@ def _table_insert_rows_from_selection(text_edit: QtWidgets.QTextEdit, table, rec
                             tcur.mergeBlockFormat(bf)
         except Exception:
             pass
+        try:
+            _enforce_uniform_table_borders(text_edit)
+        except Exception:
+            pass
     except Exception:
         pass
 
@@ -4509,92 +4732,257 @@ def _table_delete_if_empty(text_edit: QtWidgets.QTextEdit, table):
         pass
 
 
-def _table_fit_width(table):
-    from PyQt5.QtGui import QTextLength, QTextTableFormat
+def _table_constraint_percentages(table):
+    try:
+        cols = table.columns()
+    except Exception:
+        cols = 0
+    if cols <= 0:
+        return []
+    try:
+        constraints = list(table.format().columnWidthConstraints()) or []
+    except Exception:
+        constraints = []
+    if len(constraints) != cols:
+        return [100.0 / float(cols) for _ in range(cols)]
+    values = []
+    for constraint in constraints:
+        try:
+            values.append(float(constraint.rawValue()))
+        except Exception:
+            try:
+                values.append(float(constraint.value()))
+            except Exception:
+                values.append(0.0)
+    total = sum(v for v in values if v > 0.0)
+    if total <= 0.0:
+        return [100.0 / float(cols) for _ in range(cols)]
+    return [max(0.0, (value / total) * 100.0) for value in values]
+
+
+def _qtextlength_type(name: str):
+    try:
+        return getattr(QTextLength, name)
+    except Exception:
+        pass
+    try:
+        return getattr(QTextLength.Type, name)
+    except Exception:
+        pass
+    return None
+
+
+def _table_current_width_px(text_edit: QtWidgets.QTextEdit, table):
+    if text_edit is None or table is None:
+        return None
+    try:
+        viewport = text_edit.viewport()
+        viewport_width = float(viewport.width()) if viewport is not None else 0.0
+    except Exception:
+        viewport_width = 0.0
+    usable_width = max(120.0, viewport_width - 8.0) if viewport_width > 1.0 else 0.0
+    try:
+        wlen = table.format().width()
+    except Exception:
+        wlen = None
+    if wlen is None:
+        return None
 
     try:
-        fmt = table.format()
-        fmt.setWidth(QTextLength(QTextLength.PercentageLength, 100))
-        table.setFormat(fmt)
+        wtype = wlen.type() if hasattr(wlen, "type") else None
+    except Exception:
+        wtype = None
+    percentage_length = _qtextlength_type("PercentageLength")
+    fixed_length = _qtextlength_type("FixedLength")
+    try:
+        raw_value = float(wlen.rawValue() if hasattr(wlen, "rawValue") else wlen.value())
+    except Exception:
+        raw_value = 0.0
+
+    if wtype == percentage_length and usable_width > 0.0 and raw_value > 0.0:
+        return max(80.0, usable_width * (raw_value / 100.0))
+    if wtype == fixed_length and raw_value > 0.0:
+        return max(80.0, raw_value)
+    if raw_value > 0.0:
+        return max(80.0, raw_value)
+    return None
+
+
+def _table_apply_viewport_widths(
+    text_edit: QtWidgets.QTextEdit,
+    table,
+    table_pct: float = None,
+    col_pcts=None,
+    table_width_px: float = None,
+):
+    from PyQt5.QtGui import QTextLength
+
+    if text_edit is None or table is None:
+        return
+    try:
+        cols = table.columns()
+    except Exception:
+        cols = 0
+    if cols <= 0:
+        return
+    try:
+        viewport = text_edit.viewport()
+        viewport_width = float(viewport.width()) if viewport is not None else 0.0
+    except Exception:
+        viewport_width = 0.0
+    if viewport_width <= 1.0:
+        return
+
+    usable_width = max(120.0, viewport_width - 8.0)
+    if table_width_px is None:
+        pct = float(table_pct) if table_pct is not None else 100.0
+        pct = max(10.0, min(100.0, pct))
+        table_width_px = max(80.0, usable_width * (pct / 100.0))
+    else:
+        table_width_px = max(80.0, float(table_width_px))
+
+    if not col_pcts or len(col_pcts) != cols:
+        col_pcts = _table_constraint_percentages(table)
+    if not col_pcts or len(col_pcts) != cols:
+        col_pcts = [100.0 / float(cols) for _ in range(cols)]
+    total_pct = sum(float(v) for v in col_pcts if float(v) > 0.0)
+    if total_pct <= 0.0:
+        col_pcts = [100.0 / float(cols) for _ in range(cols)]
+        total_pct = 100.0
+    normalized = [max(0.0, (float(v) / total_pct) * 100.0) for v in col_pcts]
+
+    fixed_length = _qtextlength_type("FixedLength")
+    if fixed_length is None:
+        return
+
+    fmt = table.format()
+    fmt.setWidth(QTextLength(fixed_length, table_width_px))
+    fmt.setColumnWidthConstraints(
+        [
+            QTextLength(fixed_length, max(24.0, table_width_px * (pct_i / 100.0)))
+            for pct_i in normalized
+        ]
+    )
+    table.setFormat(fmt)
+
+
+def _table_schedule_width_apply(
+    text_edit: QtWidgets.QTextEdit,
+    table,
+    table_pct: float = None,
+    col_pcts=None,
+    table_width_px: float = None,
+):
+    def _apply_later():
+        try:
+            _table_apply_viewport_widths(
+                text_edit,
+                table,
+                table_pct=table_pct,
+                col_pcts=col_pcts,
+                table_width_px=table_width_px,
+            )
+        except Exception:
+            pass
+
+    try:
+        QTimer.singleShot(0, _apply_later)
+        QTimer.singleShot(50, _apply_later)
     except Exception:
         pass
 
 
-def _table_distribute_columns(table):
-    from PyQt5.QtGui import QTextLength
+def _table_fit_width(text_edit: QtWidgets.QTextEdit, table):
+    _table_apply_viewport_widths(text_edit, table, table_pct=100.0)
+
+
+def _table_distribute_columns(text_edit: QtWidgets.QTextEdit, table):
 
     try:
         cols = table.columns()
         if cols <= 0:
             return
         frac = 100.0 / float(cols)
-        fmt = table.format()
-        fmt.setColumnWidthConstraints(
-            [QTextLength(QTextLength.PercentageLength, frac) for _ in range(cols)]
-        )
-        table.setFormat(fmt)
+        _table_apply_viewport_widths(text_edit, table, col_pcts=[frac for _ in range(cols)])
     except Exception:
         pass
 
 
-def _table_set_current_column_width(text_edit: QtWidgets.QTextEdit, table):
-    from PyQt5.QtGui import QTextLength
+def _table_rebalance_column_percentages(constraints, col_idx: int, new_pct: float):
+    try:
+        values = [max(1.0, float(v)) for v in constraints]
+    except Exception:
+        values = []
+    cols = len(values)
+    if cols <= 0 or col_idx < 0 or col_idx >= cols:
+        return constraints
 
+    new_pct = max(1.0, min(100.0, float(new_pct)))
+    old_pct = values[col_idx]
+    delta = new_pct - old_pct
+    values[col_idx] = new_pct
+    if cols == 1:
+        return [100.0]
+
+    donor_order = [i for i in range(col_idx + 1, cols) if i != col_idx]
+    donor_order.extend(i for i in range(col_idx - 1, -1, -1) if i != col_idx)
+
+    if delta > 0.0:
+        remaining = delta
+        for donor_idx in donor_order:
+            available = max(0.0, values[donor_idx] - 1.0)
+            if available <= 0.0:
+                continue
+            shift = min(available, remaining)
+            values[donor_idx] -= shift
+            remaining -= shift
+            if remaining <= 1e-6:
+                break
+        if remaining > 1e-6:
+            values[col_idx] = max(1.0, values[col_idx] - remaining)
+    elif delta < 0.0:
+        gain = -delta
+        if donor_order:
+            values[donor_order[0]] += gain
+
+    total = sum(v for v in values if v > 0.0)
+    if total <= 0.0:
+        return [100.0 / float(cols) for _ in range(cols)]
+    return [max(0.0, (value / total) * 100.0) for value in values]
+
+
+def _table_set_current_column_width(text_edit: QtWidgets.QTextEdit, table):
     cur = text_edit.textCursor()
     cell = table.cellAt(cur)
     if not cell.isValid():
         return
     col_idx = cell.column()
     cols = table.columns()
-    fmt = table.format()
-    constraints = list(fmt.columnWidthConstraints()) or []
+    constraints = _table_constraint_percentages(table)
     if not constraints or len(constraints) != cols:
-        constraints = [QTextLength(QTextLength.PercentageLength, 100.0 / cols) for _ in range(cols)]
+        constraints = [100.0 / float(cols) for _ in range(cols)]
     # Ask user for percentage
     dlg = QtWidgets.QInputDialog(text_edit)
     dlg.setWindowTitle("Set Column Width")
     dlg.setLabelText(f"Width for column {col_idx+1} (% of table width):")
-    dlg.setInputMode(QtWidgets.QInputDialog.DoubleInput)
+    try:
+        dlg.setInputMode(QtWidgets.QInputDialog.DoubleInput)
+    except Exception:
+        dlg.setInputMode(QtWidgets.QInputDialog.InputMode.DoubleInput)
     dlg.setDoubleRange(1.0, 100.0)
     dlg.setDoubleDecimals(1)
-    dlg.setDoubleValue(
-        constraints[col_idx].rawValue()
-        if hasattr(constraints[col_idx], "rawValue")
-        else constraints[col_idx].value()
-    )
+    dlg.setDoubleValue(float(constraints[col_idx]))
     if dlg.exec_() != QtWidgets.QDialog.Accepted:
         return
     new_pct = dlg.doubleValue()
-    # Rebalance other columns to keep sum ~100
-    other_indices = [i for i in range(cols) if i != col_idx]
-    current_sum = sum((c.rawValue() if hasattr(c, "rawValue") else c.value()) for c in constraints)
-    remaining = max(1.0, 100.0 - new_pct)
-    if not other_indices:
-        constraints[col_idx] = QTextLength(QTextLength.PercentageLength, new_pct)
-    else:
-        # Distribute remaining proportionally to their existing sizes
-        other_sum = max(
-            1e-6,
-            sum(
-                (
-                    constraints[i].rawValue()
-                    if hasattr(constraints[i], "rawValue")
-                    else constraints[i].value()
-                )
-                for i in other_indices
-            ),
-        )
-        for i in other_indices:
-            base = (
-                constraints[i].rawValue()
-                if hasattr(constraints[i], "rawValue")
-                else constraints[i].value()
-            )
-            pct = remaining * (base / other_sum)
-            constraints[i] = QTextLength(QTextLength.PercentageLength, pct)
-        constraints[col_idx] = QTextLength(QTextLength.PercentageLength, new_pct)
-    fmt.setColumnWidthConstraints(constraints)
-    table.setFormat(fmt)
+    constraints = _table_rebalance_column_percentages(constraints, col_idx, new_pct)
+    current_width_px = _table_current_width_px(text_edit, table)
+    _table_apply_viewport_widths(
+        text_edit,
+        table,
+        col_pcts=constraints,
+        table_width_px=current_width_px,
+    )
 
 
 # ----------------------------- Table formulas (SUM) -----------------------------
@@ -4846,8 +5234,10 @@ def _table_mark_currency_columns(text_edit: QtWidgets.QTextEdit, table, sel_rect
             if isinstance(first_cell_txt, str) and first_cell_txt.strip().lower() == "total":
                 need_total_row = False
         if need_total_row:
+            rows_before = table.rows()
             table.appendRows(1)
             last_row_idx = table.rows() - 1
+            _table_copy_inserted_row_cell_formats(table, last_row_idx, 1, rows_before)
             _table_set_cell_plain_text(text_edit, table, last_row_idx, 0, "Total")
         # Compute totals for newly marked columns immediately
         for c in cols_to_mark:
@@ -5425,7 +5815,13 @@ class _TableTabHandler(QObject):
                     if next_row >= rows:
                         # Append a new row
                         try:
+                            rows_before = rows
                             tbl.insertRows(rows, 1)
+                            _table_copy_inserted_row_cell_formats(tbl, rows, 1, rows_before)
+                            try:
+                                _enforce_uniform_table_borders(self._edit)
+                            except Exception:
+                                pass
                             rows += 1
                         except Exception:
                             pass
@@ -5508,6 +5904,63 @@ def _install_plain_indent_tab_handler(text_edit: QtWidgets.QTextEdit):
     if not hasattr(text_edit, "_plainIndentHandlers"):
         text_edit._plainIndentHandlers = []
     text_edit._plainIndentHandlers.append(handler)
+
+
+class _PlainReturnHandler(QObject):
+    """Force reliable Enter behavior in plain paragraphs.
+
+    Some Qt5/Qt6 migration paths can leave Enter accepted but not creating a
+    new paragraph in QTextEdit. For plain text blocks (not tables/lists), we
+    insert the block explicitly.
+    """
+
+    def __init__(self, edit: QtWidgets.QTextEdit):
+        super().__init__(edit)
+        self._edit = edit
+
+    def _enum_value(self, value):
+        try:
+            return int(value)
+        except Exception:
+            pass
+        try:
+            return int(getattr(value, "value"))
+        except Exception:
+            pass
+        return value
+
+    def eventFilter(self, obj, event):
+        if obj is self._edit and event.type() == QEvent.KeyPress:
+            key = self._enum_value(event.key())
+            key_return = self._enum_value(Qt.Key_Return)
+            key_enter = self._enum_value(Qt.Key_Enter)
+            if key in (key_return, key_enter):
+                # Keep Shift+Enter and modified Enter on default Qt behavior.
+                mods = self._enum_value(event.modifiers())
+                shift = self._enum_value(Qt.ShiftModifier)
+                ctrl = self._enum_value(Qt.ControlModifier)
+                alt = self._enum_value(Qt.AltModifier)
+                if isinstance(mods, int) and (mods & (shift | ctrl | alt)):
+                    return False
+                cur = self._edit.textCursor()
+                if cur.currentTable() is None and cur.block().textList() is None:
+                    try:
+                        if self._edit.isReadOnly():
+                            return False
+                    except Exception:
+                        pass
+                    cur.insertBlock()
+                    self._edit.setTextCursor(cur)
+                    return True
+        return super().eventFilter(obj, event)
+
+
+def _install_plain_return_handler(text_edit: QtWidgets.QTextEdit):
+    handler = _PlainReturnHandler(text_edit)
+    text_edit.installEventFilter(handler)
+    if not hasattr(text_edit, "_plainReturnHandlers"):
+        text_edit._plainReturnHandlers = []
+    text_edit._plainReturnHandlers.append(handler)
     # Load indent step from settings if available
     try:
         from settings_manager import get_plain_indent_px
@@ -5742,3 +6195,130 @@ def _install_link_click_handler(text_edit: QtWidgets.QTextEdit):
     except RuntimeError:
         # Widget likely already destroyed; ignore
         return
+
+
+def _richtext_debug_log_path() -> str:
+    try:
+        return os.path.join(os.path.dirname(os.path.abspath(__file__)), "richtext_key_debug.log")
+    except Exception:
+        return "richtext_key_debug.log"
+
+
+def _richtext_debug_log(message: str):
+    try:
+        ts = datetime.now().strftime("%Y-%m-%d %H:%M:%S.%f")[:-3]
+        with open(_richtext_debug_log_path(), "a", encoding="utf-8") as f:
+            f.write(f"[{ts}] {message}\n")
+    except Exception:
+        pass
+
+
+class _RichTextReturnDebugFilter(QObject):
+    def __init__(self, edit: QtWidgets.QTextEdit):
+        super().__init__(edit)
+        self._edit = edit
+        self._seq = 0
+
+    def _snapshot(self):
+        try:
+            cur = self._edit.textCursor()
+            blk = cur.block()
+            table = cur.currentTable()
+            in_list = bool(blk.textList() is not None)
+            return {
+                "pos": int(cur.position()),
+                "anchor": int(cur.anchor()),
+                "block": int(blk.blockNumber()),
+                "block_len": int(blk.length()),
+                "block_count": int(self._edit.document().blockCount()),
+                "rev": int(self._edit.document().revision()),
+                "in_table": bool(table is not None),
+                "in_list": in_list,
+                "readonly": bool(self._edit.isReadOnly()),
+            }
+        except Exception:
+            return None
+
+    def _log_state(self, prefix: str, seq: int, snap):
+        if not isinstance(snap, dict):
+            _richtext_debug_log(f"{prefix} seq={seq} snap=None")
+            return
+        _richtext_debug_log(
+            f"{prefix} seq={seq} pos={snap.get('pos')} anchor={snap.get('anchor')} "
+            f"block={snap.get('block')} block_len={snap.get('block_len')} "
+            f"blocks={snap.get('block_count')} rev={snap.get('rev')} "
+            f"in_table={snap.get('in_table')} in_list={snap.get('in_list')} "
+            f"readonly={snap.get('readonly')}"
+        )
+
+    def _enum_value(self, value):
+        """Return an int-like value for Qt enums across PyQt5/PyQt6."""
+        try:
+            return int(value)
+        except Exception:
+            pass
+        try:
+            return int(getattr(value, "value"))
+        except Exception:
+            pass
+        try:
+            return str(value)
+        except Exception:
+            return "<unrepr>"
+
+    def eventFilter(self, obj, event):
+        try:
+            if obj is not self._edit:
+                return super().eventFilter(obj, event)
+            if event.type() != QEvent.KeyPress and event.type() != QEvent.KeyRelease:
+                return super().eventFilter(obj, event)
+
+            key = self._enum_value(event.key())
+            key_return = self._enum_value(Qt.Key_Return)
+            key_enter = self._enum_value(Qt.Key_Enter)
+            if key not in (key_return, key_enter):
+                return super().eventFilter(obj, event)
+
+            self._seq += 1
+            seq = self._seq
+            et_name = "KeyPress" if event.type() == QEvent.KeyPress else "KeyRelease"
+            mods = self._enum_value(event.modifiers())
+            accepted = bool(event.isAccepted())
+            _richtext_debug_log(
+                f"{et_name} seq={seq} key={key} mods={mods} accepted_before={accepted}"
+            )
+            pre = self._snapshot()
+            self._log_state("state_before", seq, pre)
+
+            def _post_check():
+                try:
+                    post = self._snapshot()
+                    self._log_state("state_after", seq, post)
+                except Exception as ex:
+                    _richtext_debug_log(f"post_check_error seq={seq} error={ex}")
+
+            QTimer.singleShot(0, _post_check)
+        except Exception as ex:
+            _richtext_debug_log(f"debug_filter_exception error={ex}")
+        return super().eventFilter(obj, event)
+
+
+def _install_richtext_key_debugger(text_edit: QtWidgets.QTextEdit):
+    try:
+        if text_edit is None:
+            return
+        enabled = os.environ.get("NOTEBOOK_RICHTEXT_KEY_DEBUG", "1").strip().lower() in {
+            "1",
+            "true",
+            "yes",
+        }
+        if not enabled:
+            return
+        if hasattr(text_edit, "_returnDebugFilter"):
+            return
+        handler = _RichTextReturnDebugFilter(text_edit)
+        text_edit.installEventFilter(handler)
+        text_edit._returnDebugFilter = handler
+        _richtext_debug_log("installed_return_debug_filter")
+    except Exception as ex:
+        _richtext_debug_log(f"install_return_debug_filter_failed error={ex}")
