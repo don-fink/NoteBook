@@ -30,11 +30,11 @@ a = Analysis(
     pathex=[],
     binaries=enchant_binaries,
     datas=[('ui_forms', 'ui_forms'), ('themes', 'themes'), ('docs', 'docs'), ('schema.sql', '.'), ('add_to_start_menu.cmd', '.'), ('clear_icon_cache.cmd', '.'), ('README.md', '.')] + enchant_datas,
-    hiddenimports=['PyQt5.QtCore', 'PyQt5.QtWidgets', 'PyQt5.QtGui', 'PyQt5.uic', 'sqlite3', 'settings_manager', 'db_access', 'db_pages', 'db_sections', 'db_version', 'media_store', 'ui_loader', 'ui_logic', 'ui_richtext', 'ui_sections', 'ui_planning_register', 'left_tree', 'page_editor', 'two_pane_core', 'spell_check', 'enchant'],
+    hiddenimports=['qt_compat', 'sqlite3', 'settings_manager', 'db_access', 'db_pages', 'db_sections', 'db_version', 'media_store', 'ui_loader', 'ui_logic', 'ui_richtext', 'ui_sections', 'ui_planning_register', 'left_tree', 'page_editor', 'two_pane_core', 'spell_check', 'enchant'],
     hookspath=[],
     hooksconfig={},
     runtime_hooks=[],
-    excludes=['tkinter', 'matplotlib', 'numpy', 'pandas', 'scipy'],
+    excludes=['tkinter', 'matplotlib', 'numpy', 'pandas', 'scipy', 'PyQt5', 'PySide2', 'PySide6'],
     noarchive=False,
     optimize=0,
 )
