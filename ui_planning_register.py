@@ -27,6 +27,7 @@ from PyQt5.QtCore import Qt
 
 # Unique ID for Planning Register tables
 PLANNING_REG_PROPERTY = int(QTextFormat.UserProperty) + 500
+COST_LIST_TABLE_PROPERTY = int(QTextFormat.UserProperty) + 501
 
 def _to_table_cell_format(fmt):
     try:
@@ -163,6 +164,7 @@ def _insert_right_cost_table_in_cursor(cursor):
     fmt.setCellSpacing(0)
     fmt.setBorder(1.0)
     fmt.setHeaderRowCount(1)
+    fmt.setProperty(COST_LIST_TABLE_PROPERTY, True)
     fmt.setColumnWidthConstraints(
         [
             QTextLength(QTextLength.PercentageLength, 70.0),
@@ -284,19 +286,58 @@ def _format_currency(value: float) -> str:
 
 def _is_planning_register_table(text_edit: QtWidgets.QTextEdit, table) -> bool:
     try:
-        return bool(table.format().property(PLANNING_REG_PROPERTY))
+        if bool(table.format().property(PLANNING_REG_PROPERTY)):
+            return True
+    except Exception:
+        pass
+    try:
+        if table is None or table.columns() < 3 or table.rows() < 2:
+            return False
+        h0 = _cell_plain_text(text_edit, table, 0, 0).strip().lower()
+        h1 = _cell_plain_text(text_edit, table, 0, 1).strip().lower()
+        h2 = _cell_plain_text(text_edit, table, 0, 2).strip().lower()
+        last0 = _cell_plain_text(text_edit, table, table.rows() - 1, 0).strip().lower()
+        return (
+            h0 == "description"
+            and h1 == "estimated cost"
+            and h2 == "actual cost"
+            and last0 == "total"
+        )
     except Exception:
         return False
 
 
 def _is_cost_list_table(text_edit: QtWidgets.QTextEdit, table) -> bool:
-    """Detect the right-cell 2-column cost list table by headers."""
+    """Detect the right-cell cost list table used by Planning Register layouts."""
+    try:
+        if bool(table.format().property(COST_LIST_TABLE_PROPERTY)):
+            return True
+    except Exception:
+        pass
     try:
         if table.columns() != 2 or table.rows() < 2:
             return False
         h0 = _cell_plain_text(text_edit, table, 0, 0).lower()
         h1 = _cell_plain_text(text_edit, table, 0, 1).lower()
-        return ("description" in h0) and ("cost" in h1)
+        if not (("description" in h0) and ("cost" in h1)):
+            return False
+        doc = text_edit.document() if text_edit is not None else None
+        if doc is None:
+            return False
+        probe = QTextCursor(doc)
+        probe.setPosition(max(0, table.firstPosition() - 1))
+        parent = probe.currentTable()
+        if parent is None:
+            return False
+        if not (parent.firstPosition() < table.firstPosition() and parent.lastPosition() >= table.lastPosition()):
+            return False
+        if parent.rows() != 1 or parent.columns() != 2:
+            return False
+        sibling_cur = parent.cellAt(0, 0).firstCursorPosition()
+        sibling = sibling_cur.currentTable()
+        if sibling is None or sibling == table:
+            return False
+        return _is_planning_register_table(text_edit, sibling)
     except Exception:
         return False
 

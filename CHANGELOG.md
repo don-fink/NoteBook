@@ -1,4 +1,14 @@
 
+## 1.5.0 - 2026-05-25
+### Changed
+- Planning Register presets now save and restore composite table layouts more faithfully, including nested companion cost tables.
+- Preset table insertion now preserves saved HTML directly and improves inserted table sizing and border normalization.
+
+### Fixed
+- Removed the dead "New Planning Register" placeholder from the Insert Planning Register chooser so only real saved presets are offered.
+- Removed the unused View > Rich Text Tools menu placeholder from the main window.
+- Hardened Planning Register and cost-list table detection so existing saved layouts rebuild and style correctly.
+
 
 ## Unreleased - 2025-10-11
 ### Removed

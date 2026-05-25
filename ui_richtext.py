@@ -3443,6 +3443,10 @@ def _enforce_uniform_table_borders(text_edit: QtWidgets.QTextEdit):
                             fmt.setCellSpacing(gap)
                         except Exception:
                             pass
+                        try:
+                            fmt.setBorderCollapse(gap <= 0.0)
+                        except Exception:
+                            pass
                         # Use table border for the outer frame
                         fmt.setBorder(1.0)
                         try:
@@ -3491,13 +3495,139 @@ def _enforce_uniform_table_borders(text_edit: QtWidgets.QTextEdit):
             break
 
 
+def _table_apply_uniform_border_style(table, border_width: float = None):
+    if table is None:
+        return
+    try:
+        from settings_manager import get_table_theme
+
+        theme = get_table_theme()
+        grid_hex = theme.get("grid_color", "#000000")
+    except Exception:
+        grid_hex = "#000000"
+    try:
+        fmt = table.format()
+    except Exception:
+        return
+    if border_width is None:
+        try:
+            border_width = float(fmt.border())
+        except Exception:
+            border_width = 1.0
+    border_width = max(0.0, float(border_width))
+    try:
+        fmt.setBorder(border_width)
+    except Exception:
+        pass
+    try:
+        from PyQt5.QtGui import QBrush, QColor
+
+        fmt.setBorderBrush(QBrush(QColor(grid_hex)))
+    except Exception:
+        pass
+    try:
+        fmt.setBorderStyle(QTextFrameFormat.BorderStyle_Solid)
+    except Exception:
+        pass
+    try:
+        table.setFormat(fmt)
+    except Exception:
+        pass
+    try:
+        rows, cols = table.rows(), table.columns()
+    except Exception:
+        rows, cols = 0, 0
+    for r in range(rows):
+        for c in range(cols):
+            try:
+                cell = table.cellAt(r, c)
+                tcf = _to_table_cell_format(cell.format())
+                if tcf is None:
+                    continue
+                try:
+                    tcf.setBorder(border_width)
+                except Exception:
+                    pass
+                try:
+                    from PyQt5.QtGui import QBrush, QColor
+
+                    tcf.setBorderBrush(QBrush(QColor(grid_hex)))
+                except Exception:
+                    pass
+                try:
+                    tcf.setBorderStyle(QTextFrameFormat.BorderStyle_Solid)
+                except Exception:
+                    pass
+                cell.setFormat(tcf)
+            except Exception:
+                pass
+
+
+def _table_apply_padding_and_spacing(table, cell_padding: float = None, cell_spacing: float = None):
+    if table is None:
+        return
+    try:
+        fmt = table.format()
+    except Exception:
+        return
+    try:
+        padding = float(fmt.cellPadding()) if cell_padding is None else float(cell_padding)
+    except Exception:
+        padding = 0.0
+    try:
+        spacing = float(fmt.cellSpacing()) if cell_spacing is None else float(cell_spacing)
+    except Exception:
+        spacing = 0.0
+    padding = max(0.0, padding)
+    spacing = _clamp_table_gap_value(spacing)
+    try:
+        fmt.setCellPadding(padding)
+    except Exception:
+        pass
+    try:
+        fmt.setCellSpacing(spacing)
+    except Exception:
+        pass
+    try:
+        fmt.setBorderCollapse(spacing <= 0.0)
+    except Exception:
+        pass
+    try:
+        table.setFormat(fmt)
+    except Exception:
+        pass
+    try:
+        rows, cols = table.rows(), table.columns()
+    except Exception:
+        rows, cols = 0, 0
+    for r in range(rows):
+        for c in range(cols):
+            try:
+                cell = table.cellAt(r, c)
+                tcf = _to_table_cell_format(cell.format())
+                if tcf is None:
+                    continue
+                try:
+                    tcf.setPadding(padding)
+                except Exception:
+                    try:
+                        tcf.setTopPadding(padding)
+                        tcf.setRightPadding(padding)
+                        tcf.setBottomPadding(padding)
+                        tcf.setLeftPadding(padding)
+                    except Exception:
+                        pass
+                cell.setFormat(tcf)
+            except Exception:
+                pass
+
+
 def insert_table_from_preset(text_edit: QtWidgets.QTextEdit, preset_name: str, fit_width_100: bool = True):
     """Insert a table defined by a saved preset at the current cursor position.
 
     Supports two schemas:
     - v2 (preferred): {"version": 2, "html": "<table>...</table>"}
-      Creates an outer 1x2 container (100% width), inserts the saved HTML into the left cell,
-      and inserts a blank 2-column Cost list into the right cell.
+      Reinserts the saved HTML exactly as captured, including nested-table layouts.
     - legacy: structural fields (rows/columns/width/etc.). Inserts a single table as before.
 
     fit_width_100: For legacy presets only, force table width to 100%% regardless of saved width.
@@ -3520,181 +3650,26 @@ def insert_table_from_preset(text_edit: QtWidgets.QTextEdit, preset_name: str, f
             pass
         return
 
-    # v2 HTML-based preset path (now the only supported format)
     html = data.get("html") if isinstance(data, dict) else None
     if isinstance(html, str) and html.strip():
-        cur = text_edit.textCursor()
-        # If we're already inside an outer 1x2 container, reuse it to avoid nesting
-        reuse_outer = False
-        existing_table = cur.currentTable()
-        if existing_table is not None:
-            try:
-                if existing_table.rows() == 1 and existing_table.columns() == 2:
-                    reuse_outer = True
-                    outer = existing_table
-                else:
-                    reuse_outer = False
-            except Exception:
-                reuse_outer = False
-
-        if not reuse_outer:
-            # Build outer 1x2 container at 100% width
-            outer_fmt = QTextTableFormat()
-            outer_fmt.setCellPadding(4)
-            outer_fmt.setCellSpacing(0)
-            outer_fmt.setBorder(1.0)
-            try:
-                outer_fmt.setWidth(QTextLength(QTextLength.PercentageLength, 100.0))
-                outer_fmt.setColumnWidthConstraints(
-                    [
-                        QTextLength(QTextLength.PercentageLength, 50.0),
-                        QTextLength(QTextLength.PercentageLength, 50.0),
-                    ]
-                )
-            except Exception:
-                pass
-            outer = cur.insertTable(1, 2, outer_fmt)
-            # Re-apply format immediately to guard against layout quirks
-            try:
-                fmt_chk = outer.format()
-                fmt_chk.setWidth(QTextLength(QTextLength.PercentageLength, 100.0))
-                fmt_chk.setColumnWidthConstraints(
-                    [
-                        QTextLength(QTextLength.PercentageLength, 50.0),
-                        QTextLength(QTextLength.PercentageLength, 50.0),
-                    ]
-                )
-                outer.setFormat(fmt_chk)
-            except Exception:
-                pass
-        else:
-            # Ensure the existing container is full width with 50/50 columns
-            try:
-                fmt = outer.format()
-                fmt.setWidth(QTextLength(QTextLength.PercentageLength, 100.0))
-                fmt.setColumnWidthConstraints(
-                    [
-                        QTextLength(QTextLength.PercentageLength, 50.0),
-                        QTextLength(QTextLength.PercentageLength, 50.0),
-                    ]
-                )
-                outer.setFormat(fmt)
-            except Exception:
-                pass
-
-        # Insert saved HTML into the left cell
         try:
-            left_cur = outer.cellAt(0, 0).firstCursorPosition()
-            left_cur.insertHtml(html)
-            # Ensure the inserted left table fills the cell and uses 50/25/25 columns
-            try:
-                from PyQt5.QtGui import QTextLength
-                from ui_planning_register import _is_planning_register_table
-
-                # Find first table inside the left cell range
-                left_cell = outer.cellAt(0, 0)
-                s_pos = left_cell.firstCursorPosition().position()
-                e_pos = left_cell.lastCursorPosition().position()
-                scan = QTextCursor(text_edit.document())
-                scan.setPosition(s_pos)
-                found_tbl = None
-                iters = 0
-                while scan.position() < e_pos and iters < 20000:
-                    t = scan.currentTable()
-                    if t is not None:
-                        found_tbl = t
-                        break
-                    scan.movePosition(QTextCursor.NextCharacter)
-                    iters += 1
-                if found_tbl is not None and _is_planning_register_table(text_edit, found_tbl):
-                    fmt = found_tbl.format()
-                    fmt.setWidth(QTextLength(QTextLength.PercentageLength, 100.0))
-                    fmt.setColumnWidthConstraints(
-                        [
-                            QTextLength(QTextLength.PercentageLength, 50.0),
-                            QTextLength(QTextLength.PercentageLength, 25.0),
-                            QTextLength(QTextLength.PercentageLength, 25.0),
-                        ]
-                    )
-                    found_tbl.setFormat(fmt)
-            except Exception:
-                pass
+            cur = text_edit.textCursor()
+            cur.insertHtml(html)
         except Exception:
             pass
-
-        # Insert blank right-side Costs table
         try:
-            from ui_planning_register import (
-                _insert_right_cost_table_in_cursor,
-                ensure_planning_register_watcher,
-                refresh_planning_register_styles,
-                _is_planning_register_table,
-                _recalc_planning_totals,
-                _is_cost_list_table,
-            )
+            from ui_planning_register import ensure_planning_register_watcher, refresh_planning_register_styles
 
-            right_cell = outer.cellAt(0, 1)
-            right_cur = right_cell.firstCursorPosition()
-            # Scan the right cell for an inner table; only insert if a cost list table is not present
-            s_pos = right_cell.firstCursorPosition().position()
-            e_pos = right_cell.lastCursorPosition().position()
-            scan = QTextCursor(text_edit.document())
-            scan.setPosition(s_pos)
-            found_inner = None
-            iters = 0
-            while scan.position() < e_pos and iters < 20000:
-                t = scan.currentTable()
-                if t is not None:
-                    found_inner = t
-                    break
-                scan.movePosition(QTextCursor.NextCharacter)
-                iters += 1
-            if not (found_inner is not None and _is_cost_list_table(text_edit, found_inner)):
-                _insert_right_cost_table_in_cursor(right_cur)
-            # Ensure watcher active so cost formatting applies immediately
             ensure_planning_register_watcher(text_edit)
-            # Reapply planning register visuals (header/totals shading, right alignment)
-            try:
-                refresh_planning_register_styles(text_edit)
-            except Exception:
-                pass
-            # If left table is a planning register, ensure totals are correct now
-            try:
-                # Find the first table in the left cell and recalc if it matches
-                left_tbl = left_cur.currentTable()
-                if left_tbl is not None and _is_planning_register_table(text_edit, left_tbl):
-                    _recalc_planning_totals(text_edit, left_tbl)
-            except Exception:
-                pass
+            refresh_planning_register_styles(text_edit)
         except Exception:
             pass
-
-        # Place caret at end of right cell content
-        try:
-            after_right = outer.cellAt(0, 1).lastCursorPosition()
-            text_edit.setTextCursor(after_right)
-        except Exception:
-            pass
-        # Final enforcement: make sure the outer container is full-width with 50/50 split.
-        try:
-            fmt_final = outer.format()
-            fmt_final.setWidth(QTextLength(QTextLength.PercentageLength, 100.0))
-            fmt_final.setColumnWidthConstraints(
-                [
-                    QTextLength(QTextLength.PercentageLength, 50.0),
-                    QTextLength(QTextLength.PercentageLength, 50.0),
-                ]
-            )
-            outer.setFormat(fmt_final)
-        except Exception:
-            pass
-        # Uniform borders across all tables present
         try:
             _enforce_uniform_table_borders(text_edit)
         except Exception:
             pass
-        return outer
-    # No HTML present -> preset unsupported
+        return text_edit.textCursor().currentTable()
+
     try:
         QtWidgets.QMessageBox.information(
             text_edit,
@@ -3734,12 +3709,10 @@ def choose_and_insert_preset(text_edit: QtWidgets.QTextEdit, fit_width_100: bool
     insert_table_from_preset(text_edit, name.strip(), fit_width_100=fit_width_100)
 
 def insert_planning_register_via_dialog(window: QtWidgets.QMainWindow):
-    """Open a simple chooser to insert a Planning Register (new or from preset).
+    """Open a chooser to insert a saved Planning Register preset.
 
     This is invoked from the page context menu. It looks up the main page editor
-    ('pageEdit') and then offers:
-      - New Planning Register (programmatic layout)
-      - Any saved presets (HTML-based)
+    ('pageEdit') and then offers any saved presets (HTML-based).
     """
     try:
         te = window.findChild(QtWidgets.QTextEdit, "pageEdit")
@@ -3752,18 +3725,23 @@ def insert_planning_register_via_dialog(window: QtWidgets.QMainWindow):
             pass
         return
 
-    # Build options: first 'New Planning Register', then saved presets (if any)
+    # Offer only saved presets for this chooser.
     try:
         from settings_manager import list_table_preset_names
 
         preset_names = list_table_preset_names()
     except Exception:
         preset_names = []
-    options = ["New Planning Register"] + preset_names
+    if not preset_names:
+        try:
+            QtWidgets.QMessageBox.information(window, "Insert Planning Register", "No planning register presets saved yet.")
+        except Exception:
+            pass
+        return
 
     try:
         choice, ok = QtWidgets.QInputDialog.getItem(
-            window, "Insert Planning Register", "Choose:", options, 0, False
+            window, "Insert Planning Register", "Choose:", preset_names, 0, False
         )
     except Exception:
         ok = False
@@ -3771,26 +3749,22 @@ def insert_planning_register_via_dialog(window: QtWidgets.QMainWindow):
     if not (ok and choice):
         return
 
-    if choice == "New Planning Register":
+    # Insert from preset into the current editor; ensure full-width container
+    try:
+        insert_table_from_preset(te, choice, fit_width_100=True)
         try:
-            from ui_planning_register import insert_planning_register
-
-            insert_planning_register(window)
+            _enforce_uniform_table_borders(te)
         except Exception:
             pass
-    else:
-        # Insert from preset into the current editor; ensure full-width container
-        try:
-            insert_table_from_preset(te, choice, fit_width_100=True)
-            try:
-                _enforce_uniform_table_borders(te)
-            except Exception:
-                pass
-        except Exception:
-            pass
+    except Exception:
+        pass
 
 def save_current_table_as_preset(text_edit: QtWidgets.QTextEdit):
-    """Save the table under the caret as a reusable preset (HTML-based)."""
+    """Save the table under the caret as a reusable preset (HTML-based).
+
+    If the caret is inside a nested table, capture the outermost containing table so
+    composite layouts reproduce exactly as saved.
+    """
     if text_edit is None:
         return
     tbl = _current_table(text_edit)
@@ -3809,6 +3783,32 @@ def save_current_table_as_preset(text_edit: QtWidgets.QTextEdit):
         name = None
     if not (ok and name and name.strip()):
         return
+
+    def _outermost_table(current_tbl):
+        try:
+            doc = text_edit.document()
+            outer = current_tbl
+            seen = set()
+            while outer is not None:
+                key = (outer.firstPosition(), outer.lastPosition())
+                if key in seen:
+                    break
+                seen.add(key)
+                probe_pos = max(0, outer.firstPosition() - 1)
+                probe = QTextCursor(doc)
+                probe.setPosition(probe_pos)
+                candidate = probe.currentTable()
+                if candidate is None:
+                    break
+                if candidate.firstPosition() < outer.firstPosition() and candidate.lastPosition() >= outer.lastPosition():
+                    outer = candidate
+                    continue
+                break
+            return outer or current_tbl
+        except Exception:
+            return current_tbl
+
+    tbl = _outermost_table(tbl)
 
     def _extract_table_fragment(html_text: str) -> str:
         try:
@@ -3966,6 +3966,41 @@ def _build_plain_table_html(
     return table_html
 
 
+def _find_inserted_table(text_edit: QtWidgets.QTextEdit, start_pos: int, end_pos: int):
+    if text_edit is None:
+        return None
+    try:
+        doc = text_edit.document()
+    except Exception:
+        return None
+    first_table = None
+    best_table = None
+    best_span = None
+    seen = set()
+    scan = QTextCursor(doc)
+    scan.setPosition(max(0, int(start_pos)))
+    iters = 0
+    while scan.position() <= end_pos and iters < 20000:
+        tbl = scan.currentTable()
+        if tbl is not None:
+            key = (tbl.firstPosition(), tbl.lastPosition())
+            if key not in seen:
+                seen.add(key)
+                if first_table is None:
+                    first_table = tbl
+                if tbl.firstPosition() >= start_pos:
+                    span = tbl.lastPosition() - tbl.firstPosition()
+                    if best_table is None or span < best_span or (
+                        span == best_span and tbl.firstPosition() > best_table.firstPosition()
+                    ):
+                        best_table = tbl
+                        best_span = span
+        if not scan.movePosition(QTextCursor.NextCharacter):
+            break
+        iters += 1
+    return best_table or first_table
+
+
 def _table_insert_dialog(text_edit: QtWidgets.QTextEdit):
     dlg = QtWidgets.QDialog(text_edit)
     dlg.setWindowTitle("Insert Table")
@@ -4013,11 +4048,9 @@ def _table_insert_dialog(text_edit: QtWidgets.QTextEdit):
     cur = text_edit.textCursor()
     fixed_width_px = None
     try:
-        viewport = text_edit.viewport()
-        viewport_width = float(viewport.width()) if viewport is not None else 0.0
-        if viewport_width > 1.0:
-            usable_width = max(120.0, viewport_width - 8.0)
-            fixed_width_px = max(80.0, usable_width * (float(sp_width.value()) / 100.0))
+        available_width = _table_available_insert_width_px(text_edit, cur)
+        if available_width > 1.0:
+            fixed_width_px = max(24.0, available_width * (float(sp_width.value()) / 100.0))
     except Exception:
         fixed_width_px = None
     html = _build_plain_table_html(
@@ -4030,6 +4063,7 @@ def _table_insert_dialog(text_edit: QtWidgets.QTextEdit):
         fixed_width_px=fixed_width_px,
     )
     start_pos = cur.position()
+    end_pos = start_pos
     try:
         cur.beginEditBlock()
         if cur.hasSelection():
@@ -4038,25 +4072,6 @@ def _table_insert_dialog(text_edit: QtWidgets.QTextEdit):
             cur.insertBlock()
         cur.insertHtml(html)
         end_pos = cur.position()
-        found_table = None
-        scan = QTextCursor(text_edit.document())
-        scan.setPosition(start_pos)
-        iters = 0
-        while scan.position() <= end_pos and iters < 20000:
-            tbl = scan.currentTable()
-            if tbl is not None:
-                found_table = tbl
-                break
-            if not scan.movePosition(QTextCursor.NextCharacter):
-                break
-            iters += 1
-        if found_table is not None:
-            try:
-                _table_apply_viewport_widths(text_edit, found_table, table_pct=sp_width.value())
-                _table_schedule_width_apply(text_edit, found_table, table_pct=sp_width.value())
-            except Exception:
-                pass
-            text_edit.setTextCursor(found_table.cellAt(0, 0).firstCursorPosition())
     except Exception:
         pass
     finally:
@@ -4064,6 +4079,14 @@ def _table_insert_dialog(text_edit: QtWidgets.QTextEdit):
             cur.endEditBlock()
         except Exception:
             pass
+    found_table = _find_inserted_table(text_edit, start_pos, end_pos)
+    if found_table is not None:
+        try:
+            _table_apply_viewport_widths(text_edit, found_table, table_width_px=fixed_width_px)
+            _table_schedule_width_apply(text_edit, found_table, table_width_px=fixed_width_px)
+        except Exception:
+            pass
+        text_edit.setTextCursor(found_table.cellAt(0, 0).firstCursorPosition())
     try:
         _enforce_uniform_table_borders(text_edit)
     except Exception:
@@ -4087,26 +4110,10 @@ def _table_properties_dialog(text_edit: QtWidgets.QTextEdit, table):
     sp_width = QtWidgets.QDoubleSpinBox(dlg)
     sp_width.setRange(10.0, 100.0)
     sp_width.setSingleStep(5.0)
-    # Pre-fill from existing width; fallback estimate if fixed
-    try:
-        wlen = fmt.width()
-        # PyQt QTextLength exposes type() and value() or rawValue()
-        wtype = wlen.type() if hasattr(wlen, "type") else None
-        if wtype == wlen.PercentageLength:
-            val = wlen.rawValue() if hasattr(wlen, "rawValue") else wlen.value()
-            sp_width.setValue(float(val))
-        else:
-            # Approximate percent from viewport width
-            vp = text_edit.viewport() if hasattr(text_edit, "viewport") else None
-            vw = float(vp.width()) if vp is not None else 1.0
-            v = wlen.value() if hasattr(wlen, "value") else 0.0
-            pct = max(10.0, min(100.0, (float(v) / vw) * 100.0 if vw > 1.0 and v else 100.0))
-            sp_width.setValue(pct)
-    except Exception:
-        sp_width.setValue(100.0)
+    sp_width.setValue(_table_current_width_pct(text_edit, table, default=100.0))
     form.addRow("Border width:", sp_border)
     form.addRow("Cell padding:", sp_pad)
-    form.addRow("Cell border gap:", cb_gap)
+    form.addRow("Space between cells:", cb_gap)
     form.addRow("Table width (% of current editor):", sp_width)
     ok_btn = _qdbb_standard_button("Ok")
     cancel_btn = _qdbb_standard_button("Cancel")
@@ -4114,19 +4121,24 @@ def _table_properties_dialog(text_edit: QtWidgets.QTextEdit, table):
     form.addRow(btns)
     btns.accepted.connect(dlg.accept)
     btns.rejected.connect(dlg.reject)
+    try:
+        hint = dlg.sizeHint()
+        dlg.resize(max(hint.width() + 60, 420), hint.height())
+    except Exception:
+        pass
     if dlg.exec_() != QtWidgets.QDialog.Accepted:
         return
     fmt.setBorder(sp_border.value())
-    fmt.setCellPadding(sp_pad.value())
-    fmt.setCellSpacing(_table_gap_combo_value(cb_gap))
     table.setFormat(fmt)
+    _table_apply_padding_and_spacing(
+        table,
+        cell_padding=sp_pad.value(),
+        cell_spacing=_table_gap_combo_value(cb_gap),
+    )
+    _table_apply_uniform_border_style(table, border_width=sp_border.value())
     try:
         _table_apply_viewport_widths(text_edit, table, table_pct=sp_width.value())
         _table_schedule_width_apply(text_edit, table, table_pct=sp_width.value())
-    except Exception:
-        pass
-    try:
-        _enforce_uniform_table_borders(text_edit)
     except Exception:
         pass
     try:
@@ -4772,15 +4784,82 @@ def _qtextlength_type(name: str):
     return None
 
 
-def _table_current_width_px(text_edit: QtWidgets.QTextEdit, table):
-    if text_edit is None or table is None:
-        return None
+def _table_usable_viewport_width(text_edit: QtWidgets.QTextEdit):
+    if text_edit is None:
+        return 0.0
     try:
         viewport = text_edit.viewport()
         viewport_width = float(viewport.width()) if viewport is not None else 0.0
     except Exception:
         viewport_width = 0.0
-    usable_width = max(120.0, viewport_width - 8.0) if viewport_width > 1.0 else 0.0
+    if viewport_width <= 1.0:
+        return 0.0
+    return max(120.0, viewport_width - 8.0)
+
+
+def _table_available_insert_width_px(text_edit: QtWidgets.QTextEdit, cursor=None):
+    usable_width = _table_usable_viewport_width(text_edit)
+    if text_edit is None:
+        return usable_width
+    try:
+        cur = cursor if cursor is not None else text_edit.textCursor()
+    except Exception:
+        cur = None
+    if cur is None:
+        return usable_width
+    try:
+        parent_table = cur.currentTable()
+    except Exception:
+        parent_table = None
+    if parent_table is None:
+        return usable_width
+    try:
+        parent_cell = parent_table.cellAt(cur)
+    except Exception:
+        parent_cell = None
+    try:
+        if parent_cell is None or not parent_cell.isValid():
+            return usable_width
+    except Exception:
+        return usable_width
+    parent_width_px = _table_current_width_px(text_edit, parent_table)
+    if parent_width_px is None or parent_width_px <= 0.0:
+        return usable_width
+    constraints = _table_constraint_percentages(parent_table)
+    try:
+        parent_cols = parent_table.columns()
+    except Exception:
+        parent_cols = 0
+    if not constraints or len(constraints) != parent_cols:
+        if parent_cols > 0:
+            constraints = [100.0 / float(parent_cols) for _ in range(parent_cols)]
+        else:
+            constraints = []
+    try:
+        start_col = max(0, int(parent_cell.column()))
+        span = max(1, int(parent_cell.columnSpan()))
+    except Exception:
+        start_col = 0
+        span = 1
+    end_col = min(len(constraints), start_col + span)
+    share_pct = sum(float(value) for value in constraints[start_col:end_col])
+    if share_pct <= 0.0:
+        share_pct = 100.0
+    container_width_px = float(parent_width_px) * (share_pct / 100.0)
+    try:
+        cell_fmt = _to_table_cell_format(parent_cell.format())
+        if cell_fmt is not None:
+            container_width_px -= max(0.0, float(cell_fmt.leftPadding()))
+            container_width_px -= max(0.0, float(cell_fmt.rightPadding()))
+    except Exception:
+        pass
+    return max(24.0, container_width_px)
+
+
+def _table_current_width_px(text_edit: QtWidgets.QTextEdit, table):
+    if text_edit is None or table is None:
+        return None
+    usable_width = _table_usable_viewport_width(text_edit)
     try:
         wlen = table.format().width()
     except Exception:
@@ -4808,6 +4887,15 @@ def _table_current_width_px(text_edit: QtWidgets.QTextEdit, table):
     return None
 
 
+def _table_current_width_pct(text_edit: QtWidgets.QTextEdit, table, default: float = 100.0):
+    width_px = _table_current_width_px(text_edit, table)
+    usable_width = _table_usable_viewport_width(text_edit)
+    if width_px is None or usable_width <= 1.0:
+        return max(10.0, min(100.0, float(default)))
+    pct = (float(width_px) / float(usable_width)) * 100.0
+    return max(10.0, min(100.0, pct))
+
+
 def _table_apply_viewport_widths(
     text_edit: QtWidgets.QTextEdit,
     table,
@@ -4825,15 +4913,9 @@ def _table_apply_viewport_widths(
         cols = 0
     if cols <= 0:
         return
-    try:
-        viewport = text_edit.viewport()
-        viewport_width = float(viewport.width()) if viewport is not None else 0.0
-    except Exception:
-        viewport_width = 0.0
-    if viewport_width <= 1.0:
+    usable_width = _table_usable_viewport_width(text_edit)
+    if usable_width <= 1.0:
         return
-
-    usable_width = max(120.0, viewport_width - 8.0)
     if table_width_px is None:
         pct = float(table_pct) if table_pct is not None else 100.0
         pct = max(10.0, min(100.0, pct))
@@ -4894,6 +4976,7 @@ def _table_schedule_width_apply(
 
 def _table_fit_width(text_edit: QtWidgets.QTextEdit, table):
     _table_apply_viewport_widths(text_edit, table, table_pct=100.0)
+    _table_schedule_width_apply(text_edit, table, table_pct=100.0)
 
 
 def _table_distribute_columns(text_edit: QtWidgets.QTextEdit, table):
@@ -4903,7 +4986,13 @@ def _table_distribute_columns(text_edit: QtWidgets.QTextEdit, table):
         if cols <= 0:
             return
         frac = 100.0 / float(cols)
-        _table_apply_viewport_widths(text_edit, table, col_pcts=[frac for _ in range(cols)])
+        current_width_px = _table_current_width_px(text_edit, table)
+        _table_apply_viewport_widths(
+            text_edit,
+            table,
+            col_pcts=[frac for _ in range(cols)],
+            table_width_px=current_width_px,
+        )
     except Exception:
         pass
 

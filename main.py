@@ -49,7 +49,6 @@ from page_editor import (
     load_first_page_two_column as _load_first_page_two_column,
     save_current_page,
 )
-from ui_planning_register import insert_planning_register
 from ui_richtext import insert_table_from_preset
 from ui_richtext import install_image_support
 from ui_planning_register import ensure_planning_register_watcher
@@ -2660,22 +2659,21 @@ def main():
                 if te is None or not te.isEnabled():
                     QtWidgets.QMessageBox.information(window, "Insert Planning Register", "Please open or create a page first.")
                     return
-                # Build options: first 'New Planning Register', then saved presets (if any)
+                # Offer only saved presets for this chooser.
                 try:
                     from settings_manager import list_table_preset_names
                     preset_names = list_table_preset_names()
                 except Exception:
                     preset_names = []
-                options = ["New Planning Register"] + preset_names
+                if not preset_names:
+                    QtWidgets.QMessageBox.information(window, "Insert Planning Register", "No planning register presets saved yet.")
+                    return
                 choice, ok = QtWidgets.QInputDialog.getItem(
-                    window, "Insert Planning Register", "Choose:", options, 0, False
+                    window, "Insert Planning Register", "Choose:", preset_names, 0, False
                 )
                 if not (ok and choice):
                     return
-                if choice == "New Planning Register":
-                    insert_planning_register(window)
-                else:
-                    insert_table_from_preset(te, choice, fit_width_100=True)
+                insert_table_from_preset(te, choice, fit_width_100=True)
             except Exception:
                 pass
         act_plan_reg.triggered.connect(_insert_planning_register_via_dialog)
@@ -4496,7 +4494,7 @@ def main():
                 """Show About dialog with version and credits."""
                 try:
                     msg = """<h2>NoteBook</h2>
-<p><b>Version:</b> 1.0.2</p>
+<p><b>Version:</b> 1.5.0</p>
 <p>A rich-text note-taking application with binders, sections, and pages.</p>
 <p><b>Features:</b></p>
 <ul>

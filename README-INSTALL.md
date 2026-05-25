@@ -5,7 +5,7 @@
 The zip file contains a self-contained folder with everything NoteBook needs to run. There is no installer — just copy the folder to wherever you want it and run `NoteBook.exe`.
 
 ```
-NoteBook-v1.0.2.zip
+NoteBook-v1.5.0.zip
 └── NoteBook_Release\
     ├── NoteBook.exe              ← the application
     ├── add_to_start_menu.cmd     ← optional: adds a Start Menu shortcut
@@ -18,7 +18,7 @@ NoteBook-v1.0.2.zip
 
 ## Step 1 — Extract the zip
 
-Right-click `NoteBook-v1.0.2.zip` and choose **Extract All**, then choose a destination folder.
+Right-click `NoteBook-v1.5.0.zip` and choose **Extract All**, then choose a destination folder.
 
 **Recommended location:**
 
