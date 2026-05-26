@@ -3,9 +3,11 @@ ui_logic.py
 Contains logic for populating the notebook tree widget and handling notebook expand/collapse events.
 """
 
-from PyQt5 import QtWidgets
-from PyQt5.QtCore import Qt
-from PyQt5.QtGui import QColor, QBrush
+from qt_compat import QtCore, QtGui, QtWidgets
+
+QBrush = QtGui.QBrush
+QColor = QtGui.QColor
+Qt = QtCore.Qt
 
 from db_access import get_notebooks
 

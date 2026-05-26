@@ -13,7 +13,12 @@ Contract (inputs/outputs):
 All functions must be safe to call when widgets are missing; they no‑op.
 """
 
+import os
 from typing import Optional
+
+from qt_compat import QtCore, QtWidgets
+
+QUrl = QtCore.QUrl
 
 # Delegate to two-pane core (with legacy-safe wrappers elsewhere)
 from two_pane_core import (
@@ -25,9 +30,6 @@ from two_pane_core import (
 from two_pane_core import save_current_page as _save_current_page_generic
 from two_pane_core import _set_page_edit_html as _ui_set_page_edit_html  # type: ignore
 
-from PyQt5 import QtWidgets
-from PyQt5.QtCore import QUrl
-import os
 try:
     from ui_planning_register import refresh_planning_register_styles
 except Exception:  # pragma: no cover - optional import guard

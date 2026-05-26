@@ -4,14 +4,14 @@
 
 ## Overview
 
-NoteBook is a PyQt5 application that uses cross-platform libraries and should run on Mac and Linux with minimal changes. The core application code requires no modifications—only system dependencies and packaging scripts differ by platform.
+NoteBook is a PyQt6 application that uses cross-platform libraries and should run on Mac and Linux with minimal changes. The core application code requires no modifications—only system dependencies and packaging scripts differ by platform.
 
 ### What's Already Cross-Platform
 
 | Component | Implementation |
 |-----------|----------------|
 | Settings storage | Platform-specific paths in `settings_manager.py` |
-| UI loading | PyQt5's `uic` with `os.path` resolution |
+| UI loading | Qt's `uic` with `os.path` resolution |
 | Database | SQLite (works identically everywhere) |
 | File operations | Uses `os.path` throughout |
 | Desktop integration | `QDesktopServices.openUrl()` |
@@ -35,7 +35,7 @@ brew install enchant
 ```bash
 python3 -m venv .venv
 source .venv/bin/activate
-pip install PyQt5 pyenchant
+pip install PyQt6 pyenchant
 ```
 
 ### Running
@@ -53,7 +53,7 @@ python main.py
 
 ### Known Considerations
 
-- `pyqt5-tools` (Qt Designer) doesn't work well on Mac; use Qt's official installer instead
+- Qt Designer setup is best handled via Qt's official installer on Mac
 - Settings stored in: `~/Library/Application Support/NoteBook/`
 
 ---
@@ -82,7 +82,7 @@ sudo pacman -S python enchant aspell-en
 ```bash
 python3 -m venv .venv
 source .venv/bin/activate
-pip install PyQt5 pyenchant
+pip install PyQt6 pyenchant
 ```
 
 ### Running
@@ -121,9 +121,9 @@ update-desktop-database ~/.local/share/applications/
 
 ### Known Considerations
 
-- `pyqt5-tools` is Windows-only; install Qt Designer via system packages:
+- Install Qt Designer via system packages instead of Windows-only helper bundles:
   ```bash
-  sudo apt install qttools5-dev-tools  # Debian/Ubuntu
+  sudo apt install qt6-tools-dev-tools  # Debian/Ubuntu
   ```
 - Settings stored in: `~/.config/NoteBook/`
 
@@ -131,15 +131,7 @@ update-desktop-database ~/.local/share/applications/
 
 ## Development Dependencies
 
-The `requirements-dev.txt` includes Windows-only packages. For cross-platform development, consider platform markers:
-
-```
-# Windows-only Qt tools
-pyqt5-tools==5.15.9.3.3 ; sys_platform == 'win32'
-pyqt5-plugins==5.15.9.2.3 ; sys_platform == 'win32'
-qt5-applications==5.15.2.2.3 ; sys_platform == 'win32'
-qt5-tools==5.15.2.1.3 ; sys_platform == 'win32'
-```
+The current `requirements-dev.txt` already targets PyQt6. For cross-platform development, install Qt Designer separately using the official Qt installer or your platform package manager.
 
 ---
 

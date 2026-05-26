@@ -1,6 +1,6 @@
 """
 ui_loader.py
-Centralized helpers for loading .ui files with PyQt5's uic module.
+Centralized helpers for loading .ui files with Qt's uic module.
 
 Benefits:
 - Single place to resolve UI file paths (dev vs packaged)
@@ -11,8 +11,9 @@ import os
 import sys
 from typing import Optional
 
-from PyQt5 import QtWidgets, uic
-from PyQt5.QtCore import Qt
+from qt_compat import QtCore, QtWidgets, uic
+
+Qt = QtCore.Qt
 
 
 def _base_dir() -> str:

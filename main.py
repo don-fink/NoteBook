@@ -7,7 +7,7 @@ import os
 import sys
 import warnings
 
-from qt_compat import QtCore, QtWidgets, uic
+from qt_compat import QtCore, QtGui, QtPrintSupport, QtWidgets
 from ui_toast import show_toast
 
 QProcess = QtCore.QProcess
@@ -292,7 +292,7 @@ def _enable_faulthandler(log_path: str):
 def _install_qt_message_handler(log_path: str):
     """Install a Qt message handler that appends warnings/errors to a log file."""
     try:
-        from PyQt5.QtCore import qInstallMessageHandler
+        qInstallMessageHandler = QtCore.qInstallMessageHandler
     except Exception:
         return
     def _handler(mode, context, message):  # pragma: no cover
@@ -969,8 +969,9 @@ def restart_application():
 def print_current_selection(window):
     """Print the currently selected item (page, section, or binder)."""
     try:
-        from PyQt5.QtPrintSupport import QPrinter, QPrintDialog
-        from PyQt5.QtGui import QTextDocument
+        QPrinter = QtPrintSupport.QPrinter
+        QPrintDialog = QtPrintSupport.QPrintDialog
+        QTextDocument = QtGui.QTextDocument
         
         # Get HTML content for selected item
         html_content = _get_print_html_content(window)
@@ -995,8 +996,9 @@ def print_current_selection(window):
 def print_preview_current_selection(window):
     """Show print preview for the currently selected item (page, section, or binder)."""
     try:
-        from PyQt5.QtPrintSupport import QPrinter, QPrintPreviewDialog
-        from PyQt5.QtGui import QTextDocument
+        QPrinter = QtPrintSupport.QPrinter
+        QPrintPreviewDialog = QtPrintSupport.QPrintPreviewDialog
+        QTextDocument = QtGui.QTextDocument
         
         # Get HTML content for selected item
         html_content = _get_print_html_content(window)
@@ -1218,12 +1220,12 @@ def _get_section_pages_html_for_binder(section_id, db_path, binder_name, section
 
 
 def main():
-    # Suppress noisy SIP deprecation warning from PyQt5 about sipPyTypeDict
+    # Suppress the legacy SIP deprecation warning about sipPyTypeDict during startup.
     warnings.filterwarnings("ignore", category=DeprecationWarning, message=".*sipPyTypeDict.*")
     # Ensure proper High DPI behavior so images render at the requested logical size on scaled displays
     try:
         # These must be set BEFORE creating the QApplication instance
-        from PyQt5.QtCore import Qt as _Qt
+        _Qt = QtCore.Qt
         try:
             QtWidgets.QApplication.setAttribute(_Qt.AA_EnableHighDpiScaling, True)
         except Exception:
@@ -2190,14 +2192,12 @@ def main():
     if action_open:
         action_open.triggered.connect(lambda: open_database(window))
         # Add Ctrl+O shortcut
-        from PyQt5.QtGui import QKeySequence
-        action_open.setShortcut(QKeySequence.Open)  # Ctrl+O
+        action_open.setShortcut(QtGui.QKeySequence.Open)  # Ctrl+O
     
     # File menu: Save (saves current page)
     action_save = window.findChild(QtWidgets.QAction, "actionSave")
     if action_save:
-        from PyQt5.QtGui import QKeySequence
-        action_save.setShortcut(QKeySequence.Save)  # Ctrl+S
+        action_save.setShortcut(QtGui.QKeySequence.Save)  # Ctrl+S
         action_save.triggered.connect(lambda: save_current_page(window))
     
     # File menu: Save As (copy database to new location)
@@ -2205,21 +2205,18 @@ def main():
     if action_save_as:
         action_save_as.triggered.connect(lambda: save_database_as(window))
         # Add Ctrl+Shift+S shortcut (standard for Save As)
-        from PyQt5.QtGui import QKeySequence
-        action_save_as.setShortcut(QKeySequence.SaveAs)  # Ctrl+Shift+S
+        action_save_as.setShortcut(QtGui.QKeySequence.SaveAs)  # Ctrl+Shift+S
     
     # File menu: Print (print selected page/section/binder)
     action_print = window.findChild(QtWidgets.QAction, "actionPrint")
     if action_print:
-        from PyQt5.QtGui import QKeySequence
-        action_print.setShortcut(QKeySequence.Print)  # Ctrl+P
+        action_print.setShortcut(QtGui.QKeySequence.Print)  # Ctrl+P
         action_print.triggered.connect(lambda: print_current_selection(window))
     
     # File menu: Print Preview (show preview before printing)
     action_print_preview = window.findChild(QtWidgets.QAction, "actionPrint_Preview")
     if action_print_preview:
-        from PyQt5.QtGui import QKeySequence
-        action_print_preview.setShortcut(QKeySequence("Ctrl+Shift+P"))
+        action_print_preview.setShortcut(QtGui.QKeySequence("Ctrl+Shift+P"))
         action_print_preview.triggered.connect(lambda: print_preview_current_selection(window))
     # Insert menu wiring for quick content creation
     act_add_section = window.findChild(QtWidgets.QAction, "actionAdd_Scction")
@@ -2698,8 +2695,7 @@ def main():
                         left_cell = tbl.cellAt(0, 0)
                         s_pos = left_cell.firstCursorPosition().position()
                         e_pos = left_cell.lastCursorPosition().position()
-                        from PyQt5.QtGui import QTextCursor as _QTextCursor
-                        scan = _QTextCursor(te.document())
+                        scan = QtGui.QTextCursor(te.document())
                         scan.setPosition(s_pos)
                         inner = None
                         iters = 0
@@ -2708,7 +2704,7 @@ def main():
                             if t is not None:
                                 inner = t
                                 break
-                            scan.movePosition(_QTextCursor.NextCharacter)
+                            scan.movePosition(QtGui.QTextCursor.NextCharacter)
                             iters += 1
                         if inner is not None:
                             te.setTextCursor(inner.firstCursorPosition())
@@ -3162,17 +3158,15 @@ def main():
                 pass
 
         # Bind shortcuts on the LEFT TREE ONLY so right-panel Ctrl+Up/Down won't move binders
-        from PyQt5.QtGui import QKeySequence
-
         _left_tree_for_shortcuts = window.findChild(QtWidgets.QTreeWidget, "notebookName")
         if _left_tree_for_shortcuts is not None:
             sc_up = QtWidgets.QShortcut(
-                QKeySequence("Ctrl+Up"),
+                QtGui.QKeySequence("Ctrl+Up"),
                 _left_tree_for_shortcuts,
                 activated=lambda: _move_binder(-1),
             )
             sc_down = QtWidgets.QShortcut(
-                QKeySequence("Ctrl+Down"),
+                QtGui.QKeySequence("Ctrl+Down"),
                 _left_tree_for_shortcuts,
                 activated=lambda: _move_binder(1),
             )
@@ -3314,17 +3308,15 @@ def main():
                 pass
 
         # Bind shortcuts on the RIGHT panel (tree or view) only — unified dispatcher
-        from PyQt5.QtGui import QKeySequence
-
         _right_tw = window.findChild(QtWidgets.QTreeWidget, "sectionPages")
         _right_tv = window.findChild(QtWidgets.QTreeView, "sectionPages")
         window._section_move_shortcuts = []
         if _right_tw is not None:
             sc_tw_up = QtWidgets.QShortcut(
-                QKeySequence("Ctrl+Up"), _right_tw, activated=lambda: _right_panel_move(-1)
+                QtGui.QKeySequence("Ctrl+Up"), _right_tw, activated=lambda: _right_panel_move(-1)
             )
             sc_tw_down = QtWidgets.QShortcut(
-                QKeySequence("Ctrl+Down"), _right_tw, activated=lambda: _right_panel_move(1)
+                QtGui.QKeySequence("Ctrl+Down"), _right_tw, activated=lambda: _right_panel_move(1)
             )
             try:
                 sc_tw_up.setContext(Qt.WidgetWithChildrenShortcut)
@@ -3334,10 +3326,10 @@ def main():
             window._section_move_shortcuts.extend([sc_tw_up, sc_tw_down])
         if _right_tv is not None:
             sc_tv_up = QtWidgets.QShortcut(
-                QKeySequence("Ctrl+Up"), _right_tv, activated=lambda: _right_panel_move(-1)
+                QtGui.QKeySequence("Ctrl+Up"), _right_tv, activated=lambda: _right_panel_move(-1)
             )
             sc_tv_down = QtWidgets.QShortcut(
-                QKeySequence("Ctrl+Down"), _right_tv, activated=lambda: _right_panel_move(1)
+                QtGui.QKeySequence("Ctrl+Down"), _right_tv, activated=lambda: _right_panel_move(1)
             )
             try:
                 sc_tv_up.setContext(Qt.WidgetWithChildrenShortcut)
@@ -3581,16 +3573,14 @@ def main():
         act_redo = window.findChild(QtWidgets.QAction, "actionRedo")
         
         if act_undo and te:
-            from PyQt5.QtGui import QKeySequence
-            act_undo.setShortcut(QKeySequence.Undo)  # Ctrl+Z
+            act_undo.setShortcut(QtGui.QKeySequence.Undo)  # Ctrl+Z
             act_undo.triggered.connect(te.undo)
             # Enable/disable based on availability
             act_undo.setEnabled(te.document().isUndoAvailable())
             te.undoAvailable.connect(act_undo.setEnabled)
         
         if act_redo and te:
-            from PyQt5.QtGui import QKeySequence
-            act_redo.setShortcut(QKeySequence.Redo)  # Ctrl+Y / Ctrl+Shift+Z
+            act_redo.setShortcut(QtGui.QKeySequence.Redo)  # Ctrl+Y / Ctrl+Shift+Z
             act_redo.triggered.connect(te.redo)
             # Enable/disable based on availability
             act_redo.setEnabled(te.document().isRedoAvailable())
@@ -3871,10 +3861,7 @@ def main():
                                         if not current_path:
                                             current_path = get_settings_file_path()
                                         folder = os.path.dirname(current_path)
-                                        from PyQt5.QtCore import QUrl
-                                        from PyQt5.QtGui import QDesktopServices
-
-                                        QDesktopServices.openUrl(QUrl.fromLocalFile(folder))
+                                        QtGui.QDesktopServices.openUrl(QUrl.fromLocalFile(folder))
                                     except Exception:
                                         pass
 
@@ -4264,12 +4251,9 @@ def main():
 
             def _open_root():
                 try:
-                    from PyQt5.QtCore import QUrl
-                    from PyQt5.QtGui import QDesktopServices
-
                     from settings_manager import get_databases_root
 
-                    QDesktopServices.openUrl(QUrl.fromLocalFile(get_databases_root()))
+                    QtGui.QDesktopServices.openUrl(QUrl.fromLocalFile(get_databases_root()))
                 except Exception:
                     pass
 
@@ -4504,7 +4488,7 @@ def main():
 <li>SQLite-based storage with media management</li>
 <li>Customizable themes and settings</li>
 </ul>
-<p>Built with PyQt5 and Python.</p>
+<p>Built with PyQt6 and Python.</p>
 """
                     dlg = QtWidgets.QMessageBox(window)
                     dlg.setWindowTitle("About NoteBook")

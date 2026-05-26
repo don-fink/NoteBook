@@ -2,12 +2,13 @@
 services.selection
 
 Selection/context helpers centralizing how we determine the current notebook,
-section, and page in two‑pane mode. For now, this mirrors existing logic and
+section, and page in two-pane mode. For now, this mirrors existing logic and
 delegates to window attributes populated by ui_tabs/main.
 """
 
 from typing import Optional, Tuple
-from PyQt5 import QtWidgets
+
+from qt_compat import QtWidgets
 
 
 def current_context(window) -> Tuple[Optional[int], Optional[int], Optional[int]]:

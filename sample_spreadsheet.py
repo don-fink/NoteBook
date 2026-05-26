@@ -1,7 +1,11 @@
 import re
 import sys
 
-from PyQt5.QtWidgets import QApplication, QTableWidget, QTableWidgetItem
+from qt_compat import QtWidgets
+
+QApplication = QtWidgets.QApplication
+QTableWidget = QtWidgets.QTableWidget
+QTableWidgetItem = QtWidgets.QTableWidgetItem
 
 
 def cell_to_index(cell):

@@ -6,10 +6,15 @@ implementation away from ui_tabs. Also hosts the LeftTreeDnDFilter used to
 reorder top-level binders via drag-and-drop.
 """
 
-from PyQt5 import QtWidgets
-from PyQt5.QtCore import QEvent, QObject, QTimer
-from PyQt5.QtCore import Qt, QRect
-from PyQt5.QtGui import QColor, QBrush
+from qt_compat import QtCore, QtGui, QtWidgets
+
+QBrush = QtGui.QBrush
+QColor = QtGui.QColor
+QEvent = QtCore.QEvent
+QObject = QtCore.QObject
+QRect = QtCore.QRect
+Qt = QtCore.Qt
+QTimer = QtCore.QTimer
 
 # Temporary re-exports while we migrate away from ui_tabs — now two-pane native
 from two_pane_core import ensure_left_tree_sections, refresh_for_notebook  # noqa: F401

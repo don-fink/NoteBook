@@ -5,11 +5,16 @@ Uses pyenchant for dictionary lookups.
 
 import os
 import re
-from typing import List, Optional, Callable
+from typing import Callable, List, Optional
 
-from PyQt5 import QtWidgets, QtGui, QtCore
-from PyQt5.QtCore import Qt, QTimer
-from PyQt5.QtGui import QTextCursor, QTextCharFormat, QColor, QTextDocument
+from qt_compat import QtCore, QtGui, QtWidgets
+
+QColor = QtGui.QColor
+QTextCharFormat = QtGui.QTextCharFormat
+QTextCursor = QtGui.QTextCursor
+QTextDocument = QtGui.QTextDocument
+Qt = QtCore.Qt
+QTimer = QtCore.QTimer
 
 # Try to import enchant
 try:

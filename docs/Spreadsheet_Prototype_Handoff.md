@@ -5,7 +5,7 @@ Last updated: 2026-05-15
 ## Current Objective
 Prototype spreadsheet capability in the NoteBook fork while keeping the original project safe.
 
-**Active Phase**: Phase 2 - UI Consolidation & Conversion to .ui Files (PyQt5)
+**Active Phase**: Phase 2 - UI Consolidation & Conversion to .ui Files on the PyQt6 migration branch
 
 ## Safety Setup (Completed)
 - Stable project: c:\Python Projects\NoteBook_clean
@@ -38,15 +38,16 @@ Prototype spreadsheet capability in the NoteBook fork while keeping the original
 ### Known Issues to Address in Future Versions
 - **Rich Text Formatting (v2.5 or 3.0)**: Current implementation is brittle and has too many capabilities. Plan to unify format handling and narrow scope in a dedicated refactor phase.
 
-## Phase 1 (After Phase 2): PyQt5 → PyQt6 Migration
-Once all UI files are in .ui format:
-- Migrate imports and API calls to PyQt6
-- .ui files are largely version-agnostic (XML-based)
+## Migration Status
+The PyQt6 migration is already underway on the `pyqt6-migration` branch.
+- Continue replacing remaining legacy Qt imports/usages with `qt_compat` or native PyQt6-safe equivalents
+- Keep `.ui` files version-agnostic where possible
 
 ## Architecture Direction (Spreadsheet Implementation)
 - Store spreadsheet files in the media folder, not as DB blobs.
 - Keep DB as metadata manifest only (page-to-file mapping).
 - Keep templates in a dedicated templates folder.
+- When spreadsheet implementation begins, evaluate options for drag resizing of spreadsheet columns/rows and overall sheet-area layout before investing further in advanced rich-text table resizing.
 
 ## Initial Build Plan (When Ready)
 1. Add DB migration for spreadsheet metadata table.

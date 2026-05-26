@@ -6,38 +6,45 @@ Text color/Highlight, Align L/C/R/Justify, Bullets/Numbers, Clear formatting,
 Insert image, Horizontal rule.
 """
 
-from PyQt5 import QtWidgets, QtCore, QtGui
-from PyQt5.QtGui import QTextBlockFormat
-import re
 import os
+import re
 from datetime import datetime
-from PyQt5.QtCore import QEvent, QObject, QPoint, QRect, QSize, Qt, QUrl, QTimer
-from PyQt5.QtGui import (
-    QColor,
-    QDesktopServices,
-    QFont,
-    QIcon,
-    QKeySequence,
-    QPainter,
-    QBrush,
-    QPalette,
-    QPen,
-    QImage,
-    QPixmap,
-    QCursor,
-    QTextCharFormat,
-    QTextCursor,
-    QTextFrameFormat,
-    QTextImageFormat,
-    QTextList,
-    QTextListFormat,
-    QTextFormat,
-    QTextLength,
-    QTextTableFormat,
-    QTextTableCellFormat,
-    QSyntaxHighlighter,
-    QTextCharFormat as _QTextCharFormat,
-)
+
+from qt_compat import QtCore, QtGui, QtWidgets
+
+QBrush = QtGui.QBrush
+QColor = QtGui.QColor
+QCursor = QtGui.QCursor
+QDesktopServices = QtGui.QDesktopServices
+QEvent = QtCore.QEvent
+QFont = QtGui.QFont
+QIcon = QtGui.QIcon
+QImage = QtGui.QImage
+QKeySequence = QtGui.QKeySequence
+QObject = QtCore.QObject
+QPainter = QtGui.QPainter
+QPalette = QtGui.QPalette
+QPen = QtGui.QPen
+QPixmap = QtGui.QPixmap
+QPoint = QtCore.QPoint
+QRect = QtCore.QRect
+QSize = QtCore.QSize
+QSyntaxHighlighter = QtGui.QSyntaxHighlighter
+QTextBlockFormat = QtGui.QTextBlockFormat
+QTextCharFormat = QtGui.QTextCharFormat
+_QTextCharFormat = QtGui.QTextCharFormat
+QTextCursor = QtGui.QTextCursor
+QTextFormat = QtGui.QTextFormat
+QTextFrameFormat = QtGui.QTextFrameFormat
+QTextImageFormat = QtGui.QTextImageFormat
+QTextLength = QtGui.QTextLength
+QTextList = QtGui.QTextList
+QTextListFormat = QtGui.QTextListFormat
+QTextTableCellFormat = QtGui.QTextTableCellFormat
+QTextTableFormat = QtGui.QTextTableFormat
+Qt = QtCore.Qt
+QTimer = QtCore.QTimer
+QUrl = QtCore.QUrl
 from services.selection import current_context
 
 # ----------------------------- Image helpers -----------------------------
@@ -1064,13 +1071,11 @@ def add_rich_text_toolbar(
                 if win and hasattr(win, "_two_col_dirty"):
                     win._two_col_dirty = True
                     # Schedule immediate save via timer to persist font change
-                    from PyQt5.QtCore import QTimer
                     QTimer.singleShot(50, lambda: _trigger_save_for_format_change(win))
             except Exception:
                 pass
         finally:
             # Delay clearing the flag to allow pending signals to be ignored
-            from PyQt5.QtCore import QTimer
             QTimer.singleShot(100, lambda: _clear_applying_flag())
     
     def _trigger_save_for_format_change(win):
@@ -1093,13 +1098,11 @@ def add_rich_text_toolbar(
                 win = text_edit.window()
                 if win and hasattr(win, "_two_col_dirty"):
                     win._two_col_dirty = True
-                    from PyQt5.QtCore import QTimer
                     QTimer.singleShot(50, lambda: _trigger_save_for_format_change(win))
             except Exception:
                 pass
         finally:
             # Delay clearing the flag to allow pending signals to be ignored
-            from PyQt5.QtCore import QTimer
             QTimer.singleShot(100, lambda: _clear_applying_flag())
 
     def _clear_applying_flag():
@@ -3450,7 +3453,6 @@ def _enforce_uniform_table_borders(text_edit: QtWidgets.QTextEdit):
                         # Use table border for the outer frame
                         fmt.setBorder(1.0)
                         try:
-                            from PyQt5.QtGui import QBrush, QColor
                             fmt.setBorderBrush(QBrush(QColor(grid_hex)))
                         except Exception:
                             pass
@@ -3480,7 +3482,6 @@ def _enforce_uniform_table_borders(text_edit: QtWidgets.QTextEdit):
                                 except Exception:
                                     tcf.setBorder(1.5)
                                 try:
-                                    from PyQt5.QtGui import QBrush, QColor
                                     tcf.setBorderBrush(QBrush(QColor(grid_hex)))
                                 except Exception:
                                     pass
@@ -3520,8 +3521,6 @@ def _table_apply_uniform_border_style(table, border_width: float = None):
     except Exception:
         pass
     try:
-        from PyQt5.QtGui import QBrush, QColor
-
         fmt.setBorderBrush(QBrush(QColor(grid_hex)))
     except Exception:
         pass
@@ -3549,8 +3548,6 @@ def _table_apply_uniform_border_style(table, border_width: float = None):
                 except Exception:
                     pass
                 try:
-                    from PyQt5.QtGui import QBrush, QColor
-
                     tcf.setBorderBrush(QBrush(QColor(grid_hex)))
                 except Exception:
                     pass
@@ -4163,8 +4160,6 @@ def _table_refresh_currency_alignment_after_col_change(text_edit: QtWidgets.QTex
         currency_cols = _detect_currency_columns(table)
         if not currency_cols:
             return
-        from PyQt5.QtCore import Qt as _Qt
-        from PyQt5.QtGui import QTextBlockFormat as _QTextBlockFormat
         rows = table.rows()
         for c in currency_cols:
             for r in range(1, rows):  # Skip header row
@@ -4175,16 +4170,15 @@ def _table_refresh_currency_alignment_after_col_change(text_edit: QtWidgets.QTex
                     # Apply right-alignment to all blocks in the cell
                     start_pos = cell.firstCursorPosition().position()
                     end_pos = cell.lastCursorPosition().position()
-                    from PyQt5.QtGui import QTextCursor as _QTextCursor
-                    cur = _QTextCursor(text_edit.document())
+                    cur = QTextCursor(text_edit.document())
                     cur.setPosition(start_pos)
                     while cur.position() <= end_pos:
-                        bf = _QTextBlockFormat()
-                        bf.setAlignment(_Qt.AlignRight)
+                        bf = QTextBlockFormat()
+                        bf.setAlignment(Qt.AlignRight)
                         cur.mergeBlockFormat(bf)
                         if cur.position() == end_pos:
                             break
-                        if not cur.movePosition(_QTextCursor.NextBlock):
+                        if not cur.movePosition(QTextCursor.NextBlock):
                             break
                 except Exception:
                     pass
@@ -4903,8 +4897,6 @@ def _table_apply_viewport_widths(
     col_pcts=None,
     table_width_px: float = None,
 ):
-    from PyQt5.QtGui import QTextLength
-
     if text_edit is None or table is None:
         return
     try:
@@ -5299,8 +5291,7 @@ def _table_mark_currency_columns(text_edit: QtWidgets.QTextEdit, table, sel_rect
                     continue
                 cur = cell.firstCursorPosition()
                 bf = cur.blockFormat()
-                from PyQt5.QtCore import Qt as _Qt
-                bf.setAlignment(_Qt.AlignRight)
+                bf.setAlignment(Qt.AlignRight)
                 cur.setBlockFormat(bf)
                 # Format numeric cell content as currency if parseable
                 raw = _table_cell_plain_text(table, r, c)
@@ -5354,8 +5345,7 @@ def _table_mark_currency_columns(text_edit: QtWidgets.QTextEdit, table, sel_rect
                 if cell.isValid():
                     cur = cell.firstCursorPosition()
                     bf = cur.blockFormat()
-                    from PyQt5.QtCore import Qt as _Qt
-                    bf.setAlignment(_Qt.AlignRight)
+                    bf.setAlignment(Qt.AlignRight)
                     cur.setBlockFormat(bf)
             except Exception:
                 pass
@@ -5383,19 +5373,17 @@ def _table_recompute_currency_columns(text_edit: QtWidgets.QTextEdit, table):
             cell = table.cellAt(r, c)
             if not cell.isValid():
                 return
-            from PyQt5.QtCore import Qt as _Qt
             start_pos = cell.firstCursorPosition().position()
             end_pos = cell.lastCursorPosition().position()
-            from PyQt5.QtGui import QTextCursor as _QTextCursor, QTextBlockFormat as _QTextBlockFormat
-            cur = _QTextCursor(text_edit.document())
+            cur = QTextCursor(text_edit.document())
             cur.setPosition(start_pos)
             while cur.position() <= end_pos:
-                bf = _QTextBlockFormat()
-                bf.setAlignment(_Qt.AlignRight)
+                bf = QTextBlockFormat()
+                bf.setAlignment(Qt.AlignRight)
                 cur.mergeBlockFormat(bf)
                 if cur.position() == end_pos:
                     break
-                if not cur.movePosition(_QTextCursor.NextBlock):
+                if not cur.movePosition(QTextCursor.NextBlock):
                     break
         except Exception:
             pass
@@ -5435,19 +5423,17 @@ def _snap_cursor_if_currency_cell(text_edit, table, cell):
             return
         # Ensure cell has right-alignment (may be lost on page reload for empty cells)
         try:
-            from PyQt5.QtCore import Qt as _Qt
-            from PyQt5.QtGui import QTextBlockFormat as _QTextBlockFormat, QTextCursor as _QTextCursor
             start_pos = cell.firstCursorPosition().position()
             end_pos = cell.lastCursorPosition().position()
-            align_cur = _QTextCursor(text_edit.document())
+            align_cur = QTextCursor(text_edit.document())
             align_cur.setPosition(start_pos)
             while align_cur.position() <= end_pos:
-                bf = _QTextBlockFormat()
-                bf.setAlignment(_Qt.AlignRight)
+                bf = QTextBlockFormat()
+                bf.setAlignment(Qt.AlignRight)
                 align_cur.mergeBlockFormat(bf)
                 if align_cur.position() == end_pos:
                     break
-                if not align_cur.movePosition(_QTextCursor.NextBlock):
+                if not align_cur.movePosition(QTextCursor.NextBlock):
                     break
         except Exception:
             pass
@@ -5560,9 +5546,6 @@ def ensure_currency_columns_watcher(text_edit: QtWidgets.QTextEdit):
     class _CurrencyEventFilter(QObject):
         def eventFilter(self, obj, event):
             try:
-                from PyQt5.QtCore import QEvent, Qt
-                from PyQt5.QtGui import QTextBlockFormat, QBrush, QColor
-                
                 # Handle Tab key to insert row above Total in currency tables
                 if event.type() == QEvent.KeyPress:
                     key = event.key()

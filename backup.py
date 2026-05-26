@@ -12,12 +12,17 @@ Output format:
 
 from __future__ import annotations
 
+import json
 import os
+import sqlite3
 import time
 import zipfile
 from typing import Optional
-import json
-import sqlite3
+
+from qt_compat import QtCore, QtWidgets
+
+Qt = QtCore.Qt
+QUrl = QtCore.QUrl
 
 
 def _timestamp() -> str:
@@ -275,9 +280,7 @@ def show_rename_database_dialog(window):
 
     Fallbacks to a simple input dialog if the .ui form isn't available.
     """
-    try:
-        from PyQt5 import QtWidgets
-    except Exception:
+    if QtWidgets is None:
         return
 
     # Determine current db path and name
@@ -347,7 +350,6 @@ def show_rename_database_dialog(window):
             # Update media root and editor base URL
             try:
                 from media_store import media_root_for_db
-                from PyQt5.QtCore import QUrl
 
                 media_root = media_root_for_db(result)
                 try:
@@ -413,9 +415,7 @@ def _current_notebook_id_from_ui(window) -> Optional[int]:
             except Exception:
                 return nb_id
         # Fallback: look at the left tree current selection
-        from PyQt5 import QtWidgets as _QtW
-
-        tree = window.findChild(_QtW.QTreeWidget, "notebookName")
+        tree = window.findChild(QtWidgets.QTreeWidget, "notebookName")
         if tree is not None:
             item = tree.currentItem()
             if item is not None:
@@ -602,10 +602,7 @@ def _fetch_binder_payload(db_path: str, notebook_id: int) -> Optional[dict]:
 
 def export_binder(window):
     """Export the currently selected binder (notebook) and its media into a .binder file (ZIP)."""
-    try:
-        from PyQt5 import QtWidgets
-        from PyQt5.QtCore import QUrl, Qt
-    except Exception:
+    if QtWidgets is None:
         return
 
     # Save any unsaved edits first
@@ -744,10 +741,7 @@ def import_binder(window):
 
     Title collisions are resolved by auto-suffixing (Title (2), Title (3), ...).
     """
-    try:
-        from PyQt5 import QtWidgets
-        from PyQt5.QtCore import Qt
-    except Exception:
+    if QtWidgets is None:
         return
 
     # Choose binder file

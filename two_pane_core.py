@@ -1,5 +1,10 @@
-from PyQt5 import QtWidgets
-from PyQt5.QtCore import QEvent, QObject, QTimer, Qt, QUrl
+from qt_compat import QtCore, QtGui, QtWidgets
+
+QEvent = QtCore.QEvent
+QObject = QtCore.QObject
+Qt = QtCore.Qt
+QTimer = QtCore.QTimer
+QUrl = QtCore.QUrl
 
 # Local role constants used across the left/right trees
 USER_ROLE_ID = 1000
@@ -502,13 +507,12 @@ def ensure_left_tree_sections(window, notebook_id: int, select_section_id: int =
                 pass
         # Force tree widget to update its display - multiple strategies
         try:
-            from PyQt5.QtWidgets import QApplication
-            QApplication.processEvents()
+            QtWidgets.QApplication.processEvents()
             tree_widget.viewport().update()
             tree_widget.update()
             tree_widget.repaint()
             tree_widget.viewport().repaint()
-            QApplication.processEvents()
+            QtWidgets.QApplication.processEvents()
         except Exception:
             pass
     except Exception:
@@ -598,11 +602,10 @@ def setup_two_pane(window):
             container = te.parentWidget() or window
             before_w = title_le_found if title_le_found is not None else te
             from ui_richtext import add_rich_text_toolbar, DEFAULT_FONT_FAMILY, DEFAULT_FONT_SIZE_PT
-            from PyQt5.QtGui import QFont
 
             add_rich_text_toolbar(container, te, before_widget=before_w)
             window._two_col_toolbar_added = True
-            te.document().setDefaultFont(QFont(DEFAULT_FONT_FAMILY, int(DEFAULT_FONT_SIZE_PT)))
+            te.document().setDefaultFont(QtGui.QFont(DEFAULT_FONT_FAMILY, int(DEFAULT_FONT_SIZE_PT)))
             try:
                 te.setReadOnly(True)
             except Exception:
@@ -812,9 +815,7 @@ def setup_two_pane(window):
 
     # Ctrl+S wired to save in two-pane as well (keep name parity)
     try:
-        from PyQt5.QtGui import QKeySequence
-
-        QtWidgets.QShortcut(QKeySequence.Save, window, activated=lambda: save_current_page(window))
+        QtWidgets.QShortcut(QtGui.QKeySequence.Save, window, activated=lambda: save_current_page(window))
     except Exception:
         pass
 

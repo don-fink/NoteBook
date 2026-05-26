@@ -5,24 +5,23 @@ Insert a Planning Register layout into the current page's QTextEdit.
 Layout requested:
 - Outer table: 1 row x 2 columns
 - Inner table in the left cell: 7 rows x 3 columns
-  - Header (top row) labels: "Description", "Estimated Cost", "Actual Cost"
-  - Left column width = 50% of inner table; remaining 50% split across the other two columns
+    - Header (top row) labels: "Description", "Estimated Cost", "Actual Cost"
+    - Left column width = 50% of inner table; remaining 50% split across the other two columns
 """
 
-from PyQt5 import QtWidgets, QtCore
-from PyQt5.QtGui import (
-    QTextFormat,
-    QTextTableFormat,
-    QTextLength,
-    QTextCharFormat,
-    QFont,
-    QTextCursor,
-    QTextTableCellFormat,
-    QTextBlockFormat,
-    QColor,
-    QBrush,
-)
-from PyQt5.QtCore import Qt
+from qt_compat import QtCore, QtGui, QtWidgets
+
+QBrush = QtGui.QBrush
+QColor = QtGui.QColor
+QFont = QtGui.QFont
+QTextBlockFormat = QtGui.QTextBlockFormat
+QTextCharFormat = QtGui.QTextCharFormat
+QTextCursor = QtGui.QTextCursor
+QTextFormat = QtGui.QTextFormat
+QTextLength = QtGui.QTextLength
+QTextTableCellFormat = QtGui.QTextTableCellFormat
+QTextTableFormat = QtGui.QTextTableFormat
+Qt = QtCore.Qt
 
 
 # Unique ID for Planning Register tables
@@ -52,7 +51,6 @@ def _apply_cell_borders_to_table(tbl):
         rows, cols = tbl.rows(), tbl.columns()
     except Exception:
         return
-    from PyQt5.QtGui import QTextTableCellFormat, QBrush, QColor
     black = QBrush(QColor(0, 0, 0))
     for r in range(rows):
         for c in range(cols):
@@ -840,8 +838,6 @@ def refresh_planning_register_styles(text_edit: QtWidgets.QTextEdit):
                         rows, cols = 0, 0
                     # Ensure table fills its container and column widths are 50/25/25
                     try:
-                        from PyQt5.QtGui import QTextLength, QTextTableFormat
-
                         fmt = tbl.format()
                         fmt.setWidth(QTextLength(QTextLength.PercentageLength, 100.0))
                         if cols >= 3:
@@ -884,8 +880,6 @@ def refresh_planning_register_styles(text_edit: QtWidgets.QTextEdit):
                 elif _is_cost_list_table(text_edit, tbl):
                     # For the right-side cost list tables, ensure width 100% and columns 70/30
                     try:
-                        from PyQt5.QtGui import QTextLength
-
                         rows, cols = tbl.rows(), tbl.columns()
                         fmt = tbl.format()
                         fmt.setWidth(QTextLength(QTextLength.PercentageLength, 100.0))

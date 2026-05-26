@@ -9,9 +9,11 @@ In two-column mode, page items are selectable and clicking them
 loads the page content into the center editor.
 """
 
-from PyQt5 import QtWidgets
-from PyQt5.QtCore import Qt
-from PyQt5.QtGui import QColor, QBrush
+from qt_compat import QtCore, QtGui, QtWidgets
+
+QBrush = QtGui.QBrush
+QColor = QtGui.QColor
+Qt = QtCore.Qt
 
 from db_pages import (
     get_pages_by_section_id,
