@@ -8,8 +8,7 @@ Ship spreadsheet support as managed linked files stored under the notebook media
 **Active Phase**: Spreadsheet simplification and rollback on the `pyqt6-migration` branch
 
 ## Safety Setup (Completed)
-- Stable project: c:\Python Projects\NoteBook_clean
-- Working fork: c:\Python Projects\NoteBook_spreadsheet_fork
+- Project folder: c:\Python Projects\NoteBook (older folders were consolidated; the original PyQt5 repo's backups are archived in c:\Python Projects\Backups\NoteBook_clean_archive)
 - Backup tag on GitHub: backup/pre-spreadsheet
 - Prototype branch on GitHub: feature/spreadsheet-prototype
 
