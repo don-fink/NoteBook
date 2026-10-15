@@ -223,11 +223,7 @@ def list_spreadsheet_templates(db_path: str) -> list[str]:
     ensure_spreadsheet_support(db_path)
     root = spreadsheet_templates_root_for_db(db_path)
     try:
-        names = [
-            name
-            for name in os.listdir(root)
-            if os.path.isfile(os.path.join(root, name))
-        ]
+        names = [name for name in os.listdir(root) if os.path.isfile(os.path.join(root, name))]
     except Exception:
         return []
     return sorted(names, key=str.casefold)

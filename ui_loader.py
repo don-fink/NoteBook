@@ -8,7 +8,6 @@ Benefits:
 """
 
 import os
-import sys
 from typing import Optional
 
 from qt_compat import QtCore, QtWidgets, uic

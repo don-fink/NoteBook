@@ -10,7 +10,6 @@ from __future__ import annotations
 import sys
 import types
 
-
 USING_PYQT6 = False
 
 
@@ -120,14 +119,18 @@ def _install_api_aliases() -> None:
 
     # QSizePolicy enum values moved under QSizePolicy.Policy in PyQt6.
     _sp_policy_names = [
-        "Fixed", "Minimum", "Maximum", "Preferred", "Expanding",
-        "MinimumExpanding", "Ignored",
+        "Fixed",
+        "Minimum",
+        "Maximum",
+        "Preferred",
+        "Expanding",
+        "MinimumExpanding",
+        "Ignored",
     ]
     for _spn in _sp_policy_names:
         try:
             _set_if_missing(
-                QtWidgets.QSizePolicy, _spn,
-                getattr(QtWidgets.QSizePolicy.Policy, _spn)
+                QtWidgets.QSizePolicy, _spn, getattr(QtWidgets.QSizePolicy.Policy, _spn)
             )
         except Exception:
             pass
@@ -136,8 +139,9 @@ def _install_api_aliases() -> None:
     for _tbpn in ("DelayedPopup", "MenuButtonPopup", "InstantPopup"):
         try:
             _set_if_missing(
-                QtWidgets.QToolButton, _tbpn,
-                getattr(QtWidgets.QToolButton.ToolButtonPopupMode, _tbpn)
+                QtWidgets.QToolButton,
+                _tbpn,
+                getattr(QtWidgets.QToolButton.ToolButtonPopupMode, _tbpn),
             )
         except Exception:
             pass
@@ -145,14 +149,12 @@ def _install_api_aliases() -> None:
     # QFrame shape/shadow enums moved under nested enums in PyQt6.
     for _fn in ("NoFrame", "Box", "Panel", "WinPanel", "HLine", "VLine", "StyledPanel"):
         try:
-            _set_if_missing(QtWidgets.QFrame, _fn,
-                            getattr(QtWidgets.QFrame.Shape, _fn))
+            _set_if_missing(QtWidgets.QFrame, _fn, getattr(QtWidgets.QFrame.Shape, _fn))
         except Exception:
             pass
     for _fsn in ("Plain", "Raised", "Sunken"):
         try:
-            _set_if_missing(QtWidgets.QFrame, _fsn,
-                            getattr(QtWidgets.QFrame.Shadow, _fsn))
+            _set_if_missing(QtWidgets.QFrame, _fsn, getattr(QtWidgets.QFrame.Shadow, _fsn))
         except Exception:
             pass
 
@@ -170,6 +172,7 @@ def _install_api_aliases() -> None:
     ):
         try:
             if hasattr(cls, "exec") and not hasattr(cls, "exec_"):
+
                 def _exec_compat(self, *args, **kwargs):
                     return self.exec(*args, **kwargs)
 
@@ -255,7 +258,10 @@ def _install_api_aliases() -> None:
             pass
 
     try:
-        if not hasattr(QtWidgets.QFileDialog, "Options") and hasattr(QtWidgets.QFileDialog, "Option"):
+        if not hasattr(QtWidgets.QFileDialog, "Options") and hasattr(
+            QtWidgets.QFileDialog, "Option"
+        ):
+
             def _qfiledialog_options(value=0):
                 return QtWidgets.QFileDialog.Option(value)
 
@@ -375,62 +381,172 @@ def _install_api_aliases() -> None:
     # PyQt5-style QEvent enums moved under QEvent.Type in Qt6.
     qevent_type_names = [
         "None_",
-        "Timer", "MouseButtonPress", "MouseButtonRelease", "MouseButtonDblClick",
-        "MouseMove", "KeyPress", "KeyRelease", "FocusIn", "FocusOut",
-        "FocusAboutToChange", "Enter", "Leave", "Paint", "Move", "Resize",
-        "Show", "Hide", "Close", "Quit", "ParentChange", "ParentAboutToChange",
-        "ThreadChange", "WindowActivate", "WindowDeactivate", "ShowToParent",
-        "HideToParent", "Wheel", "WindowTitleChange", "WindowIconChange",
-        "ApplicationWindowIconChange", "ApplicationFontChange",
-        "ApplicationLayoutDirectionChange", "ApplicationPaletteChange",
-        "PaletteChange", "Clipboard", "Speech", "MetaCall", "SockAct",
-        "WinEventAct", "DeferredDelete", "DragEnter", "DragMove", "DragLeave",
-        "Drop", "DragResponse", "ChildAdded", "ChildPolished", "ChildRemoved",
-        "ShowWindowRequest", "PolishRequest", "Polish", "LayoutRequest",
-        "UpdateRequest", "UpdateLater", "EmbeddingControl",
-        "ActivateControl", "DeactivateControl", "ContextMenu", "InputMethod",
-        "TabletMove", "LocaleChange", "LanguageChange",
-        "LayoutDirectionChange", "Style", "TabletPress", "TabletRelease",
-        "OkRequest", "IconDrag", "FontChange", "EnabledChange",
-        "ActivationChange", "StyleChange", "IconTextChange", "ModifiedChange",
-        "WindowBlocked", "WindowUnblocked", "WindowStateChange",
-        "ReadOnlyChange", "MouseTrackingChange", "ToolTip", "WhatsThis",
-        "StatusTip", "ActionChanged", "ActionAdded", "ActionRemoved",
-        "FileOpen", "Shortcut", "ShortcutOverride",
-        "WhatsThisClicked", "ToolBarChange",
-        "ApplicationActivated", "ApplicationDeactivated",
-        "QueryWhatsThis", "EnterWhatsThisMode", "LeaveWhatsThisMode",
-        "ZOrderChange", "HoverEnter", "HoverLeave", "HoverMove",
-        "AcceptDropsChange", "GraphicsSceneMouseMove",
-        "GraphicsSceneMousePress", "GraphicsSceneMouseRelease",
-        "GraphicsSceneMouseDoubleClick", "GraphicsSceneContextMenu",
-        "GraphicsSceneHoverEnter", "GraphicsSceneHoverMove",
-        "GraphicsSceneHoverLeave", "GraphicsSceneHelp",
-        "GraphicsSceneDragEnter", "GraphicsSceneDragMove",
-        "GraphicsSceneDragLeave", "GraphicsSceneDrop",
-        "GraphicsSceneWheel", "KeyboardLayoutChange",
-        "DynamicPropertyChange", "TabletEnterProximity",
-        "TabletLeaveProximity", "NonClientAreaMouseMove",
-        "NonClientAreaMouseButtonPress", "NonClientAreaMouseButtonRelease",
-        "NonClientAreaMouseButtonDblClick", "MacSizeChange",
-        "ContentsRectChange", "MacGLWindowChange",
-        "FutureCallOut", "GraphicsSceneResize", "GraphicsSceneMove",
-        "CursorChange", "ToolTipChange", "NetworkReplyUpdated",
-        "GrabMouse", "UngrabMouse", "GrabKeyboard", "UngrabKeyboard",
-        "StateMachineSignal", "StateMachineWrapped",
-        "TouchBegin", "TouchUpdate", "TouchEnd",
-        "NativeGesture", "RequestSoftwareInputPanel",
-        "CloseSoftwareInputPanel", "WinIdChange",
-        "Gesture", "GestureOverride",
-        "ScrollPrepare", "Scroll",
-        "Expose", "InputMethodQuery", "OrientationChange",
-        "TouchCancel", "ThemeChange", "SockClose",
-        "PlatformPanel", "StyleAnimationUpdate",
-        "ApplicationStateChange", "WindowChangeInternal",
-        "ScreenChangeInternal", "PlatformSurface",
-        "Pointer", "TabletTrackingChange",
-        "ChildWindowAdded", "ChildWindowRemoved",
-        "EnterEditFocus", "LeaveEditFocus",
+        "Timer",
+        "MouseButtonPress",
+        "MouseButtonRelease",
+        "MouseButtonDblClick",
+        "MouseMove",
+        "KeyPress",
+        "KeyRelease",
+        "FocusIn",
+        "FocusOut",
+        "FocusAboutToChange",
+        "Enter",
+        "Leave",
+        "Paint",
+        "Move",
+        "Resize",
+        "Show",
+        "Hide",
+        "Close",
+        "Quit",
+        "ParentChange",
+        "ParentAboutToChange",
+        "ThreadChange",
+        "WindowActivate",
+        "WindowDeactivate",
+        "ShowToParent",
+        "HideToParent",
+        "Wheel",
+        "WindowTitleChange",
+        "WindowIconChange",
+        "ApplicationWindowIconChange",
+        "ApplicationFontChange",
+        "ApplicationLayoutDirectionChange",
+        "ApplicationPaletteChange",
+        "PaletteChange",
+        "Clipboard",
+        "Speech",
+        "MetaCall",
+        "SockAct",
+        "WinEventAct",
+        "DeferredDelete",
+        "DragEnter",
+        "DragMove",
+        "DragLeave",
+        "Drop",
+        "DragResponse",
+        "ChildAdded",
+        "ChildPolished",
+        "ChildRemoved",
+        "ShowWindowRequest",
+        "PolishRequest",
+        "Polish",
+        "LayoutRequest",
+        "UpdateRequest",
+        "UpdateLater",
+        "EmbeddingControl",
+        "ActivateControl",
+        "DeactivateControl",
+        "ContextMenu",
+        "InputMethod",
+        "TabletMove",
+        "LocaleChange",
+        "LanguageChange",
+        "LayoutDirectionChange",
+        "Style",
+        "TabletPress",
+        "TabletRelease",
+        "OkRequest",
+        "IconDrag",
+        "FontChange",
+        "EnabledChange",
+        "ActivationChange",
+        "StyleChange",
+        "IconTextChange",
+        "ModifiedChange",
+        "WindowBlocked",
+        "WindowUnblocked",
+        "WindowStateChange",
+        "ReadOnlyChange",
+        "MouseTrackingChange",
+        "ToolTip",
+        "WhatsThis",
+        "StatusTip",
+        "ActionChanged",
+        "ActionAdded",
+        "ActionRemoved",
+        "FileOpen",
+        "Shortcut",
+        "ShortcutOverride",
+        "WhatsThisClicked",
+        "ToolBarChange",
+        "ApplicationActivated",
+        "ApplicationDeactivated",
+        "QueryWhatsThis",
+        "EnterWhatsThisMode",
+        "LeaveWhatsThisMode",
+        "ZOrderChange",
+        "HoverEnter",
+        "HoverLeave",
+        "HoverMove",
+        "AcceptDropsChange",
+        "GraphicsSceneMouseMove",
+        "GraphicsSceneMousePress",
+        "GraphicsSceneMouseRelease",
+        "GraphicsSceneMouseDoubleClick",
+        "GraphicsSceneContextMenu",
+        "GraphicsSceneHoverEnter",
+        "GraphicsSceneHoverMove",
+        "GraphicsSceneHoverLeave",
+        "GraphicsSceneHelp",
+        "GraphicsSceneDragEnter",
+        "GraphicsSceneDragMove",
+        "GraphicsSceneDragLeave",
+        "GraphicsSceneDrop",
+        "GraphicsSceneWheel",
+        "KeyboardLayoutChange",
+        "DynamicPropertyChange",
+        "TabletEnterProximity",
+        "TabletLeaveProximity",
+        "NonClientAreaMouseMove",
+        "NonClientAreaMouseButtonPress",
+        "NonClientAreaMouseButtonRelease",
+        "NonClientAreaMouseButtonDblClick",
+        "MacSizeChange",
+        "ContentsRectChange",
+        "MacGLWindowChange",
+        "FutureCallOut",
+        "GraphicsSceneResize",
+        "GraphicsSceneMove",
+        "CursorChange",
+        "ToolTipChange",
+        "NetworkReplyUpdated",
+        "GrabMouse",
+        "UngrabMouse",
+        "GrabKeyboard",
+        "UngrabKeyboard",
+        "StateMachineSignal",
+        "StateMachineWrapped",
+        "TouchBegin",
+        "TouchUpdate",
+        "TouchEnd",
+        "NativeGesture",
+        "RequestSoftwareInputPanel",
+        "CloseSoftwareInputPanel",
+        "WinIdChange",
+        "Gesture",
+        "GestureOverride",
+        "ScrollPrepare",
+        "Scroll",
+        "Expose",
+        "InputMethodQuery",
+        "OrientationChange",
+        "TouchCancel",
+        "ThemeChange",
+        "SockClose",
+        "PlatformPanel",
+        "StyleAnimationUpdate",
+        "ApplicationStateChange",
+        "WindowChangeInternal",
+        "ScreenChangeInternal",
+        "PlatformSurface",
+        "Pointer",
+        "TabletTrackingChange",
+        "ChildWindowAdded",
+        "ChildWindowRemoved",
+        "EnterEditFocus",
+        "LeaveEditFocus",
     ]
     for _name in qevent_type_names:
         try:

@@ -11,7 +11,6 @@ Qt = QtCore.Qt
 
 from db_access import get_notebooks
 
-
 # Color constants for deleted items
 DELETED_ITEM_COLOR = QColor(128, 128, 128)  # Grey
 
@@ -19,10 +18,11 @@ DELETED_ITEM_COLOR = QColor(128, 128, 128)  # Grey
 def populate_notebook_names(window, db_path):
     try:
         from settings_manager import get_show_deleted
+
         include_deleted = get_show_deleted()
     except Exception:
         include_deleted = False
-    
+
     notebooks = get_notebooks(db_path, include_deleted=include_deleted)
     tree_widget = window.findChild(QtWidgets.QTreeWidget, "notebookName")
     tree_widget.clear()
@@ -43,21 +43,21 @@ def populate_notebook_names(window, db_path):
         # notebook[0] = id, notebook[1] = name, ..., notebook[5] = deleted_at
         item = QtWidgets.QTreeWidgetItem([str(notebook[1])])
         item.setData(0, 1000, notebook[0])  # Store notebook_id in UserRole
-        
+
         # Check if this notebook is deleted (column 5 = deleted_at)
         is_deleted = False
         try:
             is_deleted = notebook[5] is not None
         except (IndexError, TypeError):
             pass
-        
+
         # Store deleted status for context menu logic
         item.setData(0, 1003, is_deleted)  # 1003 = is_deleted flag
-        
+
         # Grey out deleted items
         if is_deleted:
             item.setForeground(0, QBrush(DELETED_ITEM_COLOR))
-        
+
         # Always show an expander so users know it can be expanded to sections
         try:
             item.setChildIndicatorPolicy(QtWidgets.QTreeWidgetItem.ShowIndicator)
@@ -68,7 +68,9 @@ def populate_notebook_names(window, db_path):
         try:
             flags = item.flags()
             if is_deleted:
-                flags = (flags | Qt.ItemIsEnabled | Qt.ItemIsSelectable) & ~(Qt.ItemIsDragEnabled | Qt.ItemIsDropEnabled)
+                flags = (flags | Qt.ItemIsEnabled | Qt.ItemIsSelectable) & ~(
+                    Qt.ItemIsDragEnabled | Qt.ItemIsDropEnabled
+                )
             else:
                 flags = (
                     flags

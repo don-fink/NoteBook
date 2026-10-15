@@ -16,7 +16,9 @@ def get_pages_by_section_id(section_id, db_path, include_deleted: bool = False):
     if include_deleted:
         cursor.execute("SELECT * FROM pages WHERE section_id = ?", (section_id,))
     else:
-        cursor.execute("SELECT * FROM pages WHERE section_id = ? AND deleted_at IS NULL", (section_id,))
+        cursor.execute(
+            "SELECT * FROM pages WHERE section_id = ? AND deleted_at IS NULL", (section_id,)
+        )
     rows = cursor.fetchall()
     conn.close()
     return rows
@@ -41,7 +43,9 @@ def get_root_pages_by_section_id(section_id: int, db_path: str, include_deleted:
     return rows
 
 
-def get_child_pages(section_id: int, parent_page_id: int, db_path: str, include_deleted: bool = False):
+def get_child_pages(
+    section_id: int, parent_page_id: int, db_path: str, include_deleted: bool = False
+):
     """Return direct child pages under a parent page within the same section."""
     conn = sqlite3.connect(db_path)
     cur = conn.cursor()
@@ -146,7 +150,7 @@ def delete_page(page_id: int, db_path: str):
         for pid in to_delete:
             cur.execute(
                 "UPDATE pages SET deleted_at = datetime('now') WHERE id = ? AND deleted_at IS NULL",
-                (int(pid),)
+                (int(pid),),
             )
         conn.commit()
     finally:
@@ -169,10 +173,7 @@ def restore_page(page_id: int, db_path: str):
             idx += 1
         # Restore all pages (parent and descendants)
         for pid in to_restore:
-            cur.execute(
-                "UPDATE pages SET deleted_at = NULL WHERE id = ?",
-                (int(pid),)
-            )
+            cur.execute("UPDATE pages SET deleted_at = NULL WHERE id = ?", (int(pid),))
         conn.commit()
     finally:
         conn.close()
@@ -204,7 +205,9 @@ def permanently_delete_page(page_id: int, db_path: str):
         conn.close()
 
 
-def set_pages_order(section_id: int, ordered_page_ids: list, db_path: str, parent_page_id: int = None):
+def set_pages_order(
+    section_id: int, ordered_page_ids: list, db_path: str, parent_page_id: int = None
+):
     """Update order_index for sibling pages (same section and same parent_page_id)."""
     if not isinstance(ordered_page_ids, (list, tuple)):
         return
@@ -233,7 +236,9 @@ def set_pages_order(section_id: int, ordered_page_ids: list, db_path: str, paren
         conn.close()
 
 
-def set_pages_parent_and_order(target_section_id: int, ordered_page_ids: list, db_path: str, parent_page_id: int = None):
+def set_pages_parent_and_order(
+    target_section_id: int, ordered_page_ids: list, db_path: str, parent_page_id: int = None
+):
     """Move pages to target_section_id and assign sequential order_index among siblings under parent_page_id.
     Supports cross-section and cross-parent reparenting.
     """

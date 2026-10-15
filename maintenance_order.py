@@ -12,7 +12,9 @@ Functions:
 Resequencing preserves relative order defined by (order_index, id) and produces
 compact 1..N sequences per sibling group.
 """
+
 from __future__ import annotations
+
 import sqlite3
 from typing import Dict, List, Tuple
 
@@ -51,25 +53,44 @@ def collect_changes(db_path: str) -> Dict[str, List[Tuple[int, int]]]:
         nb_ids = [r[0] for r in _fetchall(con, "SELECT id FROM notebooks ORDER BY id")]
         all_sec_changes: List[Tuple[int, int]] = []
         for nb_id in nb_ids:
-            rows = _fetchall(con, "SELECT id, order_index FROM sections WHERE notebook_id = ? ORDER BY order_index, id", (nb_id,))
+            rows = _fetchall(
+                con,
+                "SELECT id, order_index FROM sections WHERE notebook_id = ? ORDER BY order_index, id",
+                (nb_id,),
+            )
             all_sec_changes.extend(_normalize_sequence(rows))
         changes["sections"] = all_sec_changes
         # Pages groups
         if _has_parent_column(con):
-            groups = _fetchall(con, "SELECT DISTINCT section_id, parent_page_id FROM pages ORDER BY section_id, parent_page_id")
+            groups = _fetchall(
+                con,
+                "SELECT DISTINCT section_id, parent_page_id FROM pages ORDER BY section_id, parent_page_id",
+            )
             all_page_changes: List[Tuple[int, int]] = []
             for section_id, parent_page_id in groups:
                 if parent_page_id is None:
-                    rows = _fetchall(con, "SELECT id, order_index FROM pages WHERE section_id = ? AND parent_page_id IS NULL ORDER BY order_index, id", (section_id,))
+                    rows = _fetchall(
+                        con,
+                        "SELECT id, order_index FROM pages WHERE section_id = ? AND parent_page_id IS NULL ORDER BY order_index, id",
+                        (section_id,),
+                    )
                 else:
-                    rows = _fetchall(con, "SELECT id, order_index FROM pages WHERE section_id = ? AND parent_page_id = ? ORDER BY order_index, id", (section_id, parent_page_id))
+                    rows = _fetchall(
+                        con,
+                        "SELECT id, order_index FROM pages WHERE section_id = ? AND parent_page_id = ? ORDER BY order_index, id",
+                        (section_id, parent_page_id),
+                    )
                 all_page_changes.extend(_normalize_sequence(rows))
             changes["pages"] = all_page_changes
         else:
             groups = _fetchall(con, "SELECT DISTINCT section_id FROM pages ORDER BY section_id")
             all_page_changes: List[Tuple[int, int]] = []
             for (section_id,) in groups:
-                rows = _fetchall(con, "SELECT id, order_index FROM pages WHERE section_id = ? ORDER BY order_index, id", (section_id,))
+                rows = _fetchall(
+                    con,
+                    "SELECT id, order_index FROM pages WHERE section_id = ? ORDER BY order_index, id",
+                    (section_id,),
+                )
                 all_page_changes.extend(_normalize_sequence(rows))
             changes["pages"] = all_page_changes
         return changes

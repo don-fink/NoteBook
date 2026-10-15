@@ -55,7 +55,7 @@ def rename_notebook(notebook_id: int, title: str, db_path: str):
 
 def delete_notebook(notebook_id: int, db_path: str):
     """Soft-delete a notebook by setting deleted_at timestamp.
-    
+
     Also soft-deletes all sections and pages within the notebook (cascade).
     """
     conn = sqlite3.connect(db_path)
@@ -66,17 +66,16 @@ def delete_notebook(notebook_id: int, db_path: str):
             """UPDATE pages SET deleted_at = datetime('now')
                WHERE section_id IN (SELECT id FROM sections WHERE notebook_id = ?)
                AND deleted_at IS NULL""",
-            (notebook_id,)
+            (notebook_id,),
         )
         # Soft-delete all sections in this notebook
         cur.execute(
             "UPDATE sections SET deleted_at = datetime('now') WHERE notebook_id = ? AND deleted_at IS NULL",
-            (notebook_id,)
+            (notebook_id,),
         )
         # Soft-delete the notebook itself
         cur.execute(
-            "UPDATE notebooks SET deleted_at = datetime('now') WHERE id = ?",
-            (notebook_id,)
+            "UPDATE notebooks SET deleted_at = datetime('now') WHERE id = ?", (notebook_id,)
         )
         conn.commit()
     finally:
@@ -89,20 +88,14 @@ def restore_notebook(notebook_id: int, db_path: str):
     cur = conn.cursor()
     try:
         # Restore the notebook
-        cur.execute(
-            "UPDATE notebooks SET deleted_at = NULL WHERE id = ?",
-            (notebook_id,)
-        )
+        cur.execute("UPDATE notebooks SET deleted_at = NULL WHERE id = ?", (notebook_id,))
         # Restore all sections in this notebook
-        cur.execute(
-            "UPDATE sections SET deleted_at = NULL WHERE notebook_id = ?",
-            (notebook_id,)
-        )
+        cur.execute("UPDATE sections SET deleted_at = NULL WHERE notebook_id = ?", (notebook_id,))
         # Restore all pages in all sections of this notebook
         cur.execute(
             """UPDATE pages SET deleted_at = NULL
                WHERE section_id IN (SELECT id FROM sections WHERE notebook_id = ?)""",
-            (notebook_id,)
+            (notebook_id,),
         )
         conn.commit()
     finally:
@@ -124,13 +117,10 @@ def permanently_delete_notebook(notebook_id: int, db_path: str):
         # Delete all pages in all sections of this notebook
         cur.execute(
             "DELETE FROM pages WHERE section_id IN (SELECT id FROM sections WHERE notebook_id = ?)",
-            (notebook_id,)
+            (notebook_id,),
         )
         # Delete all sections in this notebook
-        cur.execute(
-            "DELETE FROM sections WHERE notebook_id = ?",
-            (notebook_id,)
-        )
+        cur.execute("DELETE FROM sections WHERE notebook_id = ?", (notebook_id,))
         # Delete the notebook itself
         cur.execute("DELETE FROM notebooks WHERE id = ?", (notebook_id,))
         conn.commit()
@@ -164,21 +154,21 @@ def set_notebooks_order(ordered_ids, db_path: str):
 
 def empty_all_deleted(db_path: str) -> dict:
     """Permanently delete all soft-deleted items from the database.
-    
+
     Returns a dict with counts: {'notebooks': N, 'sections': N, 'pages': N}
     """
     conn = sqlite3.connect(db_path)
     cur = conn.cursor()
-    counts = {'notebooks': 0, 'sections': 0, 'pages': 0}
+    counts = {"notebooks": 0, "sections": 0, "pages": 0}
     try:
         # Count before deletion
         cur.execute("SELECT COUNT(*) FROM pages WHERE deleted_at IS NOT NULL")
-        counts['pages'] = cur.fetchone()[0]
+        counts["pages"] = cur.fetchone()[0]
         cur.execute("SELECT COUNT(*) FROM sections WHERE deleted_at IS NOT NULL")
-        counts['sections'] = cur.fetchone()[0]
+        counts["sections"] = cur.fetchone()[0]
         cur.execute("SELECT COUNT(*) FROM notebooks WHERE deleted_at IS NOT NULL")
-        counts['notebooks'] = cur.fetchone()[0]
-        
+        counts["notebooks"] = cur.fetchone()[0]
+
         # Delete in order: pages first, then sections, then notebooks
         try:
             cur.execute(
@@ -197,7 +187,7 @@ def empty_all_deleted(db_path: str) -> dict:
 
 def get_deleted_counts(db_path: str) -> dict:
     """Get counts of soft-deleted items.
-    
+
     Returns a dict with counts: {'notebooks': N, 'sections': N, 'pages': N, 'total': N}
     """
     conn = sqlite3.connect(db_path)
@@ -210,10 +200,10 @@ def get_deleted_counts(db_path: str) -> dict:
         cur.execute("SELECT COUNT(*) FROM notebooks WHERE deleted_at IS NOT NULL")
         notebooks = cur.fetchone()[0]
         return {
-            'notebooks': notebooks,
-            'sections': sections,
-            'pages': pages,
-            'total': notebooks + sections + pages
+            "notebooks": notebooks,
+            "sections": sections,
+            "pages": pages,
+            "total": notebooks + sections + pages,
         }
     finally:
         conn.close()

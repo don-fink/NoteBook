@@ -38,7 +38,9 @@ def _default_settings_dir() -> str:
             base = os.environ.get("LOCALAPPDATA") or os.path.expanduser("~")
             return os.path.join(base, "NoteBook")
         elif sys.platform == "darwin":  # macOS
-            return os.path.join(os.path.expanduser("~"), "Library", "Application Support", "NoteBook")
+            return os.path.join(
+                os.path.expanduser("~"), "Library", "Application Support", "NoteBook"
+            )
         else:  # Linux / other Unix
             return os.path.join(os.path.expanduser("~"), ".config", "NoteBook")
     except Exception:
@@ -288,7 +290,6 @@ def set_settings_file_path(full_path: str):
         _CACHED_SETTINGS_PATH = os.path.abspath(full_path)
     except Exception:
         pass
-
 
 
 def get_last_db():
@@ -789,6 +790,7 @@ def set_backups_to_keep(n: int):
 
 # --- Show Deleted Items setting ---
 
+
 def get_show_deleted() -> bool:
     """Return True if soft-deleted items should be shown in the UI."""
     s = load_settings()
@@ -803,6 +805,7 @@ def set_show_deleted(enabled: bool):
 
 
 # --- Spell Check settings ---
+
 
 def get_spell_check_enabled() -> bool:
     """Return True if spell check is enabled."""

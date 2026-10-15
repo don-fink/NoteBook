@@ -1,4 +1,4 @@
-from qt_compat import QtCore, QtGui, QtWidgets
+from qt_compat import QtCore, QtWidgets
 
 
 def show_toast(parent: QtWidgets.QWidget, text: str, duration_ms: int = 2500):

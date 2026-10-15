@@ -57,6 +57,7 @@ def _set_page_edit_html(window, html: str):
     # Trigger spell check after loading (since blockSignals prevented textChanged)
     try:
         from spell_check import get_spell_checker
+
         spell_checker = get_spell_checker(te)
         if spell_checker and spell_checker.enabled:
             spell_checker.check_now()
@@ -119,7 +120,7 @@ def load_page(window, page_id: int = None, html: str = None):
         _normalize_spreadsheet_links_in_editor(window, persist=False)
     except Exception:
         pass
-    
+
     # Check if page is deleted (deleted_at is column index 8)
     is_deleted = False
     try:
@@ -127,7 +128,7 @@ def load_page(window, page_id: int = None, html: str = None):
             is_deleted = True
     except Exception:
         pass
-    
+
     try:
         te.setReadOnly(is_deleted)
     except Exception:
@@ -193,9 +194,10 @@ def save_current_title(window):
 
 def update_left_tree_page_title(window, section_id: int, page_id: int, new_title: str):
     """Update the title of a page in the left tree.
-    
+
     Recursively searches for the page, including subpages nested under other pages.
     """
+
     def _find_and_update_page(parent_item, target_page_id, new_title):
         """Recursively search for a page item and update its title."""
         for i in range(parent_item.childCount()):
@@ -374,6 +376,7 @@ def restore_last_position(window):
         if section_id is not None and not notebook_id:
             try:
                 import sqlite3
+
                 db_path = getattr(window, "_db_path", None) or "notes.db"
                 con = sqlite3.connect(db_path)
                 cur = con.cursor()
@@ -415,7 +418,9 @@ def restore_last_position(window):
             except Exception:
                 window._current_section_id = section_id
             try:
-                ensure_left_tree_sections(window, int(notebook_id), select_section_id=int(section_id))
+                ensure_left_tree_sections(
+                    window, int(notebook_id), select_section_id=int(section_id)
+                )
                 _select_tree_section(window, int(section_id))
             except Exception:
                 pass
@@ -431,7 +436,10 @@ def restore_last_position(window):
                     window._current_page_by_section[section_id] = page_id
                 # Select the page in the tree, but leave editor empty
                 try:
-                    from left_tree import select_left_tree_page as _select_left_tree_page
+                    from left_tree import (
+                        select_left_tree_page as _select_left_tree_page,
+                    )
+
                     _select_left_tree_page(window, int(section_id), int(page_id))
                 except Exception:
                     pass
@@ -446,7 +454,9 @@ def restore_last_position(window):
         pass
 
 
-def ensure_left_tree_sections(window, notebook_id: int, select_section_id: int = None, expand_page_id: int = None):
+def ensure_left_tree_sections(
+    window, notebook_id: int, select_section_id: int = None, expand_page_id: int = None
+):
     """Ensure the left tree shows Sections and Pages under the given binder.
 
     - Finds the top-level binder item with id == notebook_id
@@ -458,6 +468,7 @@ def ensure_left_tree_sections(window, notebook_id: int, select_section_id: int =
         tree_widget = window.findChild(QtWidgets.QTreeWidget, "notebookName")
         if tree_widget is None:
             return
+
         # Helper to find the binder item by id
         def _find_binder_item(nid: int):
             for i in range(tree_widget.topLevelItemCount()):
@@ -512,7 +523,9 @@ def ensure_left_tree_sections(window, notebook_id: int, select_section_id: int =
                 for j in range(binder_item.childCount()):
                     sec_item = binder_item.child(j)
                     try:
-                        if sec_item.data(0, USER_ROLE_KIND) == "section" and int(sec_item.data(0, USER_ROLE_ID)) == int(select_section_id):
+                        if sec_item.data(0, USER_ROLE_KIND) == "section" and int(
+                            sec_item.data(0, USER_ROLE_ID)
+                        ) == int(select_section_id):
                             tree_widget.setCurrentItem(sec_item)
                             break
                     except Exception:
@@ -560,7 +573,9 @@ def _select_tree_section(window, section_id: int):
             for j in range(top.childCount()):
                 sec_item = top.child(j)
                 try:
-                    if sec_item.data(0, USER_ROLE_KIND) == "section" and int(sec_item.data(0, USER_ROLE_ID)) == int(section_id):
+                    if sec_item.data(0, USER_ROLE_KIND) == "section" and int(
+                        sec_item.data(0, USER_ROLE_ID)
+                    ) == int(section_id):
                         try:
                             if not top.isExpanded():
                                 top.setExpanded(True)
@@ -574,7 +589,9 @@ def _select_tree_section(window, section_id: int):
         pass
 
 
-def refresh_for_notebook(window, notebook_id: int, select_section_id: int = None, keep_left_tree_selection: bool = False):
+def refresh_for_notebook(
+    window, notebook_id: int, select_section_id: int = None, keep_left_tree_selection: bool = False
+):
     """Two-pane refresh: rebuild left tree for the binder and optional selection.
 
     Keeps semantics compatible with callers expecting ui_tabs.refresh_for_notebook.
@@ -615,11 +632,17 @@ def setup_two_pane(window):
         if te is not None and not hasattr(window, "_two_col_toolbar_added"):
             container = te.parentWidget() or window
             before_w = title_le_found if title_le_found is not None else te
-            from ui_richtext import add_rich_text_toolbar, DEFAULT_FONT_FAMILY, DEFAULT_FONT_SIZE_PT
+            from ui_richtext import (
+                DEFAULT_FONT_FAMILY,
+                DEFAULT_FONT_SIZE_PT,
+                add_rich_text_toolbar,
+            )
 
             add_rich_text_toolbar(container, te, before_widget=before_w)
             window._two_col_toolbar_added = True
-            te.document().setDefaultFont(QtGui.QFont(DEFAULT_FONT_FAMILY, int(DEFAULT_FONT_SIZE_PT)))
+            te.document().setDefaultFont(
+                QtGui.QFont(DEFAULT_FONT_FAMILY, int(DEFAULT_FONT_SIZE_PT))
+            )
             try:
                 te.setReadOnly(True)
             except Exception:
@@ -638,7 +661,12 @@ def setup_two_pane(window):
                             if sid_now is not None
                             else None
                         )
-                        if isinstance(ctx, tuple) and len(ctx) == 2 and ctx[0] == sid_now and ctx[1] == pid_now:
+                        if (
+                            isinstance(ctx, tuple)
+                            and len(ctx) == 2
+                            and ctx[0] == sid_now
+                            and ctx[1] == pid_now
+                        ):
                             save_current_page(window)
                     except Exception:
                         pass
@@ -829,11 +857,14 @@ def setup_two_pane(window):
 
     # Ctrl+S wired to save in two-pane as well (keep name parity)
     try:
-        QtWidgets.QShortcut(QtGui.QKeySequence.Save, window, activated=lambda: save_current_page(window))
+        QtWidgets.QShortcut(
+            QtGui.QKeySequence.Save, window, activated=lambda: save_current_page(window)
+        )
     except Exception:
         pass
 
     try:
+
         def _on_item_expanded(item):
             if item is not None and item.parent() is None:
                 nb_id = item.data(0, USER_ROLE_ID)
@@ -857,6 +888,7 @@ def select_left_tree_page(window, section_id: int, page_id: int):
     Expands the binder and section as needed so the page is visible.
     Recursively searches for pages, including subpages nested under other pages.
     """
+
     def _find_page_recursive(parent_item, target_page_id):
         """Recursively search for a page item by ID."""
         for i in range(parent_item.childCount()):

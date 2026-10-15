@@ -21,18 +21,17 @@ from qt_compat import QtCore, QtWidgets
 QUrl = QtCore.QUrl
 
 # Delegate to two-pane core (with legacy-safe wrappers elsewhere)
-from two_pane_core import (
-    is_two_column_ui,  # noqa: F401
-    load_first_page as _ui_load_first_page_two_column,
-    load_page as _ui_load_page_two_column,  # noqa: F401
-    save_current_title as save_title_two_column,  # noqa: F401
-)
-from two_pane_core import save_current_page as _save_current_page_generic
 from two_pane_core import _set_page_edit_html as _ui_set_page_edit_html  # type: ignore
+from two_pane_core import is_two_column_ui  # noqa: F401
+from two_pane_core import load_first_page as _ui_load_first_page_two_column
+from two_pane_core import load_page as _ui_load_page_two_column  # noqa: F401
+from two_pane_core import save_current_page as _save_current_page_generic
+from two_pane_core import save_current_title as save_title_two_column  # noqa: F401
 
 try:
     from ui_planning_register import refresh_planning_register_styles
 except Exception:  # pragma: no cover - optional import guard
+
     def refresh_planning_register_styles(_te):
         return
 
@@ -77,6 +76,7 @@ def load_page(window, page_id: Optional[int] = None, html: Optional[str] = None)
             refresh_planning_register_styles(te)
             try:
                 from ui_richtext import _enforce_uniform_table_borders
+
                 _enforce_uniform_table_borders(te)
             except Exception:
                 pass
@@ -110,6 +110,7 @@ def set_page_edit_html(window, html: Optional[str]) -> None:
             refresh_planning_register_styles(te)
             try:
                 from ui_richtext import _enforce_uniform_table_borders
+
                 _enforce_uniform_table_borders(te)
             except Exception:
                 pass
@@ -143,6 +144,7 @@ def load_first_page_two_column(window) -> None:
             refresh_planning_register_styles(te)
             try:
                 from ui_richtext import _enforce_uniform_table_borders
+
                 _enforce_uniform_table_borders(te)
             except Exception:
                 pass

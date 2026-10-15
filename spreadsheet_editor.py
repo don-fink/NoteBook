@@ -12,7 +12,6 @@ import re
 
 from qt_compat import QtCore, QtGui, QtWidgets
 
-
 _ITEM_STYLE_ROLE = int(QtCore.Qt.ItemDataRole.UserRole) + 101
 
 
@@ -20,7 +19,12 @@ def _normalized_ext(path_or_ext: str) -> str:
     value = str(path_or_ext or "").strip().lower()
     if not value:
         return ""
-    if value.startswith(".") and value.count(".") == 1 and os.path.sep not in value and "/" not in value:
+    if (
+        value.startswith(".")
+        and value.count(".") == 1
+        and os.path.sep not in value
+        and "/" not in value
+    ):
         return value
     if os.path.sep in value or "/" in value or "." in os.path.basename(value):
         value = os.path.splitext(value)[1].lower()
@@ -143,7 +147,10 @@ def _coerce_xlsx_cell_value(value, style: dict | None = None):
                     return int(text)
                 except Exception:
                     pass
-        if re.fullmatch(r"[+-]?(?:[0-9]*\.[0-9]+|[0-9]+\.[0-9]*|[0-9]+[eE][+-]?[0-9]+|[0-9]*\.[0-9]+[eE][+-]?[0-9]+)", text):
+        if re.fullmatch(
+            r"[+-]?(?:[0-9]*\.[0-9]+|[0-9]+\.[0-9]*|[0-9]+[eE][+-]?[0-9]+|[0-9]*\.[0-9]+[eE][+-]?[0-9]+)",
+            text,
+        ):
             try:
                 return float(text)
             except Exception:
@@ -461,7 +468,9 @@ class SpreadsheetEditorDialog(QtWidgets.QDialog):
         self._formula_edit.editingFinished.connect(self._apply_formula_edit)
         self._bold_btn.toggled.connect(lambda checked: self._apply_font_style("bold", checked))
         self._italic_btn.toggled.connect(lambda checked: self._apply_font_style("italic", checked))
-        self._underline_btn.toggled.connect(lambda checked: self._apply_font_style("underline", checked))
+        self._underline_btn.toggled.connect(
+            lambda checked: self._apply_font_style("underline", checked)
+        )
         self._fill_btn.clicked.connect(self._choose_fill_color)
         self._clear_fill_btn.clicked.connect(self._clear_fill_color)
         self._align_left_btn.clicked.connect(lambda: self._apply_alignment("left"))
@@ -486,7 +495,9 @@ class SpreadsheetEditorDialog(QtWidgets.QDialog):
         for sheet_meta in self._sheet_docs:
             self._sheet_combo.addItem(str(sheet_meta.get("name") or "Sheet"))
         if self._sheet_docs:
-            self._sheet_combo.setCurrentIndex(max(0, min(self._current_sheet_index, len(self._sheet_docs) - 1)))
+            self._sheet_combo.setCurrentIndex(
+                max(0, min(self._current_sheet_index, len(self._sheet_docs) - 1))
+            )
         self._sheet_combo.blockSignals(False)
 
         visible = self._supports_sheets
@@ -589,7 +600,9 @@ class SpreadsheetEditorDialog(QtWidgets.QDialog):
         self._sync_current_sheet_from_grid()
         next_col = self._table.columnCount()
         self._table.insertColumn(next_col)
-        self._table.setHorizontalHeaderItem(next_col, QtWidgets.QTableWidgetItem(self._column_name(next_col)))
+        self._table.setHorizontalHeaderItem(
+            next_col, QtWidgets.QTableWidgetItem(self._column_name(next_col))
+        )
         self._dirty = True
 
     def _ensure_item(self, row_index: int, col_index: int) -> QtWidgets.QTableWidgetItem:
@@ -604,7 +617,9 @@ class SpreadsheetEditorDialog(QtWidgets.QDialog):
         seen = set()
         for selected_range in self._table.selectedRanges():
             for row_index in range(selected_range.topRow(), selected_range.bottomRow() + 1):
-                for col_index in range(selected_range.leftColumn(), selected_range.rightColumn() + 1):
+                for col_index in range(
+                    selected_range.leftColumn(), selected_range.rightColumn() + 1
+                ):
                     key = (row_index, col_index)
                     if key not in seen:
                         seen.add(key)

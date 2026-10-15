@@ -16,17 +16,17 @@ QRect = QtCore.QRect
 Qt = QtCore.Qt
 QTimer = QtCore.QTimer
 
-# Temporary re-exports while we migrate away from ui_tabs — now two-pane native
-from two_pane_core import ensure_left_tree_sections, refresh_for_notebook  # noqa: F401
-
-# Convenience re-exports for selection helpers (two-pane variants)
-from two_pane_core import (  # noqa: F401
-    _select_left_binder as select_left_binder,
-    _select_tree_section as select_tree_section,
-)
-
 # Additional helpers used by callers (prefer core where available)
-from two_pane_core import select_left_tree_page, update_left_tree_page_title  # noqa: F401
+# Convenience re-exports for selection helpers (two-pane variants)
+# Temporary re-exports while we migrate away from ui_tabs — now two-pane native
+from two_pane_core import _select_left_binder as select_left_binder  # noqa: F401
+from two_pane_core import _select_tree_section as select_tree_section  # noqa: F401
+from two_pane_core import (  # noqa: F401
+    ensure_left_tree_sections,
+    refresh_for_notebook,
+    select_left_tree_page,
+    update_left_tree_page_title,
+)
 
 
 class LeftTreeDnDFilter(QObject):
@@ -58,7 +58,9 @@ class LeftTreeDnDFilter(QObject):
                 pos_vp = event.pos() if hasattr(event, "pos") else None
                 if pos_vp is not None:
                     pos_vp = tree.viewport().mapFrom(tree, pos_vp)
-            elif isinstance(obj, QtWidgets.QWidget) and isinstance(obj.parent(), QtWidgets.QTreeWidget):
+            elif isinstance(obj, QtWidgets.QWidget) and isinstance(
+                obj.parent(), QtWidgets.QTreeWidget
+            ):
                 tree = obj.parent()
                 pos_vp = event.pos() if hasattr(event, "pos") else None
             else:
@@ -69,17 +71,24 @@ class LeftTreeDnDFilter(QObject):
                 sel = tree.selectedItems()
                 drag_item = sel[0] if sel else tree.currentItem()
                 if drag_item is None:
-                    self._clear_child_highlight(); self._hide_indicator_line(tree)
-                    event.ignore();
+                    self._clear_child_highlight()
+                    self._hide_indicator_line(tree)
+                    event.ignore()
                     return True
                 kind = drag_item.data(0, 1001)
                 target_item = tree.itemAt(pos_vp) if pos_vp is not None else None
                 # Page: allow only sibling moves (same parent)
                 if kind == "page":
                     if target_item is None or target_item.data(0, 1001) != "page":
-                        self._clear_child_highlight(); self._hide_indicator_line(tree); event.ignore(); return True
+                        self._clear_child_highlight()
+                        self._hide_indicator_line(tree)
+                        event.ignore()
+                        return True
                     if target_item.parent() is not drag_item.parent():
-                        self._clear_child_highlight(); self._hide_indicator_line(tree); event.ignore(); return True
+                        self._clear_child_highlight()
+                        self._hide_indicator_line(tree)
+                        event.ignore()
+                        return True
                     # Show custom before/after indicator line
                     self._clear_child_highlight()
                     rect = tree.visualItemRect(target_item)
@@ -91,19 +100,31 @@ class LeftTreeDnDFilter(QObject):
                 # Section: restrict to same binder (parent top-level item)
                 if kind == "section":
                     if target_item is None or target_item.data(0, 1001) != "section":
-                        self._clear_child_highlight(); self._hide_indicator_line(tree); event.ignore(); return True
+                        self._clear_child_highlight()
+                        self._hide_indicator_line(tree)
+                        event.ignore()
+                        return True
                     if target_item.parent() is None or drag_item.parent() is None:
-                        self._clear_child_highlight(); self._hide_indicator_line(tree); event.ignore(); return True
+                        self._clear_child_highlight()
+                        self._hide_indicator_line(tree)
+                        event.ignore()
+                        return True
                     if target_item.parent() is not drag_item.parent():
-                        self._clear_child_highlight(); self._hide_indicator_line(tree); event.ignore(); return True
-                    self._clear_child_highlight(); self._hide_indicator_line(tree)
+                        self._clear_child_highlight()
+                        self._hide_indicator_line(tree)
+                        event.ignore()
+                        return True
+                    self._clear_child_highlight()
+                    self._hide_indicator_line(tree)
                     return False
                 # Top-level binder: we don't customize visuals
-                self._clear_child_highlight(); self._hide_indicator_line(tree)
+                self._clear_child_highlight()
+                self._hide_indicator_line(tree)
                 return False
 
             if event.type() == QEvent.Drop:
-                self._clear_child_highlight(); self._hide_indicator_line(tree)
+                self._clear_child_highlight()
+                self._hide_indicator_line(tree)
                 sel = tree.selectedItems()
                 drag_item = sel[0] if sel else tree.currentItem()
                 if drag_item is None:
@@ -122,7 +143,11 @@ class LeftTreeDnDFilter(QObject):
                         return True
                     # Gather current sibling pages excluding drag
                     siblings = []
-                    drag_id = int(drag_item.data(0, 1000)) if drag_item.data(0, 1000) is not None else None
+                    drag_id = (
+                        int(drag_item.data(0, 1000))
+                        if drag_item.data(0, 1000) is not None
+                        else None
+                    )
                     for j in range(parent_item.childCount()):
                         ch = parent_item.child(j)
                         if ch.data(0, 1001) == "page":
@@ -131,7 +156,11 @@ class LeftTreeDnDFilter(QObject):
                                 siblings.append((cid, ch))
                     # Determine insertion index
                     insert_idx = len(siblings)  # default append
-                    if target_item is not None and target_item.data(0, 1001) == "page" and target_item.parent() is parent_item:
+                    if (
+                        target_item is not None
+                        and target_item.data(0, 1001) == "page"
+                        and target_item.parent() is parent_item
+                    ):
                         rect = tree.visualItemRect(target_item)
                         h = rect.height() or 1
                         rel_y = pos_vp.y() - rect.top() if pos_vp is not None else 0
@@ -151,31 +180,44 @@ class LeftTreeDnDFilter(QObject):
                         new_order_ids.append(cid)
                     if insert_idx == len(siblings) and drag_id is not None:
                         new_order_ids.append(drag_id)
+
                     # Persist new order
                     def _persist_rebuild():
                         try:
                             from db_pages import set_pages_order
+
                             db_path = getattr(self._window, "_db_path", "notes.db")
+
                             # Determine section & parent_page_id
                             def _section_item_of(item):
                                 cur = item
                                 while cur is not None and cur.data(0, 1001) != "section":
                                     cur = cur.parent()
                                 return cur
+
                             sec_item = _section_item_of(parent_item)
                             sec_id = int(sec_item.data(0, 1000)) if sec_item is not None else None
-                            parent_pid = None if parent_item.data(0, 1001) == "section" else int(parent_item.data(0, 1000))
+                            parent_pid = (
+                                None
+                                if parent_item.data(0, 1001) == "section"
+                                else int(parent_item.data(0, 1000))
+                            )
                             if new_order_ids and sec_id is not None:
-                                set_pages_order(int(sec_id), new_order_ids, db_path, parent_page_id=parent_pid)
+                                set_pages_order(
+                                    int(sec_id), new_order_ids, db_path, parent_page_id=parent_pid
+                                )
                             # Rebuild subtree from DB
                             self._refresh_page_subtree(parent_item, keep_expanded=True)
                             # Reselect moved page
                             if drag_id is not None:
-                                found = self._find_descendant_by_id_kind(parent_item, "page", drag_id)
+                                found = self._find_descendant_by_id_kind(
+                                    parent_item, "page", drag_id
+                                )
                                 if found is not None:
                                     tree.setCurrentItem(found)
                         except Exception:
                             pass
+
                     QTimer.singleShot(0, _persist_rebuild)
                     event.accept()
                     return True
@@ -204,7 +246,8 @@ class LeftTreeDnDFilter(QObject):
                     return False
 
             if event.type() == QEvent.DragLeave:
-                self._clear_child_highlight(); self._hide_indicator_line(tree)
+                self._clear_child_highlight()
+                self._hide_indicator_line(tree)
                 return False
         except Exception:
             pass
@@ -261,7 +304,9 @@ class LeftTreeDnDFilter(QObject):
         except Exception:
             pass
 
-    def _refresh_page_subtree(self, parent_item: QtWidgets.QTreeWidgetItem, keep_expanded: bool = True):
+    def _refresh_page_subtree(
+        self, parent_item: QtWidgets.QTreeWidgetItem, keep_expanded: bool = True
+    ):
         """Rebuild the page-children under the given parent (section or page) from DB.
 
         Ensures the tree view matches persisted order/parentage after DnD.
@@ -289,6 +334,7 @@ class LeftTreeDnDFilter(QObject):
                     return
                 try:
                     from db_pages import get_root_pages_by_section_id
+
                     pages_root = get_root_pages_by_section_id(sec_id, db_path)
                 except Exception:
                     pages_root = []
@@ -309,10 +355,19 @@ class LeftTreeDnDFilter(QObject):
                     try:
                         pflags = page_item.flags()
                         from page_editor import is_two_column_ui as _is_two_col
+
                         if _is_two_col(tree.window()):
-                            pflags = pflags | Qt.ItemIsEnabled | Qt.ItemIsSelectable | Qt.ItemIsDragEnabled | Qt.ItemIsDropEnabled
+                            pflags = (
+                                pflags
+                                | Qt.ItemIsEnabled
+                                | Qt.ItemIsSelectable
+                                | Qt.ItemIsDragEnabled
+                                | Qt.ItemIsDropEnabled
+                            )
                         else:
-                            pflags = (pflags | Qt.ItemIsEnabled) & ~(Qt.ItemIsSelectable | Qt.ItemIsDragEnabled | Qt.ItemIsDropEnabled)
+                            pflags = (pflags | Qt.ItemIsEnabled) & ~(
+                                Qt.ItemIsSelectable | Qt.ItemIsDragEnabled | Qt.ItemIsDropEnabled
+                            )
                         page_item.setFlags(pflags)
                     except Exception:
                         pass
@@ -320,6 +375,7 @@ class LeftTreeDnDFilter(QObject):
                     # Recurse children
                     try:
                         from ui_sections import _add_child_pages_recursively
+
                         _add_child_pages_recursively(sec_id, int(page_id), page_item, db_path)
                     except Exception:
                         pass
@@ -331,6 +387,7 @@ class LeftTreeDnDFilter(QObject):
                     return
                 try:
                     from db_pages import get_child_pages
+
                     children = get_child_pages(sec_id, parent_page_id, db_path)
                 except Exception:
                     children = []
@@ -351,9 +408,16 @@ class LeftTreeDnDFilter(QObject):
                     try:
                         pflags = page_item.flags()
                         from page_editor import is_two_column_ui as _is_two_col
+
                         if _is_two_col(tree.window()):
                             # Subpages: enable DnD like root pages for sibling-only reorder
-                            pflags = pflags | Qt.ItemIsEnabled | Qt.ItemIsSelectable | Qt.ItemIsDragEnabled | Qt.ItemIsDropEnabled
+                            pflags = (
+                                pflags
+                                | Qt.ItemIsEnabled
+                                | Qt.ItemIsSelectable
+                                | Qt.ItemIsDragEnabled
+                                | Qt.ItemIsDropEnabled
+                            )
                         else:
                             pflags = (pflags | Qt.ItemIsEnabled) & ~(Qt.ItemIsSelectable)
                         page_item.setFlags(pflags)
@@ -362,6 +426,7 @@ class LeftTreeDnDFilter(QObject):
                     parent_item.addChild(page_item)
                     try:
                         from ui_sections import _add_child_pages_recursively
+
                         _add_child_pages_recursively(sec_id, int(page_id), page_item, db_path)
                     except Exception:
                         pass
@@ -374,7 +439,9 @@ class LeftTreeDnDFilter(QObject):
         except Exception:
             pass
 
-    def _find_descendant_by_id_kind(self, parent_item: QtWidgets.QTreeWidgetItem, kind: str, id_value: int):
+    def _find_descendant_by_id_kind(
+        self, parent_item: QtWidgets.QTreeWidgetItem, kind: str, id_value: int
+    ):
         if parent_item is None:
             return None
         try:
@@ -445,7 +512,13 @@ class LeftTreeDnDFilter(QObject):
         except Exception:
             pass
 
-    def _persist_section_order(self, tree: QtWidgets.QTreeWidget, binder_item: QtWidgets.QTreeWidgetItem, moved_section_item: QtWidgets.QTreeWidgetItem, keep_expanded: bool = False):
+    def _persist_section_order(
+        self,
+        tree: QtWidgets.QTreeWidget,
+        binder_item: QtWidgets.QTreeWidgetItem,
+        moved_section_item: QtWidgets.QTreeWidgetItem,
+        keep_expanded: bool = False,
+    ):
         """Persist the order of sections under the given binder and refresh its children.
 
         Keeps the moved section selected and avoids expanding unrelated binders.
@@ -484,7 +557,9 @@ class LeftTreeDnDFilter(QObject):
                 # If the section was expanded before the move, expand and select it.
                 # If it was collapsed, refresh children without auto-expanding, then reselect and keep it collapsed.
                 if keep_expanded and moved_sid is not None:
-                    ensure_left_tree_sections(self._window, int(nb_id), select_section_id=int(moved_sid))
+                    ensure_left_tree_sections(
+                        self._window, int(nb_id), select_section_id=int(moved_sid)
+                    )
                 else:
                     ensure_left_tree_sections(self._window, int(nb_id))
                     # Find the freshly rebuilt binder item and the moved section under it

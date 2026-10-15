@@ -63,6 +63,7 @@ def _retention_prune(dest_dir: str, stem: str, keep: int):
         except Exception:
             pass
 
+
 def _cleanup_stale_tmp_backups(dest_dir: str, *, min_age_seconds: int = 24 * 60 * 60):
     """Remove stale temporary backup/export files left from interrupted runs.
 
@@ -109,7 +110,9 @@ def _zip_add_dir(zf: zipfile.ZipFile, dir_path: str, arcbase: str):
             _zip_add_file(zf, sp, arc)
 
 
-def make_exit_backup(db_path: str, dest_dir: str, keep: int = 5, include_media: bool = True) -> Optional[str]:
+def make_exit_backup(
+    db_path: str, dest_dir: str, keep: int = 5, include_media: bool = True
+) -> Optional[str]:
     """Create a timestamped backup bundle for the given database.
 
     Returns the full path to the created .bundle, or None if it failed.
@@ -370,9 +373,7 @@ def show_rename_database_dialog(window):
                 dlg.accept()
         except Exception:
             pass
-        QtWidgets.QMessageBox.information(
-            window, "Rename Database", f"Renamed to:\n{result}"
-        )
+        QtWidgets.QMessageBox.information(window, "Rename Database", f"Renamed to:\n{result}")
 
     if dlg is not None:
         try:
@@ -380,7 +381,9 @@ def show_rename_database_dialog(window):
                 le.setText(current_name)
                 le.selectAll()
             if btn_apply is not None:
-                btn_apply.clicked.connect(lambda: _apply(le.text() if le is not None else current_name))
+                btn_apply.clicked.connect(
+                    lambda: _apply(le.text() if le is not None else current_name)
+                )
             # Allow Enter to confirm when focus is in the line edit
             try:
                 if le is not None:
@@ -492,7 +495,9 @@ def _fetch_binder_payload(db_path: str, notebook_id: int) -> Optional[dict]:
             params = [int(notebook_id)] + sec_ids + [int(r["id"]) for r in pages]
             q = (
                 "SELECT DISTINCT media_id FROM media_refs WHERE "
-                "notebook_id=? OR section_id IN (" + (",".join(["?"] * len(sec_ids)) if sec_ids else "NULL") + ") "
+                "notebook_id=? OR section_id IN ("
+                + (",".join(["?"] * len(sec_ids)) if sec_ids else "NULL")
+                + ") "
                 "OR page_id IN (" + (",".join(["?"] * len(pages)) if pages else "NULL") + ")"
             )
             try:
@@ -522,7 +527,9 @@ def _fetch_binder_payload(db_path: str, notebook_id: int) -> Optional[dict]:
                 (int(notebook_id),),
             )
             for mid, role in cur.fetchall():
-                refs.append({"media_orig_id": int(mid), "notebook_orig_id": int(notebook_id), "role": role})
+                refs.append(
+                    {"media_orig_id": int(mid), "notebook_orig_id": int(notebook_id), "role": role}
+                )
             # Section-level refs
             if sec_ids:
                 q = (
@@ -532,7 +539,9 @@ def _fetch_binder_payload(db_path: str, notebook_id: int) -> Optional[dict]:
                 )
                 cur.execute(q, sec_ids)
                 for mid, sid, role in cur.fetchall():
-                    refs.append({"media_orig_id": int(mid), "section_orig_id": int(sid), "role": role})
+                    refs.append(
+                        {"media_orig_id": int(mid), "section_orig_id": int(sid), "role": role}
+                    )
             # Page-level refs
             if pages:
                 page_ids = [int(r["id"]) for r in pages]
@@ -661,7 +670,7 @@ def export_binder(window):
         return
     binder_title = payload["notebook"]["title"] or "Binder"
     # Sanitize title for filename
-    safe = "".join(ch for ch in binder_title if ch not in '\\/:*?"<>|' ).strip() or "Binder"
+    safe = "".join(ch for ch in binder_title if ch not in '\\/:*?"<>|').strip() or "Binder"
     ts = _timestamp()
     default_name = f"{safe}-{ts}.binder"
 
@@ -738,9 +747,7 @@ def export_binder(window):
             QtWidgets.QApplication.restoreOverrideCursor()
         except Exception:
             pass
-        QtWidgets.QMessageBox.warning(
-            window, "Export Binder", f"Failed to export binder:\n{e}"
-        )
+        QtWidgets.QMessageBox.warning(window, "Export Binder", f"Failed to export binder:\n{e}")
         return
     finally:
         try:
@@ -748,9 +755,7 @@ def export_binder(window):
         except Exception:
             pass
 
-    QtWidgets.QMessageBox.information(
-        window, "Export Binder", f"Binder exported to:\n{out_path}"
-    )
+    QtWidgets.QMessageBox.information(window, "Export Binder", f"Binder exported to:\n{out_path}")
 
 
 # -------------------- Import Binder --------------------
@@ -812,7 +817,9 @@ def import_binder(window):
             try:
                 data = zf.read("binder.json")
             except KeyError:
-                QtWidgets.QMessageBox.warning(window, "Import Binder", "Invalid binder: missing binder.json")
+                QtWidgets.QMessageBox.warning(
+                    window, "Import Binder", "Invalid binder: missing binder.json"
+                )
                 return
             try:
                 manifest = json.loads(data.decode("utf-8"))
@@ -876,7 +883,9 @@ def import_binder(window):
                     src_rel = (spreadsheet.get("rel_path") or "").replace("\\", "/")
                     if not src_rel:
                         continue
-                    spreadsheet_rel_map[src_rel] = ensure_unique_spreadsheet_rel_path(db_path, src_rel)
+                    spreadsheet_rel_map[src_rel] = ensure_unique_spreadsheet_rel_path(
+                        db_path, src_rel
+                    )
             except Exception:
                 spreadsheet_rel_map = {}
 
@@ -889,11 +898,18 @@ def import_binder(window):
             try:
                 cur.execute(
                     "INSERT INTO notebooks(title, created_at, modified_at, order_index) VALUES (?,?,?,?)",
-                    (title, nb_created or "datetime('now')", nb_modified or "datetime('now')", nb_order),
+                    (
+                        title,
+                        nb_created or "datetime('now')",
+                        nb_modified or "datetime('now')",
+                        nb_order,
+                    ),
                 )
             except Exception:
                 # Fallback minimal insert
-                cur.execute("INSERT INTO notebooks(title, order_index) VALUES (?,?)", (title, nb_order))
+                cur.execute(
+                    "INSERT INTO notebooks(title, order_index) VALUES (?,?)", (title, nb_order)
+                )
             nb_new_id = cur.lastrowid
 
             # Map sections
@@ -907,7 +923,14 @@ def import_binder(window):
                 try:
                     cur.execute(
                         "INSERT INTO sections(notebook_id, title, color_hex, created_at, modified_at, order_index) VALUES (?,?,?,?,?,?)",
-                        (nb_new_id, s_title, s_color, s_created or "datetime('now')", s_modified or "datetime('now')", s_order),
+                        (
+                            nb_new_id,
+                            s_title,
+                            s_color,
+                            s_created or "datetime('now')",
+                            s_modified or "datetime('now')",
+                            s_order,
+                        ),
                     )
                 except Exception:
                     cur.execute(
@@ -935,7 +958,14 @@ def import_binder(window):
                     try:
                         cur.execute(
                             "INSERT INTO pages(section_id, title, content_html, created_at, modified_at, order_index) VALUES (?,?,?,?,?,?)",
-                            (new_sid, p_title, p_html, p_created or "datetime('now')", p_modified or "datetime('now')", p_order),
+                            (
+                                new_sid,
+                                p_title,
+                                p_html,
+                                p_created or "datetime('now')",
+                                p_modified or "datetime('now')",
+                                p_order,
+                            ),
                         )
                     except Exception:
                         cur.execute(
@@ -945,7 +975,7 @@ def import_binder(window):
                     page_map[int(p.get("orig_id"))] = cur.lastrowid
 
             # Import media files and upsert media records
-            from media_store import media_root_for_db, ensure_dir, build_rel_path
+            from media_store import build_rel_path, ensure_dir, media_root_for_db
 
             base_media = media_root_for_db(db_path)
             ensure_dir(base_media)
@@ -972,7 +1002,11 @@ def import_binder(window):
                 except KeyError:
                     # Media file missing from bundle; continue but still insert record
                     pass
-                size = os.path.getsize(abs_p) if os.path.exists(abs_p) else int(m.get("size_bytes") or 0)
+                size = (
+                    os.path.getsize(abs_p)
+                    if os.path.exists(abs_p)
+                    else int(m.get("size_bytes") or 0)
+                )
                 # Upsert into media table using the SAME connection
                 cur.execute("SELECT id FROM media WHERE sha256=?", (sha,))
                 row = cur.fetchone()
@@ -1073,6 +1107,7 @@ def import_binder(window):
             else:
                 # Fallback: scan page HTML for media paths and add page-level refs
                 import re
+
                 pat = re.compile(r"media/[0-9a-f]{2}/[0-9a-f]{2}/([0-9a-f]{64})\\.[A-Za-z0-9]+")
                 for s in manifest.get("sections", []):
                     new_sid = sec_map.get(int(s.get("orig_id")))
@@ -1098,9 +1133,9 @@ def import_binder(window):
 
             # UI: repopulate binders, select the new one, and refresh its sections
             try:
-                from left_tree import refresh_for_notebook, ensure_left_tree_sections
-                from ui_logic import populate_notebook_names
+                from left_tree import ensure_left_tree_sections, refresh_for_notebook
                 from settings_manager import set_last_state
+                from ui_logic import populate_notebook_names
 
                 # Persist state to the new notebook id
                 set_last_state(notebook_id=int(nb_new_id), section_id=None, page_id=None)

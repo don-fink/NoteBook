@@ -29,14 +29,17 @@ Idempotent: running again after --apply should result in 'No changes needed'.
 Safety: Uses a single transaction for updates; rolls back automatically
 on exceptions.
 """
+
 from __future__ import annotations
+
 import argparse
 import os
 import sqlite3
 import sys
-from typing import List, Tuple, Dict
+from typing import Dict, List, Tuple
 
 # --- Helpers -----------------------------------------------------------------
+
 
 def _fetchall(con: sqlite3.Connection, sql: str, params: Tuple = ()):
     cur = con.cursor()
@@ -63,6 +66,7 @@ def _normalize_sequence(values: List[Tuple[int, int]]) -> List[Tuple[int, int]]:
 
 # --- Normalizers --------------------------------------------------------------
 
+
 def normalize_notebooks(con: sqlite3.Connection) -> Dict[str, List[Tuple[int, int]]]:
     rows = _fetchall(con, "SELECT id, order_index FROM notebooks ORDER BY order_index ASC, id ASC")
     changes = _normalize_sequence(rows)
@@ -73,7 +77,11 @@ def normalize_sections(con: sqlite3.Connection) -> Dict[str, List[Tuple[int, int
     notebook_ids = [r[0] for r in _fetchall(con, "SELECT id FROM notebooks ORDER BY id ASC")]
     all_changes: List[Tuple[int, int]] = []
     for nb_id in notebook_ids:
-        rows = _fetchall(con, "SELECT id, order_index FROM sections WHERE notebook_id = ? ORDER BY order_index, id", (nb_id,))
+        rows = _fetchall(
+            con,
+            "SELECT id, order_index FROM sections WHERE notebook_id = ? ORDER BY order_index, id",
+            (nb_id,),
+        )
         changes = _normalize_sequence(rows)
         all_changes.extend(changes)
     return {"sections": all_changes}
@@ -93,25 +101,41 @@ def normalize_pages(con: sqlite3.Connection) -> Dict[str, List[Tuple[int, int]]]
     all_changes: List[Tuple[int, int]] = []
     if has_parent:
         # Distinct groups (section_id, parent_page_id) - SQLite lacks NULLS FIRST keyword
-        groups = _fetchall(con, "SELECT DISTINCT section_id, parent_page_id FROM pages ORDER BY section_id ASC, parent_page_id ASC")
+        groups = _fetchall(
+            con,
+            "SELECT DISTINCT section_id, parent_page_id FROM pages ORDER BY section_id ASC, parent_page_id ASC",
+        )
         for section_id, parent_page_id in groups:
             if parent_page_id is None:
-                rows = _fetchall(con, "SELECT id, order_index FROM pages WHERE section_id = ? AND parent_page_id IS NULL ORDER BY order_index, id", (section_id,))
+                rows = _fetchall(
+                    con,
+                    "SELECT id, order_index FROM pages WHERE section_id = ? AND parent_page_id IS NULL ORDER BY order_index, id",
+                    (section_id,),
+                )
             else:
-                rows = _fetchall(con, "SELECT id, order_index FROM pages WHERE section_id = ? AND parent_page_id = ? ORDER BY order_index, id", (section_id, parent_page_id))
+                rows = _fetchall(
+                    con,
+                    "SELECT id, order_index FROM pages WHERE section_id = ? AND parent_page_id = ? ORDER BY order_index, id",
+                    (section_id, parent_page_id),
+                )
             changes = _normalize_sequence(rows)
             all_changes.extend(changes)
     else:
         # Legacy: group only by section
         sections = _fetchall(con, "SELECT DISTINCT section_id FROM pages ORDER BY section_id ASC")
         for (section_id,) in sections:
-            rows = _fetchall(con, "SELECT id, order_index FROM pages WHERE section_id = ? ORDER BY order_index, id", (section_id,))
+            rows = _fetchall(
+                con,
+                "SELECT id, order_index FROM pages WHERE section_id = ? ORDER BY order_index, id",
+                (section_id,),
+            )
             changes = _normalize_sequence(rows)
             all_changes.extend(changes)
     return {"pages": all_changes}
 
 
 # --- Apply --------------------------------------------------------------------
+
 
 def apply_changes(con: sqlite3.Connection, changes: Dict[str, List[Tuple[int, int]]]):
     cur = con.cursor()
@@ -128,6 +152,7 @@ def apply_changes(con: sqlite3.Connection, changes: Dict[str, List[Tuple[int, in
 
 
 # --- Reporting ----------------------------------------------------------------
+
 
 def summarize(changes: Dict[str, List[Tuple[int, int]]]) -> str:
     lines = []
@@ -148,6 +173,7 @@ def verbose_dump(con: sqlite3.Connection, changes: Dict[str, List[Tuple[int, int
         print(f"{label} changes (id -> new_order_index):")
         for rid, new_ord in rows:
             print(f"  {rid} -> {new_ord}")
+
     dump("Notebooks", changes.get("notebooks", []))
     dump("Sections", changes.get("sections", []))
     dump("Pages", changes.get("pages", []))
@@ -155,11 +181,16 @@ def verbose_dump(con: sqlite3.Connection, changes: Dict[str, List[Tuple[int, int
 
 # --- Main ---------------------------------------------------------------------
 
+
 def main(argv=None):
-    parser = argparse.ArgumentParser(description="Normalize order_index values for notebooks, sections, and pages.")
+    parser = argparse.ArgumentParser(
+        description="Normalize order_index values for notebooks, sections, and pages."
+    )
     parser.add_argument("db_path", help="Path to SQLite database file")
     group = parser.add_mutually_exclusive_group()
-    group.add_argument("--dry-run", dest="dry_run", action="store_true", help="Show planned changes only (default)")
+    group.add_argument(
+        "--dry-run", dest="dry_run", action="store_true", help="Show planned changes only (default)"
+    )
     group.add_argument("--apply", dest="apply", action="store_true", help="Apply changes")
     parser.add_argument("--verbose", action="store_true", help="Show detailed per-id changes")
     args = parser.parse_args(argv)

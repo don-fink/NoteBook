@@ -16,7 +16,8 @@ def get_sections_by_notebook_id(notebook_id, db_path, include_deleted: bool = Fa
         )
     else:
         cursor.execute(
-            "SELECT * FROM sections WHERE notebook_id = ? AND deleted_at IS NULL ORDER BY order_index, id", (notebook_id,)
+            "SELECT * FROM sections WHERE notebook_id = ? AND deleted_at IS NULL ORDER BY order_index, id",
+            (notebook_id,),
         )
     rows = cursor.fetchall()
     conn.close()
@@ -55,7 +56,8 @@ def _get_next_section_order_index(notebook_id: int, db_path: str) -> int:
     conn = sqlite3.connect(db_path)
     cur = conn.cursor()
     cur.execute(
-        "SELECT COALESCE(MAX(order_index), 0) FROM sections WHERE notebook_id = ? AND deleted_at IS NULL", (notebook_id,)
+        "SELECT COALESCE(MAX(order_index), 0) FROM sections WHERE notebook_id = ? AND deleted_at IS NULL",
+        (notebook_id,),
     )
     max_idx = cur.fetchone()[0] or 0
     conn.close()
@@ -89,7 +91,7 @@ def rename_section(section_id: int, title: str, db_path: str):
 
 def delete_section(section_id: int, db_path: str):
     """Soft-delete a section by setting deleted_at timestamp.
-    
+
     Also soft-deletes all pages within the section (cascade).
     """
     conn = sqlite3.connect(db_path)
@@ -98,13 +100,10 @@ def delete_section(section_id: int, db_path: str):
         # Soft-delete all pages in this section
         cur.execute(
             "UPDATE pages SET deleted_at = datetime('now') WHERE section_id = ? AND deleted_at IS NULL",
-            (section_id,)
+            (section_id,),
         )
         # Soft-delete the section itself
-        cur.execute(
-            "UPDATE sections SET deleted_at = datetime('now') WHERE id = ?",
-            (section_id,)
-        )
+        cur.execute("UPDATE sections SET deleted_at = datetime('now') WHERE id = ?", (section_id,))
         conn.commit()
     finally:
         conn.close()
@@ -116,15 +115,9 @@ def restore_section(section_id: int, db_path: str):
     cur = conn.cursor()
     try:
         # Restore the section
-        cur.execute(
-            "UPDATE sections SET deleted_at = NULL WHERE id = ?",
-            (section_id,)
-        )
+        cur.execute("UPDATE sections SET deleted_at = NULL WHERE id = ?", (section_id,))
         # Restore all pages in this section
-        cur.execute(
-            "UPDATE pages SET deleted_at = NULL WHERE section_id = ?",
-            (section_id,)
-        )
+        cur.execute("UPDATE pages SET deleted_at = NULL WHERE section_id = ?", (section_id,))
         conn.commit()
     finally:
         conn.close()

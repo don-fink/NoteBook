@@ -28,6 +28,7 @@ Qt = QtCore.Qt
 PLANNING_REG_PROPERTY = int(QTextFormat.UserProperty) + 500
 COST_LIST_TABLE_PROPERTY = int(QTextFormat.UserProperty) + 501
 
+
 def _to_table_cell_format(fmt):
     try:
         if isinstance(fmt, QTextTableCellFormat):
@@ -111,6 +112,7 @@ def _insert_inner_table_in_cursor(cursor):
     # Theme-aware header/totals colors
     try:
         from settings_manager import get_table_theme
+
         _theme = get_table_theme()
         _hdr = _theme.get("header_bg", "#F5F5F5")
         header_bg = QBrush(QColor(_hdr))
@@ -143,6 +145,7 @@ def _insert_inner_table_in_cursor(cursor):
     # Background for totals row
     try:
         from settings_manager import get_table_theme
+
         _theme2 = get_table_theme()
         _tot = _theme2.get("totals_bg", "#F5F5F5")
         totals_bg = QBrush(QColor(_tot))
@@ -189,6 +192,7 @@ def _insert_right_cost_table_in_cursor(cursor):
     header_fmt.setFontWeight(QFont.Bold)
     try:
         from settings_manager import get_table_theme
+
         _theme = get_table_theme()
         _cost = _theme.get("cost_header_bg", "#F5F5F5")
         header_bg = QBrush(QColor(_cost))
@@ -340,7 +344,10 @@ def _is_cost_list_table(text_edit: QtWidgets.QTextEdit, table) -> bool:
         parent = probe.currentTable()
         if parent is None:
             return False
-        if not (parent.firstPosition() < table.firstPosition() and parent.lastPosition() >= table.lastPosition()):
+        if not (
+            parent.firstPosition() < table.firstPosition()
+            and parent.lastPosition() >= table.lastPosition()
+        ):
             return False
         if parent.rows() != 1 or parent.columns() != 2:
             return False
@@ -462,7 +469,9 @@ class _PlanningRegisterWatcher(QtCore.QObject):
                                     if is_num:
                                         fmt_val = _format_currency(val)
                                         if raw != fmt_val:
-                                            _cell_set_plain_text(self._edit, table, row, col, fmt_val)
+                                            _cell_set_plain_text(
+                                                self._edit, table, row, col, fmt_val
+                                            )
                                         # Right-align all paragraphs in the cost cell
                                         try:
                                             bf = QTextBlockFormat()
@@ -490,9 +499,13 @@ class _PlanningRegisterWatcher(QtCore.QObject):
                         # Block editing in protected cells (only columns 0, 1, 2 - user-added columns are editable)
                         if col <= 2 and _is_protected_cell(table, row, col):
                             if (
-                                key in (Qt.Key_Backspace, Qt.Key_Delete, Qt.Key_Return, Qt.Key_Enter)
+                                key
+                                in (Qt.Key_Backspace, Qt.Key_Delete, Qt.Key_Return, Qt.Key_Enter)
                                 or (event.text() and event.text().strip())
-                                or ((mods & Qt.ControlModifier) and key in (Qt.Key_V, Qt.Key_X, Qt.Key_Insert))
+                                or (
+                                    (mods & Qt.ControlModifier)
+                                    and key in (Qt.Key_V, Qt.Key_X, Qt.Key_Insert)
+                                )
                                 or ((mods & Qt.ShiftModifier) and key == Qt.Key_Insert)
                             ):
                                 return True  # eat the key
@@ -558,9 +571,13 @@ class _PlanningRegisterWatcher(QtCore.QObject):
                         # Protect header row from edits/paste/enter
                         if row == 0:
                             if (
-                                key in (Qt.Key_Backspace, Qt.Key_Delete, Qt.Key_Return, Qt.Key_Enter)
+                                key
+                                in (Qt.Key_Backspace, Qt.Key_Delete, Qt.Key_Return, Qt.Key_Enter)
                                 or (event.text() and event.text().strip())
-                                or ((mods & Qt.ControlModifier) and key in (Qt.Key_V, Qt.Key_X, Qt.Key_Insert))
+                                or (
+                                    (mods & Qt.ControlModifier)
+                                    and key in (Qt.Key_V, Qt.Key_X, Qt.Key_Insert)
+                                )
                                 or ((mods & Qt.ShiftModifier) and key == Qt.Key_Insert)
                             ):
                                 return True
@@ -635,7 +652,9 @@ class _PlanningRegisterWatcher(QtCore.QObject):
                             if is_num:
                                 fmt_val = _format_currency(val)
                                 if raw != fmt_val:
-                                    _cell_set_plain_text(self._edit, prev_table, prev_row, prev_col, fmt_val)
+                                    _cell_set_plain_text(
+                                        self._edit, prev_table, prev_row, prev_col, fmt_val
+                                    )
                                 # Right-align all paragraphs in the cost cell
                                 try:
                                     bf = QTextBlockFormat()
@@ -661,7 +680,11 @@ class _PlanningRegisterWatcher(QtCore.QObject):
                     now_table = None
                 if now_table is not None:
                     # Planning Register numeric columns
-                    if _is_planning_register_table(self._edit, now_table) and now_col in (1, 2) and not _is_protected_cell(now_table, now_row, now_col):
+                    if (
+                        _is_planning_register_table(self._edit, now_table)
+                        and now_col in (1, 2)
+                        and not _is_protected_cell(now_table, now_row, now_col)
+                    ):
                         try:
                             cell = now_table.cellAt(now_row, now_col)
                             if cell.isValid():
@@ -677,7 +700,9 @@ class _PlanningRegisterWatcher(QtCore.QObject):
                         except Exception:
                             pass
                     # Right-side cost list numeric column
-                    elif _is_cost_list_table(self._edit, now_table) and now_col == 1 and now_row != 0:
+                    elif (
+                        _is_cost_list_table(self._edit, now_table) and now_col == 1 and now_row != 0
+                    ):
                         try:
                             cell = now_table.cellAt(now_row, now_col)
                             if cell.isValid():
@@ -710,7 +735,11 @@ class _PlanningRegisterWatcher(QtCore.QObject):
             row = cell.row()
             col = cell.column()
             # Planning register numeric cells
-            if _is_planning_register_table(self._edit, tbl) and col in (1, 2) and not _is_protected_cell(tbl, row, col):
+            if (
+                _is_planning_register_table(self._edit, tbl)
+                and col in (1, 2)
+                and not _is_protected_cell(tbl, row, col)
+            ):
                 self._updating = True
                 try:
                     self._edit.setTextCursor(cell.lastCursorPosition())
@@ -788,6 +817,7 @@ def insert_planning_register(window: QtWidgets.QMainWindow):
     # Enforce uniform borders (1px black) across all tables in the editor
     try:
         from ui_richtext import _enforce_uniform_table_borders
+
         _enforce_uniform_table_borders(te)
     except Exception:
         pass
@@ -817,6 +847,7 @@ def refresh_planning_register_styles(text_edit: QtWidgets.QTextEdit):
     seen = set()
     try:
         from settings_manager import get_table_theme
+
         _t = get_table_theme()
         bg = QColor(_t.get("header_bg", "#F5F5F5"))
         totals_bg = QColor(_t.get("totals_bg", "#F5F5F5"))

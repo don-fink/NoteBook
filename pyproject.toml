@@ -6,6 +6,10 @@ profile = "black"
 
 [tool.ruff]
 line-length = 100
+extend-exclude = ["*.ipynb", "build", "dist", "NoteBook_Release"]
+
+[tool.ruff.lint]
+ignore = ["E402", "E701", "E702"]
 
 [tool.mypy]
 ignore_missing_imports = true

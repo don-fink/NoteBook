@@ -2,9 +2,8 @@
 main.py
 Entry point for the NoteBook application. Handles main window setup, menu actions, database creation/opening, and application startup.
 """
-import os
-import re
 
+import os
 import sys
 import warnings
 
@@ -29,6 +28,16 @@ from db_sections import get_sections_by_notebook_id as db_get_sections_by_notebo
 from db_sections import move_section_down as db_move_section_down
 from db_sections import move_section_up as db_move_section_up
 from db_sections import rename_section as db_rename_section
+from left_tree import (
+    ensure_left_tree_sections,
+    refresh_for_notebook,
+    select_left_tree_page,
+    update_left_tree_page_title,
+)
+from page_editor import is_two_column_ui as _is_two_column_ui
+from page_editor import load_first_page_two_column as _load_first_page_two_column
+from page_editor import load_page as _load_page_two_column
+from page_editor import save_current_page
 from settings_manager import (
     clear_last_state,
     get_last_db,
@@ -39,20 +48,11 @@ from settings_manager import (
     set_window_geometry,
     set_window_maximized,
 )
+from two_pane_core import restore_last_position, setup_two_pane
 from ui_loader import load_main_window
 from ui_logic import populate_notebook_names
-from left_tree import ensure_left_tree_sections, refresh_for_notebook
-from two_pane_core import restore_last_position, setup_two_pane
-from left_tree import select_left_tree_page, update_left_tree_page_title
-from page_editor import (
-    is_two_column_ui as _is_two_column_ui,
-    load_page as _load_page_two_column,
-    load_first_page_two_column as _load_first_page_two_column,
-    save_current_page,
-)
-from ui_richtext import insert_table_from_preset
-from ui_richtext import install_image_support
 from ui_planning_register import ensure_planning_register_watcher
+from ui_richtext import insert_table_from_preset, install_image_support
 
 
 def _install_global_excepthook():
@@ -68,6 +68,7 @@ def _install_global_excepthook():
         # Write to a local crash log for diagnostics
         try:
             import os as _os
+
             log_path = _os.path.join(_os.path.dirname(_os.path.abspath(__file__)), "crash.log")
             with open(log_path, "a", encoding="utf-8") as _f:
                 _f.write("\n=== Unhandled exception ===\n")
@@ -89,12 +90,15 @@ def _install_global_excepthook():
     except Exception:
         pass
 
+
 # --- Database initialization / migration helpers (reintroduced after rollback) ---
 def create_new_database_file(db_path: str):
     """Create a brand new SQLite database at db_path using schema.sql and set initial version.
 
     Safe to call if the file already exists (will no-op)."""
-    import os, sqlite3
+    import os
+    import sqlite3
+
     if os.path.isfile(db_path):
         # Do not overwrite existing DB; assume it's valid or will be initialized later.
         return
@@ -118,11 +122,14 @@ def create_new_database_file(db_path: str):
     finally:
         conn.close()
 
+
 def ensure_database_initialized(db_path: str):
     """Ensure required tables exist; if missing, apply schema.
 
     Idempotent: running on an existing, fully initialized DB is safe."""
-    import os, sqlite3
+    import os
+    import sqlite3
+
     # If file missing, create directly
     if not os.path.isfile(db_path):
         create_new_database_file(db_path)
@@ -148,25 +155,27 @@ def ensure_database_initialized(db_path: str):
     finally:
         conn.close()
 
+
 def migrate_database_if_needed(db_path: str, parent_window=None) -> bool:
     """Apply in-place migrations based on PRAGMA user_version.
 
     Current target version = 6. Returns True if migration succeeded or wasn't needed,
     False if user cancelled/chose to load a different database.
-    
+
     Version history:
     - Version 4: Base schema (notebooks, sections, pages with order_index, parent_page_id)
     - Version 5: Added deleted_at column to notebooks, sections, pages for soft-delete
     - Version 6: Added spreadsheets table for external spreadsheet metadata
     """
     import sqlite3
+
     TARGET = 6
     conn = sqlite3.connect(db_path)
     try:
         cur = conn.cursor()
         cur.execute("PRAGMA user_version")
         version = cur.fetchone()[0]
-        
+
         # Check if deleted_at column exists (handles case where version wasn't bumped)
         def column_exists(table, column):
             cur.execute(f"PRAGMA table_info({table})")
@@ -176,17 +185,17 @@ def migrate_database_if_needed(db_path: str, parent_window=None) -> bool:
         def table_exists(table):
             cur.execute("SELECT name FROM sqlite_master WHERE type='table' AND name=?", (table,))
             return cur.fetchone() is not None
-        
+
         needs_soft_delete = (
-            not column_exists('notebooks', 'deleted_at') or
-            not column_exists('sections', 'deleted_at') or
-            not column_exists('pages', 'deleted_at')
+            not column_exists("notebooks", "deleted_at")
+            or not column_exists("sections", "deleted_at")
+            or not column_exists("pages", "deleted_at")
         )
-        needs_spreadsheets = not table_exists('spreadsheets')
+        needs_spreadsheets = not table_exists("spreadsheets")
 
         if version >= TARGET and not needs_soft_delete and not needs_spreadsheets:
             return True  # Already up to date
-        
+
         if needs_soft_delete or needs_spreadsheets:
             # Prompt user before upgrading
             if parent_window is not None:
@@ -200,57 +209,64 @@ def migrate_database_if_needed(db_path: str, parent_window=None) -> bool:
                     "It's recommended to back up your database before proceeding.\n\n"
                     "Would you like to upgrade now?"
                 )
-                upgrade_btn = msg_box.addButton("Upgrade", QtWidgets.QMessageBox.AcceptRole)
-                different_btn = msg_box.addButton("Open Different Database", QtWidgets.QMessageBox.RejectRole)
+                msg_box.addButton("Upgrade", QtWidgets.QMessageBox.AcceptRole)
+                different_btn = msg_box.addButton(
+                    "Open Different Database", QtWidgets.QMessageBox.RejectRole
+                )
                 cancel_btn = msg_box.addButton(QtWidgets.QMessageBox.Cancel)
                 msg_box.exec_()
                 clicked = msg_box.clickedButton()
-                
+
                 if clicked == cancel_btn or clicked == different_btn:
                     conn.close()
                     return False  # Caller should handle - either exit or prompt for different DB
-            
+
             # Apply migration: add deleted_at columns and spreadsheet metadata table
             try:
                 if needs_soft_delete:
-                    if not column_exists('notebooks', 'deleted_at'):
+                    if not column_exists("notebooks", "deleted_at"):
                         cur.execute("ALTER TABLE notebooks ADD COLUMN deleted_at TEXT NULL")
-                    if not column_exists('sections', 'deleted_at'):
+                    if not column_exists("sections", "deleted_at"):
                         cur.execute("ALTER TABLE sections ADD COLUMN deleted_at TEXT NULL")
-                    if not column_exists('pages', 'deleted_at'):
+                    if not column_exists("pages", "deleted_at"):
                         cur.execute("ALTER TABLE pages ADD COLUMN deleted_at TEXT NULL")
 
                     # Create indexes for soft-delete queries
-                    cur.execute("CREATE INDEX IF NOT EXISTS idx_notebooks_deleted ON notebooks(deleted_at)")
-                    cur.execute("CREATE INDEX IF NOT EXISTS idx_sections_deleted ON sections(deleted_at)")
+                    cur.execute(
+                        "CREATE INDEX IF NOT EXISTS idx_notebooks_deleted ON notebooks(deleted_at)"
+                    )
+                    cur.execute(
+                        "CREATE INDEX IF NOT EXISTS idx_sections_deleted ON sections(deleted_at)"
+                    )
                     cur.execute("CREATE INDEX IF NOT EXISTS idx_pages_deleted ON pages(deleted_at)")
 
                 if needs_spreadsheets:
                     from spreadsheet_store import SPREADSHEET_TABLES_SQL
 
                     cur.executescript(SPREADSHEET_TABLES_SQL)
-                
+
                 conn.commit()
             except Exception as e:
                 if parent_window is not None:
                     QtWidgets.QMessageBox.critical(
                         parent_window,
                         "Migration Failed",
-                        f"Failed to upgrade database schema:\n{e}"
+                        f"Failed to upgrade database schema:\n{e}",
                     )
                 conn.close()
                 return False
-        
+
         # Bump version to target
         try:
             cur.execute(f"PRAGMA user_version = {int(TARGET)}")
             conn.commit()
         except Exception:
             pass
-        
+
         return True
     finally:
         conn.close()
+
 
 def open_database(window):
     """Prompt user to open an existing database file and switch context."""
@@ -292,8 +308,9 @@ def _enable_faulthandler(log_path: str):
     """
     try:
         import faulthandler as _faulthandler
+
         try:
-            f = open(log_path, 'a', encoding='utf-8')
+            f = open(log_path, "a", encoding="utf-8")
         except Exception:
             f = None
         if f is not None:
@@ -308,12 +325,14 @@ def _install_qt_message_handler(log_path: str):
         qInstallMessageHandler = QtCore.qInstallMessageHandler
     except Exception:
         return
+
     def _handler(mode, context, message):  # pragma: no cover
         try:
-            with open(log_path, 'a', encoding='utf-8') as f:
+            with open(log_path, "a", encoding="utf-8") as f:
                 f.write(f"[QT] {message}\n")
         except Exception:
             pass
+
     try:
         qInstallMessageHandler(_handler)
     except Exception:
@@ -343,7 +362,9 @@ def _select_left_tree_notebook(window, notebook_id: int):
 def add_binder(window):
     """Create a new notebook (binder) and refresh the left tree."""
     db_path = getattr(window, "_db_path", None) or get_last_db() or "notes.db"
-    title, ok = QtWidgets.QInputDialog.getText(window, "Add Binder", "Title:", text="Untitled Binder")
+    title, ok = QtWidgets.QInputDialog.getText(
+        window, "Add Binder", "Title:", text="Untitled Binder"
+    )
     if not ok:
         return
     title = (title or "Untitled Binder").strip() or "Untitled Binder"
@@ -362,7 +383,9 @@ def add_binder(window):
 
 def create_new_database(window):
     """Create a brand new database file and switch application context to it."""
-    dlg_path, _ = QtWidgets.QFileDialog.getSaveFileName(window, "Create New Database", "notes.db", "SQLite DB (*.db);;All Files (*)")
+    dlg_path, _ = QtWidgets.QFileDialog.getSaveFileName(
+        window, "Create New Database", "notes.db", "SQLite DB (*.db);;All Files (*)"
+    )
     if not dlg_path:
         return
     try:
@@ -423,8 +446,8 @@ def rename_binder(window):
     populate_notebook_names(window, db_path)
     # Restore expansion from persisted state
     try:
-        from settings_manager import get_expanded_notebooks
         from left_tree import ensure_left_tree_sections
+        from settings_manager import get_expanded_notebooks
 
         persisted_ids = get_expanded_notebooks()
         for i in range(tree_widget.topLevelItemCount()):
@@ -503,8 +526,8 @@ def delete_binder(window):
     populate_notebook_names(window, db_path)
     # Restore previously expanded binders (excluding the one we just deleted), based on persisted state
     try:
-        from settings_manager import get_expanded_notebooks
         from left_tree import ensure_left_tree_sections
+        from settings_manager import get_expanded_notebooks
 
         persisted_ids = get_expanded_notebooks()
         if persisted_ids:
@@ -666,6 +689,7 @@ def add_page(window):
         nb_id = None
         try:
             import sqlite3
+
             con = sqlite3.connect(db_path)
             cur = con.cursor()
             cur.execute("SELECT notebook_id FROM sections WHERE id = ?", (int(section_id),))
@@ -769,7 +793,7 @@ def insert_attachment(window):
     if not file_path:
         return
     try:
-        from media_store import add_media_ref, save_file_into_store, guess_mime_and_ext
+        from media_store import add_media_ref, guess_mime_and_ext, save_file_into_store
 
         # Save into store and record attachment ref
         media_id, rel_path = save_file_into_store(db_path, file_path)
@@ -779,8 +803,26 @@ def insert_attachment(window):
         mime, ext = guess_mime_and_ext(file_path)
         is_image_mime = isinstance(mime, str) and mime.lower().startswith("image/")
         raw_exts = {
-            "dng", "nef", "cr2", "cr3", "arw", "orf", "rw2", "raf", "srw", "pef",
-            "rw1", "3fr", "erf", "kdc", "mrw", "nrw", "ptx", "r3d", "sr2", "x3f"
+            "dng",
+            "nef",
+            "cr2",
+            "cr3",
+            "arw",
+            "orf",
+            "rw2",
+            "raf",
+            "srw",
+            "pef",
+            "rw1",
+            "3fr",
+            "erf",
+            "kdc",
+            "mrw",
+            "nrw",
+            "ptx",
+            "r3d",
+            "sr2",
+            "x3f",
         }
         did_inline = False
         if is_image_mime and (ext or "").lower() not in raw_exts:
@@ -798,9 +840,7 @@ def insert_attachment(window):
                 html = f'<img src="{name_attr}" width="{int(max(16, long_side))}" />'
                 try:
                     cur = te.textCursor()
-                    before = cur.position()
                     cur.insertHtml(html)
-                    after = cur.position()
                     te.setTextCursor(cur)
                     did_inline = True
                 except Exception:
@@ -1144,7 +1184,10 @@ def manage_page_spreadsheets(window):
 
     db_path = getattr(window, "_db_path", None) or get_last_db() or "notes.db"
     try:
-        from spreadsheet_store import get_spreadsheets_for_page, resolve_spreadsheet_path
+        from spreadsheet_store import (
+            get_spreadsheets_for_page,
+            resolve_spreadsheet_path,
+        )
 
         spreadsheets = get_spreadsheets_for_page(db_path, int(page_id))
         if not spreadsheets:
@@ -1269,8 +1312,8 @@ def backup_database_now(window):
 
         db_path = getattr(window, "_db_path", None) or get_last_db() or "notes.db"
         from settings_manager import (
-            get_exit_backup_dir,
             get_backups_to_keep,
+            get_exit_backup_dir,
             set_exit_backup_dir,
         )
 
@@ -1298,6 +1341,7 @@ def backup_database_now(window):
         QtWidgets.QApplication.setOverrideCursor(Qt.WaitCursor)
         try:
             from backup import make_exit_backup
+
             bundle = make_exit_backup(
                 db_path, dest, keep=int(get_backups_to_keep()), include_media=True
             )
@@ -1313,12 +1357,11 @@ def backup_database_now(window):
             )
         else:
             QtWidgets.QMessageBox.warning(
-                window,
-                "Backup Failed",
-                "Backup did not create a bundle."
+                window, "Backup Failed", "Backup did not create a bundle."
             )
     except Exception as e:
         QtWidgets.QMessageBox.warning(window, "Backup Failed", f"Error: {e}")
+
 
 def save_database_as(window):
     """Save the current database and its media folder under a new name (copy) and switch to it."""
@@ -1407,23 +1450,23 @@ def print_current_selection(window):
         QPrinter = QtPrintSupport.QPrinter
         QPrintDialog = QtPrintSupport.QPrintDialog
         QTextDocument = QtGui.QTextDocument
-        
+
         # Get HTML content for selected item
         html_content = _get_print_html_content(window)
         if not html_content:
             return
-        
+
         # Create printer and dialog
         printer = QPrinter(QPrinter.HighResolution)
         dialog = QPrintDialog(printer, window)
         dialog.setWindowTitle("Print")
-        
+
         if dialog.exec_() == QtWidgets.QDialog.Accepted:
             # Create document and print
             document = QTextDocument()
             document.setHtml(html_content)
             document.print_(printer)
-            
+
     except Exception as e:
         QtWidgets.QMessageBox.critical(window, "Print Error", f"Failed to print: {str(e)}")
 
@@ -1434,27 +1477,27 @@ def print_preview_current_selection(window):
         QPrinter = QtPrintSupport.QPrinter
         QPrintPreviewDialog = QtPrintSupport.QPrintPreviewDialog
         QTextDocument = QtGui.QTextDocument
-        
+
         # Get HTML content for selected item
         html_content = _get_print_html_content(window)
         if not html_content:
             return
-        
+
         # Create document
         document = QTextDocument()
         document.setHtml(html_content)
-        
+
         # Create printer and preview dialog
         printer = QPrinter(QPrinter.HighResolution)
         preview = QPrintPreviewDialog(printer, window)
         preview.setWindowTitle("Print Preview")
-        
+
         # Connect the paintRequested signal to render the document
         preview.paintRequested.connect(lambda p: document.print_(p))
-        
+
         # Show preview dialog (which includes print button)
         preview.exec_()
-            
+
     except Exception as e:
         QtWidgets.QMessageBox.critical(window, "Print Error", f"Failed to print: {str(e)}")
 
@@ -1465,20 +1508,24 @@ def _get_print_html_content(window):
         # Determine what's selected in the left tree
         tree_widget = window.findChild(QtWidgets.QTreeWidget, "notebookName")
         if tree_widget is None:
-            QtWidgets.QMessageBox.information(window, "Print", "Please select a page, section, or binder to print.")
+            QtWidgets.QMessageBox.information(
+                window, "Print", "Please select a page, section, or binder to print."
+            )
             return None
-        
+
         current_item = tree_widget.currentItem()
         if current_item is None:
-            QtWidgets.QMessageBox.information(window, "Print", "Please select a page, section, or binder to print.")
+            QtWidgets.QMessageBox.information(
+                window, "Print", "Please select a page, section, or binder to print."
+            )
             return None
-        
+
         # Get item type and ID
         item_kind = current_item.data(0, 1001)  # 'page', 'section', or None (binder)
         item_id = current_item.data(0, 1000)
-        
+
         db_path = getattr(window, "_db_path", None) or "notes.db"
-        
+
         # Build HTML content based on selection
         html_content = "<html><head><style>"
         html_content += "body { font-family: Arial, sans-serif; margin: 20px; }"
@@ -1487,7 +1534,7 @@ def _get_print_html_content(window):
         html_content += ".page-content { margin-top: 10px; }"
         html_content += ".page-break { page-break-before: always; }"
         html_content += "</style></head><body>"
-        
+
         if item_kind == "page":
             # Print single page - get binder and section context
             binder_name, section_name = _get_page_context(current_item)
@@ -1495,18 +1542,22 @@ def _get_print_html_content(window):
         elif item_kind == "section":
             # Print all pages in section - get binder context
             section_title = current_item.text(0)
-            binder_name = current_item.parent().text(0) if current_item.parent() else "Unknown Binder"
+            binder_name = (
+                current_item.parent().text(0) if current_item.parent() else "Unknown Binder"
+            )
             html_content += _get_section_pages_html(item_id, db_path, binder_name, section_title)
         else:
             # Print entire binder (notebook)
             binder_title = current_item.text(0)
             html_content += _get_binder_html(item_id, db_path, binder_title)
-        
+
         html_content += "</body></html>"
         return html_content
-        
+
     except Exception as e:
-        QtWidgets.QMessageBox.critical(window, "Print Error", f"Failed to build print content: {str(e)}")
+        QtWidgets.QMessageBox.critical(
+            window, "Print Error", f"Failed to build print content: {str(e)}"
+        )
         return None
 
 
@@ -1514,7 +1565,7 @@ def _get_page_context(tree_item):
     """Get binder and section names for a page tree item."""
     binder_name = "Unknown Binder"
     section_name = "Unknown Section"
-    
+
     # Walk up the tree to find section and binder
     parent = tree_item.parent()
     if parent:
@@ -1532,7 +1583,7 @@ def _get_page_context(tree_item):
                 grandparent = parent.parent()
                 if grandparent:
                     binder_name = grandparent.text(0)
-    
+
     return binder_name, section_name
 
 
@@ -1540,15 +1591,14 @@ def _get_page_html(page_id, db_path, binder_name=None, section_name=None):
     """Get HTML for a single page with hierarchical header."""
     try:
         from db_pages import get_page_by_id
-        import sqlite3
-        
+
         page = get_page_by_id(int(page_id), db_path)
         if not page:
             return "<p>Page not found.</p>"
-        
+
         title = page[2]  # title is at index 2
         content = page[3]  # content is at index 3
-        
+
         html = ""
         # Add hierarchical header if we have context
         if binder_name and section_name:
@@ -1564,11 +1614,10 @@ def _get_section_pages_html(section_id, db_path, binder_name, section_name):
     """Get HTML for all pages in a section with hierarchical headers."""
     try:
         from db_pages import get_root_pages_by_section_id
-        import sqlite3
-        
+
         html = ""
         pages = get_root_pages_by_section_id(int(section_id), db_path)
-        
+
         for idx, page in enumerate(pages):
             page_id = page[0]
             if idx > 0:
@@ -1576,7 +1625,7 @@ def _get_section_pages_html(section_id, db_path, binder_name, section_name):
             html += _get_page_html(page_id, db_path, binder_name, section_name)
             # Recursively get subpages
             html += _get_subpages_html(page_id, db_path, binder_name, section_name)
-        
+
         return html if html else "<p>No pages in this section.</p>"
     except Exception:
         return "<p>Error loading section pages.</p>"
@@ -1586,23 +1635,23 @@ def _get_subpages_html(parent_page_id, db_path, binder_name, section_name):
     """Recursively get HTML for subpages with hierarchical headers."""
     try:
         import sqlite3
-        
+
         html = ""
         con = sqlite3.connect(db_path)
         cur = con.cursor()
         cur.execute(
             "SELECT id FROM pages WHERE parent_page_id = ? ORDER BY order_index, id",
-            (int(parent_page_id),)
+            (int(parent_page_id),),
         )
         subpages = cur.fetchall()
         con.close()
-        
+
         for (page_id,) in subpages:
             html += '<div class="page-break"></div>'
             html += _get_page_html(page_id, db_path, binder_name, section_name)
             # Recursively get children of this subpage
             html += _get_subpages_html(page_id, db_path, binder_name, section_name)
-        
+
         return html
     except Exception:
         return ""
@@ -1612,21 +1661,23 @@ def _get_binder_html(notebook_id, db_path, binder_name):
     """Get HTML for all sections and pages in a binder with hierarchical headers."""
     try:
         from db_sections import get_sections_by_notebook_id
-        
+
         html = ""
         sections = get_sections_by_notebook_id(int(notebook_id), db_path)
         first_page = True
-        
+
         for section in sections:
             section_id = section[0]
             section_title = section[2]
-            
+
             # Get pages for this section - pass context and first_page flag
-            section_html = _get_section_pages_html_for_binder(section_id, db_path, binder_name, section_title, first_page)
+            section_html = _get_section_pages_html_for_binder(
+                section_id, db_path, binder_name, section_title, first_page
+            )
             if section_html:
                 html += section_html
                 first_page = False
-        
+
         return html if html else "<p>No sections in this binder.</p>"
     except Exception:
         return "<p>Error loading binder content.</p>"
@@ -1636,10 +1687,10 @@ def _get_section_pages_html_for_binder(section_id, db_path, binder_name, section
     """Get HTML for section pages within a binder print, handling first page specially."""
     try:
         from db_pages import get_root_pages_by_section_id
-        
+
         html = ""
         pages = get_root_pages_by_section_id(int(section_id), db_path)
-        
+
         for idx, page in enumerate(pages):
             page_id = page[0]
             # Add page break before every page except the very first one
@@ -1648,7 +1699,7 @@ def _get_section_pages_html_for_binder(section_id, db_path, binder_name, section
             html += _get_page_html(page_id, db_path, binder_name, section_name)
             # Recursively get subpages
             html += _get_subpages_html(page_id, db_path, binder_name, section_name)
-        
+
         return html
     except Exception:
         return ""
@@ -1672,7 +1723,7 @@ def main():
     except Exception:
         pass
     app = QtWidgets.QApplication(sys.argv)
-    
+
     # Install a global exception hook so unexpected errors surface in a dialog instead of closing silently
     try:
         _install_global_excepthook()
@@ -1731,8 +1782,10 @@ def main():
             msg_box.setIcon(QtWidgets.QMessageBox.Question)
             msg_box.setText("The database was not upgraded. What would you like to do?")
             create_btn = msg_box.addButton("Create New Database", QtWidgets.QMessageBox.AcceptRole)
-            open_btn = msg_box.addButton("Open Different Database", QtWidgets.QMessageBox.ActionRole)
-            exit_btn = msg_box.addButton("Exit", QtWidgets.QMessageBox.RejectRole)
+            open_btn = msg_box.addButton(
+                "Open Different Database", QtWidgets.QMessageBox.ActionRole
+            )
+            msg_box.addButton("Exit", QtWidgets.QMessageBox.RejectRole)
             msg_box.exec_()
             clicked = msg_box.clickedButton()
             if clicked == create_btn:
@@ -1745,7 +1798,7 @@ def main():
         QtWidgets.QMessageBox.critical(
             window,
             "Database Error",
-            f"Failed to initialize database '{db_path}':\n{str(e)}\n\nPlease create a new database or select an existing one."
+            f"Failed to initialize database '{db_path}':\n{str(e)}\n\nPlease create a new database or select an existing one.",
         )
         create_new_database(window)
         return
@@ -1784,12 +1837,18 @@ def main():
                 pass
             # Install spell checking
             try:
+                from settings_manager import (
+                    get_spell_check_enabled,
+                    get_spell_check_language,
+                )
                 from spell_check import install_spell_check, is_spell_check_available
-                from settings_manager import get_spell_check_enabled, get_spell_check_language
+
                 if is_spell_check_available():
                     spell_enabled = get_spell_check_enabled()
                     spell_lang = get_spell_check_language()
-                    spell_checker = install_spell_check(te, enabled=spell_enabled, language=spell_lang)
+                    spell_checker = install_spell_check(
+                        te, enabled=spell_enabled, language=spell_lang
+                    )
                     if spell_checker:
                         window._spell_checker = spell_checker
             except Exception:
@@ -1810,8 +1869,8 @@ def main():
         pass
     # Apply default image insert size from settings
     try:
-        from settings_manager import get_image_insert_long_side
         import ui_richtext as rt
+        from settings_manager import get_image_insert_long_side
 
         rt.DEFAULT_IMAGE_LONG_SIDE = int(get_image_insert_long_side())
     except Exception:
@@ -1827,6 +1886,7 @@ def main():
     try:
         tree_widget = window.findChild(QtWidgets.QTreeWidget, "notebookName")
         from settings_manager import get_expanded_notebooks
+
         expanded_ids = get_expanded_notebooks()
         if tree_widget is not None and expanded_ids:
             for i in range(tree_widget.topLevelItemCount()):
@@ -1849,6 +1909,7 @@ def main():
             ensure_planning_register_watcher(te)
             try:
                 from ui_richtext import ensure_currency_columns_watcher
+
                 ensure_currency_columns_watcher(te)
             except Exception:
                 pass
@@ -1865,19 +1926,24 @@ def main():
                 try:
                     item = tree.itemAt(pos)
                     global_pos = tree.viewport().mapToGlobal(pos)
-                    
+
                     # Helper to get show_deleted setting
                     def _get_show_deleted_setting():
                         try:
                             from settings_manager import get_show_deleted
+
                             return get_show_deleted()
                         except Exception:
                             return False
-                    
+
                     # Helper to toggle show_deleted and refresh tree
                     def _toggle_show_deleted():
                         try:
-                            from settings_manager import get_show_deleted, set_show_deleted
+                            from settings_manager import (
+                                get_show_deleted,
+                                set_show_deleted,
+                            )
+
                             current = get_show_deleted()
                             set_show_deleted(not current)
                             # Sync the File menu's Show Deleted Items action
@@ -1887,14 +1953,16 @@ def main():
                             pass
                         # Refresh the tree
                         try:
-                            db_path = getattr(window, "_db_path", None) or get_last_db() or "notes.db"
+                            db_path = (
+                                getattr(window, "_db_path", None) or get_last_db() or "notes.db"
+                            )
                             populate_notebook_names(window, db_path)
                             nb_id = getattr(window, "_current_notebook_id", None)
                             if nb_id is not None:
                                 ensure_left_tree_sections(window, int(nb_id))
                         except Exception:
                             pass
-                    
+
                     # Blank area: offer New Binder
                     if item is None:
                         m = QtWidgets.QMenu(tree)
@@ -1926,15 +1994,15 @@ def main():
                         elif chosen == act_show_deleted:
                             _toggle_show_deleted()
                         return
-                    
+
                     # Check if item is deleted
                     is_item_deleted = bool(item.data(0, 1003))
-                    
+
                     # Top-level binder item
                     if item.parent() is None:
                         tree.setCurrentItem(item)
                         m = QtWidgets.QMenu(tree)
-                        
+
                         if is_item_deleted:
                             # Deleted binder: show restore/permanent delete options
                             act_restore = m.addAction("Restore Binder")
@@ -1947,8 +2015,13 @@ def main():
                             if chosen == act_restore:
                                 try:
                                     from db_access import restore_notebook
+
                                     nb_id = item.data(0, 1000)
-                                    db_path = getattr(window, "_db_path", None) or get_last_db() or "notes.db"
+                                    db_path = (
+                                        getattr(window, "_db_path", None)
+                                        or get_last_db()
+                                        or "notes.db"
+                                    )
                                     restore_notebook(int(nb_id), db_path)
                                     populate_notebook_names(window, db_path)
                                     ensure_left_tree_sections(window, int(nb_id))
@@ -1964,9 +2037,16 @@ def main():
                                 )
                                 if confirm == QtWidgets.QMessageBox.Yes:
                                     try:
-                                        from db_access import permanently_delete_notebook
+                                        from db_access import (
+                                            permanently_delete_notebook,
+                                        )
+
                                         nb_id = item.data(0, 1000)
-                                        db_path = getattr(window, "_db_path", None) or get_last_db() or "notes.db"
+                                        db_path = (
+                                            getattr(window, "_db_path", None)
+                                            or get_last_db()
+                                            or "notes.db"
+                                        )
                                         permanently_delete_notebook(int(nb_id), db_path)
                                         populate_notebook_names(window, db_path)
                                     except Exception:
@@ -1974,7 +2054,7 @@ def main():
                             elif chosen == act_show_deleted:
                                 _toggle_show_deleted()
                             return
-                        
+
                         # Normal binder menu
                         # Place 'New Section' at the very top, followed by a separator
                         act_new_section = m.addAction("New Section")
@@ -2040,9 +2120,14 @@ def main():
                                         )
                                         return
                                     from db_sections import restore_section
+
                                     section_id = item.data(0, 1000)
                                     nb_id = parent.data(0, 1000) if parent is not None else None
-                                    db_path = getattr(window, "_db_path", None) or get_last_db() or "notes.db"
+                                    db_path = (
+                                        getattr(window, "_db_path", None)
+                                        or get_last_db()
+                                        or "notes.db"
+                                    )
                                     restore_section(int(section_id), db_path)
                                     if nb_id is not None:
                                         ensure_left_tree_sections(window, int(nb_id))
@@ -2058,11 +2143,18 @@ def main():
                                 )
                                 if confirm == QtWidgets.QMessageBox.Yes:
                                     try:
-                                        from db_sections import permanently_delete_section
+                                        from db_sections import (
+                                            permanently_delete_section,
+                                        )
+
                                         section_id = item.data(0, 1000)
                                         parent = item.parent()
                                         nb_id = parent.data(0, 1000) if parent is not None else None
-                                        db_path = getattr(window, "_db_path", None) or get_last_db() or "notes.db"
+                                        db_path = (
+                                            getattr(window, "_db_path", None)
+                                            or get_last_db()
+                                            or "notes.db"
+                                        )
                                         permanently_delete_section(int(section_id), db_path)
                                         if nb_id is not None:
                                             ensure_left_tree_sections(window, int(nb_id))
@@ -2071,7 +2163,7 @@ def main():
                             elif chosen == act_show_deleted:
                                 _toggle_show_deleted()
                             return
-                        
+
                         # Normal section menu
                         act_add_page = m.addAction("Add Page")
                         m.addSeparator()
@@ -2166,10 +2258,15 @@ def main():
                                     parent = item.parent()
                                     # Find the section by traversing up (parent could be another page or a section)
                                     section_item = parent
-                                    while section_item is not None and section_item.data(0, 1001) == "page":
+                                    while (
+                                        section_item is not None
+                                        and section_item.data(0, 1001) == "page"
+                                    ):
                                         section_item = section_item.parent()
                                     # Check if section is deleted
-                                    if section_item is not None and bool(section_item.data(0, 1003)):
+                                    if section_item is not None and bool(
+                                        section_item.data(0, 1003)
+                                    ):
                                         QtWidgets.QMessageBox.warning(
                                             tree,
                                             "Cannot Restore",
@@ -2177,7 +2274,9 @@ def main():
                                         )
                                         return
                                     # Check if binder (grandparent) is deleted
-                                    binder_item = section_item.parent() if section_item is not None else None
+                                    binder_item = (
+                                        section_item.parent() if section_item is not None else None
+                                    )
                                     if binder_item is not None and bool(binder_item.data(0, 1003)):
                                         QtWidgets.QMessageBox.warning(
                                             tree,
@@ -2186,20 +2285,35 @@ def main():
                                         )
                                         return
                                     from db_pages import restore_page
+
                                     page_id = item.data(0, 1000)
                                     section_id = item.data(0, 1002)
-                                    db_path = getattr(window, "_db_path", None) or get_last_db() or "notes.db"
+                                    db_path = (
+                                        getattr(window, "_db_path", None)
+                                        or get_last_db()
+                                        or "notes.db"
+                                    )
                                     restore_page(int(page_id), db_path)
                                     # Refresh tree
                                     import sqlite3
+
                                     con = sqlite3.connect(db_path)
                                     cur = con.cursor()
-                                    cur.execute("SELECT notebook_id FROM sections WHERE id = ?", (int(section_id),))
+                                    cur.execute(
+                                        "SELECT notebook_id FROM sections WHERE id = ?",
+                                        (int(section_id),),
+                                    )
                                     row = cur.fetchone()
                                     con.close()
-                                    nb_id = int(row[0]) if row else getattr(window, "_current_notebook_id", None)
+                                    nb_id = (
+                                        int(row[0])
+                                        if row
+                                        else getattr(window, "_current_notebook_id", None)
+                                    )
                                     if nb_id is not None:
-                                        ensure_left_tree_sections(window, int(nb_id), select_section_id=int(section_id))
+                                        ensure_left_tree_sections(
+                                            window, int(nb_id), select_section_id=int(section_id)
+                                        )
                                 except Exception:
                                     pass
                             elif chosen == act_perm_delete:
@@ -2213,26 +2327,43 @@ def main():
                                 if confirm == QtWidgets.QMessageBox.Yes:
                                     try:
                                         from db_pages import permanently_delete_page
+
                                         page_id = item.data(0, 1000)
                                         section_id = item.data(0, 1002)
-                                        db_path = getattr(window, "_db_path", None) or get_last_db() or "notes.db"
+                                        db_path = (
+                                            getattr(window, "_db_path", None)
+                                            or get_last_db()
+                                            or "notes.db"
+                                        )
                                         permanently_delete_page(int(page_id), db_path)
                                         # Refresh tree
                                         import sqlite3
+
                                         con = sqlite3.connect(db_path)
                                         cur = con.cursor()
-                                        cur.execute("SELECT notebook_id FROM sections WHERE id = ?", (int(section_id),))
+                                        cur.execute(
+                                            "SELECT notebook_id FROM sections WHERE id = ?",
+                                            (int(section_id),),
+                                        )
                                         row = cur.fetchone()
                                         con.close()
-                                        nb_id = int(row[0]) if row else getattr(window, "_current_notebook_id", None)
+                                        nb_id = (
+                                            int(row[0])
+                                            if row
+                                            else getattr(window, "_current_notebook_id", None)
+                                        )
                                         if nb_id is not None:
-                                            ensure_left_tree_sections(window, int(nb_id), select_section_id=int(section_id))
+                                            ensure_left_tree_sections(
+                                                window,
+                                                int(nb_id),
+                                                select_section_id=int(section_id),
+                                            )
                                     except Exception:
                                         pass
                             elif chosen == act_show_deleted:
                                 _toggle_show_deleted()
                             return
-                        
+
                         # Normal page menu
                         act_add_page = m.addAction("Add Page")
                         act_add_subpage = m.addAction("Add Subpage")
@@ -2255,7 +2386,11 @@ def main():
                         if chosen == act_add_page:
                             add_page(window)
                             return
-                        if chosen == act_add_subpage and page_id is not None and section_id is not None:
+                        if (
+                            chosen == act_add_subpage
+                            and page_id is not None
+                            and section_id is not None
+                        ):
                             # Prompt for title and create a child page under this page
                             new_title, ok = QtWidgets.QInputDialog.getText(
                                 tree, "New Subpage", "Subpage title:", text="Untitled Page"
@@ -2274,7 +2409,10 @@ def main():
                                     for j in range(sec_item.childCount()):
                                         ch = sec_item.child(j)
                                         try:
-                                            if ch.data(0, 1001) == "page" and ch.parent() is sec_item:
+                                            if (
+                                                ch.data(0, 1001) == "page"
+                                                and ch.parent() is sec_item
+                                            ):
                                                 pid = ch.data(0, 1000)
                                                 if pid is not None:
                                                     ordered_root_ids.append(int(pid))
@@ -2282,7 +2420,9 @@ def main():
                                             pass
                                 if ordered_root_ids:
                                     try:
-                                        db_set_pages_order(int(section_id), ordered_root_ids, db_path)
+                                        db_set_pages_order(
+                                            int(section_id), ordered_root_ids, db_path
+                                        )
                                     except Exception:
                                         pass
                             except Exception:
@@ -2290,7 +2430,9 @@ def main():
                             try:
                                 from db_pages import create_page as db_create_page
 
-                                new_pid = db_create_page(int(section_id), new_title, db_path, parent_page_id=int(page_id))
+                                new_pid = db_create_page(
+                                    int(section_id), new_title, db_path, parent_page_id=int(page_id)
+                                )
                             except Exception:
                                 new_pid = None
                             # Refresh left tree for this binder and select the new subpage
@@ -2298,9 +2440,13 @@ def main():
                             nb_id = None
                             try:
                                 import sqlite3
+
                                 con = sqlite3.connect(db_path)
                                 cur = con.cursor()
-                                cur.execute("SELECT notebook_id FROM sections WHERE id = ?", (int(section_id),))
+                                cur.execute(
+                                    "SELECT notebook_id FROM sections WHERE id = ?",
+                                    (int(section_id),),
+                                )
                                 row = cur.fetchone()
                                 con.close()
                                 nb_id = int(row[0]) if row else None
@@ -2310,12 +2456,16 @@ def main():
                                 try:
                                     # Pass parent page_id to expand_page_id so the parent opens to show the new subpage
                                     # Don't pass select_section_id - let select_left_tree_page handle the selection below
-                                    ensure_left_tree_sections(window, int(nb_id), expand_page_id=int(page_id))
+                                    ensure_left_tree_sections(
+                                        window, int(nb_id), expand_page_id=int(page_id)
+                                    )
                                 except Exception:
                                     pass
                             # Select the newly created subpage
                             try:
-                                from left_tree import select_left_tree_page as _select_left_tree_page
+                                from left_tree import (
+                                    select_left_tree_page as _select_left_tree_page,
+                                )
 
                                 if new_pid is not None:
                                     _select_left_tree_page(window, int(section_id), int(new_pid))
@@ -2323,14 +2473,18 @@ def main():
                                 pass
                             # If in two-column UI, load the new page into the editor
                             try:
-                                from page_editor import load_page as _load_page_two_column
+                                from page_editor import (
+                                    load_page as _load_page_two_column,
+                                )
 
                                 if new_pid is not None and _is_two_column_ui(window):
                                     _load_page_two_column(window, int(new_pid))
                                     try:
                                         from settings_manager import set_last_state
 
-                                        set_last_state(section_id=int(section_id), page_id=int(new_pid))
+                                        set_last_state(
+                                            section_id=int(section_id), page_id=int(new_pid)
+                                        )
                                     except Exception:
                                         pass
                             except Exception:
@@ -2360,7 +2514,9 @@ def main():
                                     # Update title field if currently viewing this page
                                     sid_ctx, pid_ctx = _current_page_context(window)
                                     if pid_ctx is not None and int(pid_ctx) == int(page_id):
-                                        title_le = window.findChild(QtWidgets.QLineEdit, "pageTitleEdit")
+                                        title_le = window.findChild(
+                                            QtWidgets.QLineEdit, "pageTitleEdit"
+                                        )
                                         if title_le is not None:
                                             title_le.blockSignals(True)
                                             title_le.setText(new_title.strip())
@@ -2382,7 +2538,9 @@ def main():
                                             if int(sec_item.data(0, 1000)) == int(section_id):
                                                 for j in range(sec_item.childCount()):
                                                     ch = sec_item.child(j)
-                                                    if ch.data(0, 1001) == "page" and int(ch.data(0, 1000)) == int(page_id):
+                                                    if ch.data(0, 1001) == "page" and int(
+                                                        ch.data(0, 1000)
+                                                    ) == int(page_id):
                                                         ch.setText(0, new_title.strip())
                                                         raise StopIteration
                                         except Exception:
@@ -2390,16 +2548,32 @@ def main():
                                 else:
                                     # Model view path
                                     right_tv = window.findChild(QtWidgets.QTreeView, "sectionPages")
-                                    if right_tv is not None and right_tv.model() is not None and section_id is not None:
+                                    if (
+                                        right_tv is not None
+                                        and right_tv.model() is not None
+                                        and section_id is not None
+                                    ):
                                         model = right_tv.model()
-                                        from two_pane_core import USER_ROLE_ID, USER_ROLE_KIND
+                                        from two_pane_core import (
+                                            USER_ROLE_ID,
+                                            USER_ROLE_KIND,
+                                        )
+
                                         for row in range(model.rowCount()):
                                             idx = model.index(row, 0)
                                             try:
-                                                if idx.data(USER_ROLE_KIND) == "section" and int(idx.data(USER_ROLE_ID)) == int(section_id):
+                                                if idx.data(USER_ROLE_KIND) == "section" and int(
+                                                    idx.data(USER_ROLE_ID)
+                                                ) == int(section_id):
                                                     for crow in range(model.rowCount(idx)):
                                                         cidx = model.index(crow, 0, idx)
-                                                        if cidx.data(USER_ROLE_KIND) == "page" and int(cidx.data(USER_ROLE_ID)) == int(page_id):
+                                                        if cidx.data(
+                                                            USER_ROLE_KIND
+                                                        ) == "page" and int(
+                                                            cidx.data(USER_ROLE_ID)
+                                                        ) == int(
+                                                            page_id
+                                                        ):
                                                             model.setData(cidx, new_title.strip())
                                                             raise StopIteration
                                             except Exception:
@@ -2458,25 +2632,46 @@ def main():
                                     if nb_id is not None:
                                         # If this was a subpage, expand the parent page instead of selecting the section
                                         if parent_page_id is not None:
-                                            ensure_left_tree_sections(window, int(nb_id), expand_page_id=int(parent_page_id))
+                                            ensure_left_tree_sections(
+                                                window,
+                                                int(nb_id),
+                                                expand_page_id=int(parent_page_id),
+                                            )
                                         else:
                                             ensure_left_tree_sections(
-                                                window, int(nb_id), select_section_id=int(section_id) if section_id is not None else None
+                                                window,
+                                                int(nb_id),
+                                                select_section_id=(
+                                                    int(section_id)
+                                                    if section_id is not None
+                                                    else None
+                                                ),
                                             )
                                     # Select the parent page or load first page
                                     try:
                                         if parent_page_id is not None:
                                             # Select and load the parent page
-                                            from left_tree import select_left_tree_page as _select_left_tree_page
-                                            from page_editor import load_page as _load_page_two_column
-                                            _select_left_tree_page(window, int(section_id), int(parent_page_id))
+                                            from left_tree import (
+                                                select_left_tree_page as _select_left_tree_page,
+                                            )
+                                            from page_editor import (
+                                                load_page as _load_page_two_column,
+                                            )
+
+                                            _select_left_tree_page(
+                                                window, int(section_id), int(parent_page_id)
+                                            )
                                             _load_page_two_column(window, int(parent_page_id))
                                         else:
                                             # Clear current if we deleted the active page, then load first page
                                             if section_id is not None:
                                                 sid_int = int(section_id)
-                                                cur_pid = getattr(window, "_current_page_by_section", {}).get(sid_int)
-                                                if cur_pid is not None and int(cur_pid) == int(page_id):
+                                                cur_pid = getattr(
+                                                    window, "_current_page_by_section", {}
+                                                ).get(sid_int)
+                                                if cur_pid is not None and int(cur_pid) == int(
+                                                    page_id
+                                                ):
                                                     window._current_page_by_section[sid_int] = None
                                             _load_first_page_two_column(window)
                                     except Exception:
@@ -2486,7 +2681,11 @@ def main():
                                     nb_id = getattr(window, "_current_notebook_id", None)
                                     if nb_id is not None:
                                         refresh_for_notebook(
-                                            window, int(nb_id), select_section_id=int(section_id) if section_id is not None else None
+                                            window,
+                                            int(nb_id),
+                                            select_section_id=(
+                                                int(section_id) if section_id is not None else None
+                                            ),
                                         )
                             except Exception:
                                 pass
@@ -2628,26 +2827,26 @@ def main():
         action_open.triggered.connect(lambda: open_database(window))
         # Add Ctrl+O shortcut
         action_open.setShortcut(QtGui.QKeySequence.Open)  # Ctrl+O
-    
+
     # File menu: Save (saves current page)
     action_save = window.findChild(QtWidgets.QAction, "actionSave")
     if action_save:
         action_save.setShortcut(QtGui.QKeySequence.Save)  # Ctrl+S
         action_save.triggered.connect(lambda: save_current_page(window))
-    
+
     # File menu: Save As (copy database to new location)
     action_save_as = window.findChild(QtWidgets.QAction, "actionSave_As")
     if action_save_as:
         action_save_as.triggered.connect(lambda: save_database_as(window))
         # Add Ctrl+Shift+S shortcut (standard for Save As)
         action_save_as.setShortcut(QtGui.QKeySequence.SaveAs)  # Ctrl+Shift+S
-    
+
     # File menu: Print (print selected page/section/binder)
     action_print = window.findChild(QtWidgets.QAction, "actionPrint")
     if action_print:
         action_print.setShortcut(QtGui.QKeySequence.Print)  # Ctrl+P
         action_print.triggered.connect(lambda: print_current_selection(window))
-    
+
     # File menu: Print Preview (show preview before printing)
     action_print_preview = window.findChild(QtWidgets.QAction, "actionPrint_Preview")
     if action_print_preview:
@@ -2784,13 +2983,17 @@ def main():
         if tools_menu is None:
             tools_menu = menubar.addMenu("Tools")
         normalize_action = QtWidgets.QAction("Normalize Page Order", window)
-        normalize_action.setToolTip("Resequence order_index values (gap‑free) for all notebooks, sections, and pages")
+        normalize_action.setToolTip(
+            "Resequence order_index values (gap‑free) for all notebooks, sections, and pages"
+        )
 
         def _normalize_order_indexes():
             try:
-                from maintenance_order import collect_changes, summarize, apply_changes
+                from maintenance_order import apply_changes, collect_changes, summarize
             except Exception as e:
-                QtWidgets.QMessageBox.warning(window, "Normalize", f"Maintenance module missing: {e}")
+                QtWidgets.QMessageBox.warning(
+                    window, "Normalize", f"Maintenance module missing: {e}"
+                )
                 return
             # Flush current edits first
             try:
@@ -2801,20 +3004,28 @@ def main():
             try:
                 changes = collect_changes(db_path)
             except Exception as e:
-                QtWidgets.QMessageBox.warning(window, "Normalize", f"Failed to collect changes: {e}")
+                QtWidgets.QMessageBox.warning(
+                    window, "Normalize", f"Failed to collect changes: {e}"
+                )
                 return
             total = sum(len(changes[k]) for k in changes)
             summary = summarize(changes)
             if total == 0:
-                QtWidgets.QMessageBox.information(window, "Normalize Page Order", f"Already normalized.\n\n{summary}")
+                QtWidgets.QMessageBox.information(
+                    window, "Normalize Page Order", f"Already normalized.\n\n{summary}"
+                )
                 return
             # Offer backup + apply
             msg_box = QtWidgets.QMessageBox(window)
             msg_box.setWindowTitle("Normalize Page Order")
             msg_box.setIcon(QtWidgets.QMessageBox.Question)
-            msg_box.setText("Proposed resequencing:\n\n" + summary + "\n\nCreate backup and apply normalization?")
+            msg_box.setText(
+                "Proposed resequencing:\n\n"
+                + summary
+                + "\n\nCreate backup and apply normalization?"
+            )
             backup_apply = msg_box.addButton("Backup && Apply", QtWidgets.QMessageBox.AcceptRole)
-            apply_only = msg_box.addButton("Apply Only", QtWidgets.QMessageBox.DestructiveRole)
+            msg_box.addButton("Apply Only", QtWidgets.QMessageBox.DestructiveRole)
             cancel_btn = msg_box.addButton(QtWidgets.QMessageBox.Cancel)
             msg_box.exec_()
             chosen = msg_box.clickedButton()
@@ -2823,14 +3034,19 @@ def main():
             # Optional backup
             if chosen == backup_apply:
                 try:
-                    import os, shutil, datetime
+                    import datetime
+                    import os
+                    import shutil
+
                     stamp = datetime.datetime.now().strftime("%Y%m%d%H%M%S")
                     base_dir = os.path.dirname(db_path) or "."
                     backup_name = f"notes_pre_normalize_menu_{stamp}.db"
                     backup_path = os.path.join(base_dir, backup_name)
                     shutil.copy2(db_path, backup_path)
                 except Exception as e:
-                    QtWidgets.QMessageBox.warning(window, "Normalize", f"Backup failed (continuing): {e}")
+                    QtWidgets.QMessageBox.warning(
+                        window, "Normalize", f"Backup failed (continuing): {e}"
+                    )
             # Apply changes
             try:
                 apply_changes(db_path, changes)
@@ -2845,12 +3061,16 @@ def main():
                     refresh_for_notebook(window, int(nb_id))
             except Exception:
                 pass
-            QtWidgets.QMessageBox.information(window, "Normalize Page Order", "Normalization complete.\n\n" + summarize(collect_changes(db_path)))
+            QtWidgets.QMessageBox.information(
+                window,
+                "Normalize Page Order",
+                "Normalization complete.\n\n" + summarize(collect_changes(db_path)),
+            )
 
         normalize_action.triggered.connect(_normalize_order_indexes)
         tools_menu.addAction(normalize_action)
         # (Legacy formula actions removed during feature rollback.)
-        
+
         # --- Spell Check toggle ---
         tools_menu.addSeparator()
         spell_check_action = QtWidgets.QAction("Spell Check", window)
@@ -2858,6 +3078,7 @@ def main():
         try:
             from settings_manager import get_spell_check_enabled
             from spell_check import is_spell_check_available
+
             spell_available = is_spell_check_available()
             spell_check_action.setEnabled(spell_available)
             if spell_available:
@@ -2867,10 +3088,11 @@ def main():
                 spell_check_action.setToolTip("Spell check unavailable (pyenchant not installed)")
         except Exception:
             spell_check_action.setChecked(False)
-        
+
         def _toggle_spell_check(checked):
             try:
                 from settings_manager import set_spell_check_enabled
+
                 set_spell_check_enabled(checked)
                 # Toggle the spell checker on the editor
                 spell_checker = getattr(window, "_spell_checker", None)
@@ -2878,7 +3100,7 @@ def main():
                     spell_checker.enabled = checked
             except Exception:
                 pass
-        
+
         spell_check_action.triggered.connect(_toggle_spell_check)
         tools_menu.addAction(spell_check_action)
     except Exception:
@@ -3051,17 +3273,23 @@ def main():
     act_insert_new_spreadsheet = window.findChild(QtWidgets.QAction, "actionInsert_New_Spreadsheet")
     if act_insert_new_spreadsheet:
         act_insert_new_spreadsheet.triggered.connect(lambda: insert_new_spreadsheet(window))
-    act_insert_spreadsheet_from_template = window.findChild(QtWidgets.QAction, "actionInsert_Spreadsheet_From_Template")
+    act_insert_spreadsheet_from_template = window.findChild(
+        QtWidgets.QAction, "actionInsert_Spreadsheet_From_Template"
+    )
     if act_insert_spreadsheet_from_template:
         act_insert_spreadsheet_from_template.triggered.connect(
             lambda: insert_spreadsheet_from_template(window)
         )
-    act_insert_existing_spreadsheet = window.findChild(QtWidgets.QAction, "actionInsert_Existing_Spreadsheet")
+    act_insert_existing_spreadsheet = window.findChild(
+        QtWidgets.QAction, "actionInsert_Existing_Spreadsheet"
+    )
     if act_insert_existing_spreadsheet:
         act_insert_existing_spreadsheet.triggered.connect(
             lambda: insert_existing_spreadsheet(window)
         )
-    act_manage_page_spreadsheets = window.findChild(QtWidgets.QAction, "actionManage_Page_Spreadsheets")
+    act_manage_page_spreadsheets = window.findChild(
+        QtWidgets.QAction, "actionManage_Page_Spreadsheets"
+    )
     if act_manage_page_spreadsheets:
         act_manage_page_spreadsheets.triggered.connect(lambda: manage_page_spreadsheets(window))
     # Tools: Manual Database Backup
@@ -3101,24 +3329,35 @@ def main():
     # Insert menu: Planning Register
     act_plan_reg = window.findChild(QtWidgets.QAction, "actionPlanning_Register")
     if act_plan_reg:
+
         def _insert_planning_register_via_dialog():
             try:
                 te = window.findChild(QtWidgets.QTextEdit, "pageEdit")
                 if te is None or not te.isEnabled():
-                    QtWidgets.QMessageBox.information(window, "Insert Planning Register", "Please open or create a page first.")
+                    QtWidgets.QMessageBox.information(
+                        window, "Insert Planning Register", "Please open or create a page first."
+                    )
                     return
                 from ui_planning_register import insert_planning_register
 
                 insert_planning_register(window)
             except Exception:
                 pass
+
         act_plan_reg.triggered.connect(_insert_planning_register_via_dialog)
     # Save Planning Register as Preset (Insert menu)
     try:
-        act_save_reg_preset = window.findChild(QtWidgets.QAction, "actionSave_Planning_Register_as_Preset")
-        act_rename_reg_preset = window.findChild(QtWidgets.QAction, "actionRename_Planning_Register_Preset")
-        act_delete_reg_preset = window.findChild(QtWidgets.QAction, "actionDelete_Planning_Register_Preset")
+        act_save_reg_preset = window.findChild(
+            QtWidgets.QAction, "actionSave_Planning_Register_as_Preset"
+        )
+        act_rename_reg_preset = window.findChild(
+            QtWidgets.QAction, "actionRename_Planning_Register_Preset"
+        )
+        act_delete_reg_preset = window.findChild(
+            QtWidgets.QAction, "actionDelete_Planning_Register_Preset"
+        )
         if act_save_reg_preset is not None:
+
             def _save_planning_register_as_preset():
                 te = window.findChild(QtWidgets.QTextEdit, "pageEdit")
                 if te is None:
@@ -3126,7 +3365,11 @@ def main():
                 cur = te.textCursor()
                 tbl = cur.currentTable()
                 if tbl is None:
-                    QtWidgets.QMessageBox.information(window, "Save Planning Register as Preset", "Place the caret inside the left Planning Register table.")
+                    QtWidgets.QMessageBox.information(
+                        window,
+                        "Save Planning Register as Preset",
+                        "Place the caret inside the left Planning Register table.",
+                    )
                     return
                 # If the caret is on the outer container, try to descend into the left cell's inner table
                 try:
@@ -3153,13 +3396,19 @@ def main():
                 # Verify this looks like a Planning Register table (left table)
                 try:
                     from ui_planning_register import _is_planning_register_table
+
                     if not _is_planning_register_table(te, tbl):
-                        QtWidgets.QMessageBox.information(window, "Save Planning Register as Preset", "Please place the caret inside the left Planning Register table.")
+                        QtWidgets.QMessageBox.information(
+                            window,
+                            "Save Planning Register as Preset",
+                            "Please place the caret inside the left Planning Register table.",
+                        )
                         return
                 except Exception:
                     pass
                 # Use the centralized HTML preset saver
                 from ui_richtext import save_current_table_as_preset
+
                 save_current_table_as_preset(te)
 
             act_save_reg_preset.triggered.connect(_save_planning_register_as_preset)
@@ -3168,6 +3417,7 @@ def main():
         def _choose_preset_name(parent, title: str) -> str:
             try:
                 from settings_manager import list_table_preset_names
+
                 names = list_table_preset_names()
             except Exception:
                 names = []
@@ -3178,35 +3428,48 @@ def main():
             return item if ok and item else None
 
         if act_rename_reg_preset is not None:
+
             def _rename_planning_register_preset():
                 name = _choose_preset_name(window, "Rename Planning Register Preset")
                 if not name:
                     return
-                new_name, ok = QtWidgets.QInputDialog.getText(window, "Rename Preset", "New name:", text=name)
+                new_name, ok = QtWidgets.QInputDialog.getText(
+                    window, "Rename Preset", "New name:", text=name
+                )
                 if not ok or not new_name or new_name == name:
                     return
                 try:
                     from settings_manager import rename_table_preset
+
                     rename_table_preset(name, new_name)
                 except Exception:
                     pass
+
             act_rename_reg_preset.triggered.connect(_rename_planning_register_preset)
 
         if act_delete_reg_preset is not None:
+
             def _delete_planning_register_preset():
                 name = _choose_preset_name(window, "Delete Planning Register Preset")
                 if not name:
                     return
-                if QtWidgets.QMessageBox.question(
-                    window, "Delete Preset", f"Delete preset '{name}'?",
-                    QtWidgets.QMessageBox.Yes | QtWidgets.QMessageBox.No,
-                ) != QtWidgets.QMessageBox.Yes:
+                if (
+                    QtWidgets.QMessageBox.question(
+                        window,
+                        "Delete Preset",
+                        f"Delete preset '{name}'?",
+                        QtWidgets.QMessageBox.Yes | QtWidgets.QMessageBox.No,
+                    )
+                    != QtWidgets.QMessageBox.Yes
+                ):
                     return
                 try:
                     from settings_manager import delete_table_preset
+
                     delete_table_preset(name)
                 except Exception:
                     pass
+
             act_delete_reg_preset.triggered.connect(_delete_planning_register_preset)
 
     except Exception:
@@ -3223,25 +3486,27 @@ def main():
         if file_menu is not None:
             # Find the Exit action to insert before it
             exit_action = window.findChild(QtWidgets.QAction, "actionExit")
-            
+
             # Create separator
             sep_action = QtWidgets.QAction(window)
             sep_action.setSeparator(True)
-            
+
             # Show Deleted Items - checkable action
             show_deleted_action = QtWidgets.QAction("Show Deleted Items", window)
             show_deleted_action.setCheckable(True)
             try:
                 from settings_manager import get_show_deleted
+
                 show_deleted_action.setChecked(get_show_deleted())
             except Exception:
                 show_deleted_action.setChecked(False)
             # Store on window for syncing with context menus
             window._show_deleted_action = show_deleted_action
-            
+
             def _toggle_show_deleted(checked):
                 try:
                     from settings_manager import set_show_deleted
+
                     set_show_deleted(checked)
                 except Exception:
                     pass
@@ -3255,18 +3520,19 @@ def main():
                         ensure_left_tree_sections(window, int(nb_id))
                 except Exception:
                     pass
-            
+
             show_deleted_action.triggered.connect(_toggle_show_deleted)
-            
+
             # Empty All Deleted Items
             empty_deleted_action = QtWidgets.QAction("Empty All Deleted Items...", window)
-            
+
             def _empty_all_deleted():
                 try:
-                    from db_access import get_deleted_counts, empty_all_deleted
+                    from db_access import empty_all_deleted, get_deleted_counts
+
                     db_path = getattr(window, "_db_path", None) or get_last_db() or "notes.db"
                     counts = get_deleted_counts(db_path)
-                    if counts['total'] == 0:
+                    if counts["total"] == 0:
                         QtWidgets.QMessageBox.information(
                             window, "Empty Deleted Items", "No deleted items to remove."
                         )
@@ -3294,13 +3560,17 @@ def main():
                     if nb_id is not None:
                         ensure_left_tree_sections(window, int(nb_id))
                     QtWidgets.QMessageBox.information(
-                        window, "Empty Deleted Items", "All deleted items have been permanently removed."
+                        window,
+                        "Empty Deleted Items",
+                        "All deleted items have been permanently removed.",
                     )
                 except Exception as e:
-                    QtWidgets.QMessageBox.warning(window, "Error", f"Failed to empty deleted items: {e}")
-            
+                    QtWidgets.QMessageBox.warning(
+                        window, "Error", f"Failed to empty deleted items: {e}"
+                    )
+
             empty_deleted_action.triggered.connect(_empty_all_deleted)
-            
+
             # Insert before Exit action (or append if Exit not found)
             if exit_action is not None:
                 file_menu.insertAction(exit_action, sep_action)
@@ -3316,7 +3586,7 @@ def main():
                 file_menu.addAction(empty_deleted_action)
     except Exception:
         pass
-    
+
     action_exit = window.findChild(QtWidgets.QAction, "actionExit")
     if action_exit:
         action_exit.triggered.connect(window.close)
@@ -3357,13 +3627,27 @@ def main():
         act_save_preset = window.findChild(QtWidgets.QAction, "actionSave_Table_as_Preset")
         if act_insert_preset:
             from ui_richtext import choose_and_insert_preset
-            act_insert_preset.triggered.connect(lambda: choose_and_insert_preset(window.findChild(QtWidgets.QTextEdit, "pageEdit"), fit_width_100=True))
+
+            act_insert_preset.triggered.connect(
+                lambda: choose_and_insert_preset(
+                    window.findChild(QtWidgets.QTextEdit, "pageEdit"), fit_width_100=True
+                )
+            )
         if act_save_preset:
             from ui_richtext import save_current_table_as_preset
-            act_save_preset.triggered.connect(lambda: save_current_table_as_preset(window.findChild(QtWidgets.QTextEdit, "pageEdit")))
+
+            act_save_preset.triggered.connect(
+                lambda: save_current_table_as_preset(
+                    window.findChild(QtWidgets.QTextEdit, "pageEdit")
+                )
+            )
 
         # Only create a Table Presets submenu if we don't have explicit actions in the UI
-        target_menu = None if (act_insert_preset or act_save_preset) else _find_or_create_table_presets_menu(window)
+        target_menu = (
+            None
+            if (act_insert_preset or act_save_preset)
+            else _find_or_create_table_presets_menu(window)
+        )
         if target_menu is not None:
             target_menu.clear()
             # Insert submenu
@@ -3377,7 +3661,9 @@ def main():
             if names:
                 for nm in names:
                     act = sub_insert.addAction(nm)
-                    act.triggered.connect(lambda chk=False, name=nm: _insert_preset_into_editor(window, name))
+                    act.triggered.connect(
+                        lambda chk=False, name=nm: _insert_preset_into_editor(window, name)
+                    )
             else:
                 sub_insert.setEnabled(False)
             target_menu.addSeparator()
@@ -3401,7 +3687,9 @@ def main():
                 name = _choose_preset_name(window, "Rename Preset")
                 if not name:
                     return
-                new_name, ok = QtWidgets.QInputDialog.getText(window, "Rename Preset", "New name:", text=name)
+                new_name, ok = QtWidgets.QInputDialog.getText(
+                    window, "Rename Preset", "New name:", text=name
+                )
                 if not ok or not new_name or new_name == name:
                     return
                 try:
@@ -3417,10 +3705,15 @@ def main():
                 name = _choose_preset_name(window, "Delete Preset")
                 if not name:
                     return
-                if QtWidgets.QMessageBox.question(
-                    window, "Delete Preset", f"Delete preset '{name}'?",
-                    QtWidgets.QMessageBox.Yes | QtWidgets.QMessageBox.No,
-                ) != QtWidgets.QMessageBox.Yes:
+                if (
+                    QtWidgets.QMessageBox.question(
+                        window,
+                        "Delete Preset",
+                        f"Delete preset '{name}'?",
+                        QtWidgets.QMessageBox.Yes | QtWidgets.QMessageBox.No,
+                    )
+                    != QtWidgets.QMessageBox.Yes
+                ):
                     return
                 try:
                     from settings_manager import delete_table_preset
@@ -3443,7 +3736,9 @@ def main():
             if menubar is None:
                 return
             # If UI provides actions, nothing to rebuild here
-            if win.findChild(QtWidgets.QAction, "actionInsert_Table_Preset") or win.findChild(QtWidgets.QAction, "actionSave_Table_as_Preset"):
+            if win.findChild(QtWidgets.QAction, "actionInsert_Table_Preset") or win.findChild(
+                QtWidgets.QAction, "actionSave_Table_as_Preset"
+            ):
                 return
             # Find the Table Presets menu either as a top-level entry or under Insert
             target_menu = None
@@ -3472,37 +3767,65 @@ def main():
             sub_insert = target_menu.addMenu("Insert Preset")
             try:
                 from settings_manager import list_table_preset_names
+
                 names = list_table_preset_names()
             except Exception:
                 names = []
             if names:
                 for nm in names:
                     act = sub_insert.addAction(nm)
-                    act.triggered.connect(lambda chk=False, name=nm: _insert_preset_into_editor(win, name))
+                    act.triggered.connect(
+                        lambda chk=False, name=nm: _insert_preset_into_editor(win, name)
+                    )
             else:
                 sub_insert.setEnabled(False)
             target_menu.addSeparator()
             act_ren = target_menu.addAction("Rename Preset…")
             act_del = target_menu.addAction("Delete Preset…")
+
             def _rename_preset_local():
-                from settings_manager import list_table_preset_names, rename_table_preset
-                name, ok = QtWidgets.QInputDialog.getItem(win, "Rename Preset", "Preset:", list_table_preset_names(), 0, False)
+                from settings_manager import (
+                    list_table_preset_names,
+                    rename_table_preset,
+                )
+
+                name, ok = QtWidgets.QInputDialog.getItem(
+                    win, "Rename Preset", "Preset:", list_table_preset_names(), 0, False
+                )
                 if not ok or not name:
                     return
-                new_name, ok2 = QtWidgets.QInputDialog.getText(win, "Rename Preset", "New name:", text=name)
+                new_name, ok2 = QtWidgets.QInputDialog.getText(
+                    win, "Rename Preset", "New name:", text=name
+                )
                 if not ok2 or not new_name or new_name == name:
                     return
                 rename_table_preset(name, new_name)
                 QTimer.singleShot(0, lambda: _rebuild_table_presets_menu(win))
+
             def _delete_preset_local():
-                from settings_manager import list_table_preset_names, delete_table_preset
-                name, ok = QtWidgets.QInputDialog.getItem(win, "Delete Preset", "Preset:", list_table_preset_names(), 0, False)
+                from settings_manager import (
+                    delete_table_preset,
+                    list_table_preset_names,
+                )
+
+                name, ok = QtWidgets.QInputDialog.getItem(
+                    win, "Delete Preset", "Preset:", list_table_preset_names(), 0, False
+                )
                 if not ok or not name:
                     return
-                if QtWidgets.QMessageBox.question(win, "Delete Preset", f"Delete preset '{name}'?", QtWidgets.QMessageBox.Yes | QtWidgets.QMessageBox.No) != QtWidgets.QMessageBox.Yes:
+                if (
+                    QtWidgets.QMessageBox.question(
+                        win,
+                        "Delete Preset",
+                        f"Delete preset '{name}'?",
+                        QtWidgets.QMessageBox.Yes | QtWidgets.QMessageBox.No,
+                    )
+                    != QtWidgets.QMessageBox.Yes
+                ):
                     return
                 delete_table_preset(name)
                 QTimer.singleShot(0, lambda: _rebuild_table_presets_menu(win))
+
             act_ren.triggered.connect(_rename_preset_local)
             act_del.triggered.connect(_delete_preset_local)
         except Exception:
@@ -4010,14 +4333,14 @@ def main():
         te = window.findChild(QtWidgets.QTextEdit, "pageEdit")
         act_undo = window.findChild(QtWidgets.QAction, "actionUndo")
         act_redo = window.findChild(QtWidgets.QAction, "actionRedo")
-        
+
         if act_undo and te:
             act_undo.setShortcut(QtGui.QKeySequence.Undo)  # Ctrl+Z
             act_undo.triggered.connect(te.undo)
             # Enable/disable based on availability
             act_undo.setEnabled(te.document().isUndoAvailable())
             te.undoAvailable.connect(act_undo.setEnabled)
-        
+
         if act_redo and te:
             act_redo.setShortcut(QtGui.QKeySequence.Redo)  # Ctrl+Y / Ctrl+Shift+Z
             act_redo.triggered.connect(te.redo)
@@ -4169,17 +4492,17 @@ def main():
                     # Populate current settings
                     try:
                         from settings_manager import (
-                            get_databases_root,
-                            get_default_paste_mode,
-                            get_list_schemes_settings,
-                            get_plain_indent_px,
-                            get_image_insert_long_side,
-                            get_video_insert_long_side,
-                            get_settings_file_path,
-                            get_theme_name,
-                            get_exit_backup_dir,
                             get_backup_on_exit_enabled,
                             get_backups_to_keep,
+                            get_databases_root,
+                            get_default_paste_mode,
+                            get_exit_backup_dir,
+                            get_image_insert_long_side,
+                            get_list_schemes_settings,
+                            get_plain_indent_px,
+                            get_settings_file_path,
+                            get_theme_name,
+                            get_video_insert_long_side,
                         )
 
                         # Paste mode
@@ -4230,10 +4553,9 @@ def main():
                         # Backups on exit settings
                         try:
                             # Field names from settings_dialog.ui
-                            ed_back = (
-                                dlg.findChild(QtWidgets.QLineEdit, "editDbBackup")
-                                or dlg.findChild(QtWidgets.QLineEdit, "exitDbBackup")
-                            )
+                            ed_back = dlg.findChild(
+                                QtWidgets.QLineEdit, "editDbBackup"
+                            ) or dlg.findChild(QtWidgets.QLineEdit, "exitDbBackup")
                             chk_on_exit = dlg.findChild(QtWidgets.QCheckBox, "chkBuOnExit")
                             sp_keep = dlg.findChild(QtWidgets.QSpinBox, "spinBuToKeep")
                             if ed_back is not None:
@@ -4243,20 +4565,24 @@ def main():
                             if sp_keep is not None:
                                 sp_keep.setValue(int(get_backups_to_keep()))
                             # Browse button (support both expected names)
-                            btn_browse_back = (
-                                dlg.findChild(QtWidgets.QPushButton, "btnBrowseDbBackup")
-                                or dlg.findChild(QtWidgets.QPushButton, "btnBrowseExitBackup")
-                            )
+                            btn_browse_back = dlg.findChild(
+                                QtWidgets.QPushButton, "btnBrowseDbBackup"
+                            ) or dlg.findChild(QtWidgets.QPushButton, "btnBrowseExitBackup")
                             if btn_browse_back is not None and ed_back is not None:
+
                                 def _browse_backup_dir():
                                     try:
                                         import os
+
                                         start = ed_back.text().strip() or os.path.expanduser("~")
-                                        dir_path = QtWidgets.QFileDialog.getExistingDirectory(window, "Select Backup Folder", start)
+                                        dir_path = QtWidgets.QFileDialog.getExistingDirectory(
+                                            window, "Select Backup Folder", start
+                                        )
                                         if dir_path:
                                             ed_back.setText(dir_path)
                                     except Exception:
                                         pass
+
                                 btn_browse_back.clicked.connect(_browse_backup_dir)
                         except Exception:
                             pass
@@ -4288,7 +4614,9 @@ def main():
                         try:
                             edp = dlg.findChild(QtWidgets.QLineEdit, "editSettingsPath")
                             btn_open = dlg.findChild(QtWidgets.QPushButton, "btnOpenSettingsFolder")
-                            btn_browse_settings = dlg.findChild(QtWidgets.QPushButton, "btnBrowseSettingsPath")
+                            btn_browse_settings = dlg.findChild(
+                                QtWidgets.QPushButton, "btnBrowseSettingsPath"
+                            )
                             spath = get_settings_file_path()
                             if edp is not None:
                                 edp.setText(spath)
@@ -4296,7 +4624,9 @@ def main():
 
                                 def _open_settings_folder():
                                     try:
-                                        current_path = (edp.text() or "").strip() if edp is not None else ""
+                                        current_path = (
+                                            (edp.text() or "").strip() if edp is not None else ""
+                                        )
                                         if not current_path:
                                             current_path = get_settings_file_path()
                                         folder = os.path.dirname(current_path)
@@ -4307,12 +4637,20 @@ def main():
                                 btn_open.clicked.connect(_open_settings_folder)
                             # Browse / Change settings location
                             if btn_browse_settings is not None and edp is not None:
+
                                 def _change_settings_location():
                                     try:
                                         from settings_manager import get_settings_dir
+
                                         current_src = (edp.text() or "").strip() or spath
-                                        start_dir = os.path.dirname(current_src) if os.path.isdir(os.path.dirname(current_src)) else get_settings_dir()
-                                        new_dir = QtWidgets.QFileDialog.getExistingDirectory(window, "Choose Settings Folder", start_dir)
+                                        start_dir = (
+                                            os.path.dirname(current_src)
+                                            if os.path.isdir(os.path.dirname(current_src))
+                                            else get_settings_dir()
+                                        )
+                                        new_dir = QtWidgets.QFileDialog.getExistingDirectory(
+                                            window, "Choose Settings Folder", start_dir
+                                        )
                                         if not new_dir:
                                             return
                                         new_dir = os.path.abspath(new_dir)
@@ -4326,7 +4664,11 @@ def main():
                                             os.remove(test_file)
                                             test_ok = True
                                         except Exception as e:
-                                            QtWidgets.QMessageBox.warning(window, "Settings", f"Selected folder is not writable:\n{e}")
+                                            QtWidgets.QMessageBox.warning(
+                                                window,
+                                                "Settings",
+                                                f"Selected folder is not writable:\n{e}",
+                                            )
                                             return
                                         if not test_ok:
                                             return
@@ -4347,6 +4689,7 @@ def main():
                                             return
                                         # Copy (not move) first when possible; otherwise create a new file.
                                         import shutil
+
                                         try:
                                             if src and os.path.isfile(src):
                                                 shutil.copy2(src, dst)
@@ -4354,11 +4697,16 @@ def main():
                                                 with open(dst, "w", encoding="utf-8") as nf:
                                                     nf.write("{}\n")
                                         except Exception as e:
-                                            QtWidgets.QMessageBox.warning(window, "Settings", f"Failed to migrate settings:\n{e}")
+                                            QtWidgets.QMessageBox.warning(
+                                                window,
+                                                "Settings",
+                                                f"Failed to migrate settings:\n{e}",
+                                            )
                                             return
                                         # Tell settings_manager to start using the new location immediately and persist across restarts
                                         try:
                                             import settings_manager as sm
+
                                             sm.set_settings_file_path(dst)
                                         except Exception:
                                             pass
@@ -4369,9 +4717,17 @@ def main():
                                         except Exception:
                                             pass
                                         edp.setText(dst)
-                                        QtWidgets.QMessageBox.information(window, "Settings", "Settings location updated. It will be used immediately and on next launch.")
+                                        QtWidgets.QMessageBox.information(
+                                            window,
+                                            "Settings",
+                                            "Settings location updated. It will be used immediately and on next launch.",
+                                        )
                                     except Exception as e:
-                                        QtWidgets.QMessageBox.warning(window, "Settings", f"Failed to change settings location:\n{e}")
+                                        QtWidgets.QMessageBox.warning(
+                                            window,
+                                            "Settings",
+                                            f"Failed to change settings location:\n{e}",
+                                        )
 
                                 btn_browse_settings.clicked.connect(_change_settings_location)
                         except Exception:
@@ -4379,6 +4735,7 @@ def main():
                         # Tables tab: load current table theme
                         try:
                             from settings_manager import get_table_theme
+
                             theme = get_table_theme()
                             ed_gc = dlg.findChild(QtWidgets.QLineEdit, "editGridColor")
                             sp_gw = dlg.findChild(QtWidgets.QDoubleSpinBox, "spinGridWidth")
@@ -4395,11 +4752,13 @@ def main():
                                 ed_tb.setText(theme.get("totals_bg", "#F5F5F5"))
                             if ed_cb is not None:
                                 ed_cb.setText(theme.get("cost_header_bg", "#F5F5F5"))
+
                             # Wire simple color pickers
                             def _pick_into(line_edit):
                                 col = QtWidgets.QColorDialog.getColor(parent=dlg)
                                 if col.isValid() and line_edit is not None:
                                     line_edit.setText(col.name())
+
                             btn_gc = dlg.findChild(QtWidgets.QPushButton, "btnPickGridColor")
                             if btn_gc is not None and ed_gc is not None:
                                 btn_gc.clicked.connect(lambda: _pick_into(ed_gc))
@@ -4442,16 +4801,16 @@ def main():
                     # Persist settings
                     try:
                         from settings_manager import (
-                            set_databases_root,
-                            set_default_paste_mode,
-                            set_list_schemes_settings,
-                            set_plain_indent_px,
-                            set_image_insert_long_side,
-                            set_video_insert_long_side,
-                            set_theme_name,
-                            set_exit_backup_dir,
                             set_backup_on_exit_enabled,
                             set_backups_to_keep,
+                            set_databases_root,
+                            set_default_paste_mode,
+                            set_exit_backup_dir,
+                            set_image_insert_long_side,
+                            set_list_schemes_settings,
+                            set_plain_indent_px,
+                            set_theme_name,
+                            set_video_insert_long_side,
                         )
 
                         # Paste mode
@@ -4487,6 +4846,7 @@ def main():
                                 # Apply immediately to runtime constant
                                 try:
                                     import ui_richtext as rt
+
                                     rt.DEFAULT_IMAGE_LONG_SIDE = int(val)
                                 except Exception:
                                     pass
@@ -4494,10 +4854,9 @@ def main():
                             pass
                         # Backups on exit: persist
                         try:
-                            ed_back = (
-                                dlg.findChild(QtWidgets.QLineEdit, "editDbBackup")
-                                or dlg.findChild(QtWidgets.QLineEdit, "exitDbBackup")
-                            )
+                            ed_back = dlg.findChild(
+                                QtWidgets.QLineEdit, "editDbBackup"
+                            ) or dlg.findChild(QtWidgets.QLineEdit, "exitDbBackup")
                             chk_on_exit = dlg.findChild(QtWidgets.QCheckBox, "chkBuOnExit")
                             sp_keep = dlg.findChild(QtWidgets.QSpinBox, "spinBuToKeep")
                             if ed_back is not None:
@@ -4516,6 +4875,7 @@ def main():
                                 set_video_insert_long_side(vval)
                                 try:
                                     import ui_richtext as rt
+
                                     rt.DEFAULT_VIDEO_LONG_SIDE = int(vval)
                                 except Exception:
                                     pass
@@ -4567,7 +4927,11 @@ def main():
                                 pass
                         # Tables tab: persist and apply immediately
                         try:
-                            from settings_manager import set_table_theme, get_table_theme
+                            from settings_manager import (
+                                get_table_theme,
+                                set_table_theme,
+                            )
+
                             ed_gc = dlg.findChild(QtWidgets.QLineEdit, "editGridColor")
                             sp_gw = dlg.findChild(QtWidgets.QDoubleSpinBox, "spinGridWidth")
                             ed_hb = dlg.findChild(QtWidgets.QLineEdit, "editHeaderBg")
@@ -4590,9 +4954,15 @@ def main():
                                 te = window.findChild(QtWidgets.QTextEdit, "pageEdit")
                                 if te is not None:
                                     # Re-run refresh and border enforcement with new colors/widths
-                                    from ui_planning_register import refresh_planning_register_styles
+                                    from ui_planning_register import (
+                                        refresh_planning_register_styles,
+                                    )
+
                                     refresh_planning_register_styles(te)
-                                    from ui_richtext import _enforce_uniform_table_borders
+                                    from ui_richtext import (
+                                        _enforce_uniform_table_borders,
+                                    )
+
                                     _enforce_uniform_table_borders(te)
                             except Exception:
                                 pass
@@ -4619,7 +4989,10 @@ def main():
                     if m and _a.text().replace("&", "").strip().lower() == "tools":
                         tools_menu = m
                         break
-            if tools_menu is not None and window.findChild(QtWidgets.QAction, "actionStorage_Diagnostics") is None:
+            if (
+                tools_menu is not None
+                and window.findChild(QtWidgets.QAction, "actionStorage_Diagnostics") is None
+            ):
                 tools_menu.addSeparator()
                 act_storage_diag = QtWidgets.QAction("Storage Diagnostics", window)
                 act_storage_diag.setObjectName("actionStorage_Diagnostics")
@@ -4629,7 +5002,9 @@ def main():
                         from settings_manager import get_storage_diagnostics
 
                         diag = get_storage_diagnostics()
-                        current_db = getattr(window, "_db_path", None) or get_last_db() or "notes.db"
+                        current_db = (
+                            getattr(window, "_db_path", None) or get_last_db() or "notes.db"
+                        )
                         lines = [
                             f"Current DB (runtime): {current_db}",
                             f"Last DB (settings): {diag.get('last_db') or '(none)'}",
@@ -4647,7 +5022,9 @@ def main():
                             f"Default settings dir: {diag.get('default_settings_dir')}",
                             f"Databases root: {diag.get('databases_root') or '(not set)'}",
                         ]
-                        QtWidgets.QMessageBox.information(window, "Storage Diagnostics", "\n".join(lines))
+                        QtWidgets.QMessageBox.information(
+                            window, "Storage Diagnostics", "\n".join(lines)
+                        )
                     except Exception as e:
                         QtWidgets.QMessageBox.warning(window, "Storage Diagnostics", f"Failed: {e}")
 
@@ -4789,20 +5166,29 @@ def main():
 
     # Help menu
     try:
+
         def _open_help_doc(title: str, relative_path: str):
             try:
                 candidates = []
                 try:
-                    candidates.append(os.path.join(os.path.dirname(os.path.abspath(__file__)), relative_path))
+                    candidates.append(
+                        os.path.join(os.path.dirname(os.path.abspath(__file__)), relative_path)
+                    )
                 except Exception:
                     pass
                 try:
-                    candidates.append(os.path.join(os.path.dirname(os.path.abspath(sys.argv[0])), relative_path))
+                    candidates.append(
+                        os.path.join(os.path.dirname(os.path.abspath(sys.argv[0])), relative_path)
+                    )
                 except Exception:
                     pass
                 try:
                     if getattr(sys, "frozen", False):
-                        candidates.append(os.path.join(os.path.dirname(os.path.abspath(sys.executable)), relative_path))
+                        candidates.append(
+                            os.path.join(
+                                os.path.dirname(os.path.abspath(sys.executable)), relative_path
+                            )
+                        )
                 except Exception:
                     pass
                 try:
@@ -4820,7 +5206,9 @@ def main():
                         pass
                 if not doc_path or not os.path.exists(doc_path):
                     shown_path = candidates[0] if candidates else relative_path
-                    QtWidgets.QMessageBox.warning(window, title, f"Help file not found:\n{shown_path}")
+                    QtWidgets.QMessageBox.warning(
+                        window, title, f"Help file not found:\n{shown_path}"
+                    )
                     return
 
                 with open(doc_path, "r", encoding="utf-8") as handle:
@@ -4834,7 +5222,9 @@ def main():
 
                 browser = dlg.findChild(QtWidgets.QTextBrowser, "textBrowser")
                 if browser is None:
-                    QtWidgets.QMessageBox.warning(window, title, "Help dialog UI is missing textBrowser.")
+                    QtWidgets.QMessageBox.warning(
+                        window, title, "Help dialog UI is missing textBrowser."
+                    )
                     return
                 if hasattr(browser, "setMarkdown"):
                     browser.setMarkdown(content)
@@ -4852,67 +5242,96 @@ def main():
 
         act_documentation = window.findChild(QtWidgets.QAction, "actionDocumentation")
         if act_documentation:
+
             def _open_documentation():
                 """Open the README.md file in the default browser."""
                 _open_help_doc("Documentation", "README.md")
+
             act_documentation.triggered.connect(_open_documentation)
 
         act_restore_bundles = window.findChild(QtWidgets.QAction, "actionRestore_Backup_Bundles")
         if act_restore_bundles:
+
             def _open_restore_bundle_help():
-                _open_help_doc("Restore Backup Bundles", os.path.join("docs", "Restore_Backup_Bundles.md"))
+                _open_help_doc(
+                    "Restore Backup Bundles", os.path.join("docs", "Restore_Backup_Bundles.md")
+                )
+
             act_restore_bundles.triggered.connect(_open_restore_bundle_help)
 
         act_shortcuts = window.findChild(QtWidgets.QAction, "actionKeyboard_Shortcuts")
         if act_shortcuts:
+
             def _open_shortcuts():
                 _open_help_doc("Keyboard Shortcuts", os.path.join("docs", "Keyboard_Shortcuts.md"))
+
             act_shortcuts.triggered.connect(_open_shortcuts)
 
         act_getting_started = window.findChild(QtWidgets.QAction, "actionGetting_Started")
         if act_getting_started:
+
             def _open_getting_started():
                 _open_help_doc("Getting Started", os.path.join("docs", "Getting_Started.md"))
+
             act_getting_started.triggered.connect(_open_getting_started)
 
         act_organizing = window.findChild(QtWidgets.QAction, "actionOrganizing_Notes")
         if act_organizing:
+
             def _open_organizing():
                 _open_help_doc("Organizing Your Notes", os.path.join("docs", "Organizing_Notes.md"))
+
             act_organizing.triggered.connect(_open_organizing)
 
         act_rich_text = window.findChild(QtWidgets.QAction, "actionRich_Text_Editing")
         if act_rich_text:
+
             def _open_rich_text():
                 _open_help_doc("Rich Text Editing", os.path.join("docs", "Rich_Text_Editing.md"))
+
             act_rich_text.triggered.connect(_open_rich_text)
 
         act_tables = window.findChild(QtWidgets.QAction, "actionTables_and_Currency")
         if act_tables:
+
             def _open_tables():
-                _open_help_doc("Tables and Currency Columns", os.path.join("docs", "Tables_and_Currency.md"))
+                _open_help_doc(
+                    "Tables and Currency Columns", os.path.join("docs", "Tables_and_Currency.md")
+                )
+
             act_tables.triggered.connect(_open_tables)
 
         act_backups = window.findChild(QtWidgets.QAction, "actionBackups_and_Recovery")
         if act_backups:
+
             def _open_backups():
-                _open_help_doc("Backups and Recovery", os.path.join("docs", "Backups_and_Recovery.md"))
+                _open_help_doc(
+                    "Backups and Recovery", os.path.join("docs", "Backups_and_Recovery.md")
+                )
+
             act_backups.triggered.connect(_open_backups)
 
         act_storage = window.findChild(QtWidgets.QAction, "actionStorage_Locations")
         if act_storage:
+
             def _open_storage_locations():
-                _open_help_doc("Choosing Storage Locations", os.path.join("docs", "Storage_Locations.md"))
+                _open_help_doc(
+                    "Choosing Storage Locations", os.path.join("docs", "Storage_Locations.md")
+                )
+
             act_storage.triggered.connect(_open_storage_locations)
 
         act_troubleshooting = window.findChild(QtWidgets.QAction, "actionTroubleshooting")
         if act_troubleshooting:
+
             def _open_troubleshooting():
                 _open_help_doc("Troubleshooting", os.path.join("docs", "Troubleshooting.md"))
+
             act_troubleshooting.triggered.connect(_open_troubleshooting)
 
         act_about = window.findChild(QtWidgets.QAction, "actionAbout")
         if act_about:
+
             def _show_about():
                 """Show About dialog with version and credits."""
                 try:
@@ -4939,6 +5358,7 @@ def main():
                     QtWidgets.QMessageBox.warning(
                         window, "About", f"Failed to display about dialog: {e}"
                     )
+
             act_about.triggered.connect(_show_about)
     except Exception:
         pass
@@ -5079,11 +5499,16 @@ def main():
         try:
             from settings_manager import (
                 get_backup_on_exit_enabled,
-                get_exit_backup_dir,
                 get_backups_to_keep,
+                get_exit_backup_dir,
             )
+
             # Allow a runtime override to disable exit backup entirely
-            disable_env = os.environ.get("NOTEBOOK_DISABLE_EXIT_BACKUP", "").strip().lower() in {"1", "true", "yes"}
+            disable_env = os.environ.get("NOTEBOOK_DISABLE_EXIT_BACKUP", "").strip().lower() in {
+                "1",
+                "true",
+                "yes",
+            }
             if (not disable_env) and get_backup_on_exit_enabled():
                 dest = (get_exit_backup_dir() or "").strip()
                 if dest:

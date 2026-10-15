@@ -49,19 +49,41 @@ from services.selection import current_context
 
 # ----------------------------- Image helpers -----------------------------
 _RAW_EXTS = {
-    "dng", "nef", "cr2", "cr3", "arw", "orf", "rw2", "raf", "srw", "pef",
-    "rw1", "3fr", "erf", "kdc", "mrw", "nrw", "ptx", "r3d", "sr2", "x3f"
+    "dng",
+    "nef",
+    "cr2",
+    "cr3",
+    "arw",
+    "orf",
+    "rw2",
+    "raf",
+    "srw",
+    "pef",
+    "rw1",
+    "3fr",
+    "erf",
+    "kdc",
+    "mrw",
+    "nrw",
+    "ptx",
+    "r3d",
+    "sr2",
+    "x3f",
 }
+
 
 def _is_raw_ext(name: str) -> bool:
     try:
         if not name:
             return False
         import os as _os
+
         ext = _os.path.splitext(str(name))[1].lstrip(".").lower()
         return ext in _RAW_EXTS
     except Exception:
         return False
+
+
 def _qimage_dims(text_edit: QtWidgets.QTextEdit, name: str):
     try:
         if not name:
@@ -93,7 +115,14 @@ def _image_info_at_cursor(text_edit: QtWidgets.QTextEdit):
         w = float(imgf.width() or 0.0)
         h = float(imgf.height() or 0.0)
         iw, ih = _qimage_dims(text_edit, imgf.name())
-        return {"cursor_pos": cur.position(), "name": imgf.name(), "w": w, "h": h, "iw": iw, "ih": ih}
+        return {
+            "cursor_pos": cur.position(),
+            "name": imgf.name(),
+            "w": w,
+            "h": h,
+            "iw": iw,
+            "ih": ih,
+        }
     # Try selecting next char (caret just before image)
     c2 = QTextCursor(cur)
     c2.movePosition(QTextCursor.Right, QTextCursor.KeepAnchor, 1)
@@ -106,7 +135,14 @@ def _image_info_at_cursor(text_edit: QtWidgets.QTextEdit):
         w = float(imgf.width() or 0.0)
         h = float(imgf.height() or 0.0)
         iw, ih = _qimage_dims(text_edit, imgf.name())
-        return {"cursor_pos": cur.position(), "name": imgf.name(), "w": w, "h": h, "iw": iw, "ih": ih}
+        return {
+            "cursor_pos": cur.position(),
+            "name": imgf.name(),
+            "w": w,
+            "h": h,
+            "iw": iw,
+            "ih": ih,
+        }
     # Try selecting previous char (caret just after image)
     c3 = QTextCursor(cur)
     c3.movePosition(QTextCursor.Left, QTextCursor.KeepAnchor, 1)
@@ -145,7 +181,14 @@ def _image_info_at_view_pos(text_edit: QtWidgets.QTextEdit, view_pos: QPoint):
                 w = float(imgf.width() or 0.0)
                 h = float(imgf.height() or 0.0)
                 iw, ih = _qimage_dims(text_edit, imgf.name())
-                return {"cursor_pos": c.position(), "name": imgf.name(), "w": w, "h": h, "iw": iw, "ih": ih}
+                return {
+                    "cursor_pos": c.position(),
+                    "name": imgf.name(),
+                    "w": w,
+                    "h": h,
+                    "iw": iw,
+                    "ih": ih,
+                }
             csel = QTextCursor(c)
             csel.movePosition(QTextCursor.Right, QTextCursor.KeepAnchor, 1)
             fmt2 = csel.charFormat()
@@ -157,7 +200,14 @@ def _image_info_at_view_pos(text_edit: QtWidgets.QTextEdit, view_pos: QPoint):
                 w = float(imgf.width() or 0.0)
                 h = float(imgf.height() or 0.0)
                 iw, ih = _qimage_dims(text_edit, imgf.name())
-                return {"cursor_pos": c.position(), "name": imgf.name(), "w": w, "h": h, "iw": iw, "ih": ih}
+                return {
+                    "cursor_pos": c.position(),
+                    "name": imgf.name(),
+                    "w": w,
+                    "h": h,
+                    "iw": iw,
+                    "ih": ih,
+                }
     except Exception:
         pass
     return None
@@ -225,9 +275,11 @@ class _HtmlHighlighter(QSyntaxHighlighter):
         # Tags
         for m in re.finditer(r"<[^>]+>", text):
             self.setFormat(m.start(), m.end() - m.start(), self._fmt_tag)
-            inner = text[m.start():m.end()]
+            inner = text[m.start() : m.end()]
             # Attributes inside tag
-            for a in re.finditer(r"\b([A-Za-z_:][-A-Za-z0-9_:.]*)\s*=\s*(\"[^\"]*\"|'[^']*')", inner):
+            for a in re.finditer(
+                r"\b([A-Za-z_:][-A-Za-z0-9_:.]*)\s*=\s*(\"[^\"]*\"|'[^']*')", inner
+            ):
                 a_start = m.start() + a.start(1)
                 a_len = len(a.group(1))
                 self.setFormat(a_start, a_len, self._fmt_attr)
@@ -254,10 +306,15 @@ def _open_html_source_dialog(text_edit: QtWidgets.QTextEdit):
     dlg.resize(800, 600)
     edit = dlg.findChild(QtWidgets.QPlainTextEdit, "plainTextEdit")
     if edit is None:
-        QtWidgets.QMessageBox.warning(text_edit, "HTML Source", "Dialog UI is missing plainTextEdit.")
+        QtWidgets.QMessageBox.warning(
+            text_edit, "HTML Source", "Dialog UI is missing plainTextEdit."
+        )
         return
     try:
-        f = edit.font(); f.setFamily("Consolas"); f.setPointSize(10); edit.setFont(f)
+        f = edit.font()
+        f.setFamily("Consolas")
+        f.setPointSize(10)
+        edit.setFont(f)
     except Exception:
         pass
     # Load current HTML
@@ -289,8 +346,19 @@ def _open_html_source_dialog(text_edit: QtWidgets.QTextEdit):
     btns.accepted.connect(_apply)
     btns.rejected.connect(dlg.reject)
     dlg.exec_()
+
+
 class _ImagePropertiesDialog(QtWidgets.QDialog):
-    def __init__(self, parent, src_name: str, current_w: float, current_h: float, intrinsic_w: int, intrinsic_h: int, current_align: str):
+    def __init__(
+        self,
+        parent,
+        src_name: str,
+        current_w: float,
+        current_h: float,
+        intrinsic_w: int,
+        intrinsic_h: int,
+        current_align: str,
+    ):
         super().__init__(parent)
         self.setWindowTitle("Image Properties")
         layout = QtWidgets.QFormLayout(self)
@@ -313,13 +381,16 @@ class _ImagePropertiesDialog(QtWidgets.QDialog):
         self.combo_align = QtWidgets.QComboBox(self)
         self.combo_align.addItems(["None", "Left", "Center", "Right"])
         try:
-            idx = {"none":0, "left":1, "center":2, "right":3}.get((current_align or "none").lower(), 0)
+            idx = {"none": 0, "left": 1, "center": 2, "right": 3}.get(
+                (current_align or "none").lower(), 0
+            )
             self.combo_align.setCurrentIndex(idx)
         except Exception:
             pass
         # Compute height preview
         self._iw = float(intrinsic_w or 0)
         self._ih = float(intrinsic_h or 0)
+
         def _refresh_h():
             w = self.sp_width.value()
             if self.cb_keep.isChecked():
@@ -330,6 +401,7 @@ class _ImagePropertiesDialog(QtWidgets.QDialog):
                     self.lbl_height.setText("Height: (auto)")
             else:
                 self.lbl_height.setText("")
+
         self.sp_width.valueChanged.connect(lambda _v: _refresh_h())
         self.cb_keep.toggled.connect(lambda _v: _refresh_h())
         _refresh_h()
@@ -345,11 +417,18 @@ class _ImagePropertiesDialog(QtWidgets.QDialog):
         layout.addRow(btns)
         btns.accepted.connect(self.accept)
         btns.rejected.connect(self.reject)
+
     def values(self):
         w = float(self.sp_width.value())
         align_idx = self.combo_align.currentIndex()
-        align = {0:"none",1:"left",2:"center",3:"right"}.get(align_idx, "none")
-        return w, align, self.cb_keep.isChecked(), self.le_alt.text().strip(), self.le_title.text().strip()
+        align = {0: "none", 1: "left", 2: "center", 3: "right"}.get(align_idx, "none")
+        return (
+            w,
+            align,
+            self.cb_keep.isChecked(),
+            self.le_alt.text().strip(),
+            self.le_title.text().strip(),
+        )
 
 
 def _apply_block_alignment_for_image(text_edit: QtWidgets.QTextEdit, cursor_pos: int, align: str):
@@ -380,10 +459,22 @@ def _image_properties_dialog_apply(text_edit: QtWidgets.QTextEdit, info: dict):
         cur = QTextCursor(text_edit.document())
         cur.setPosition(int(info.get("cursor_pos", 0)))
         blk = cur.block()
-        current_align = "center" if blk.blockFormat().alignment() & Qt.AlignHCenter else ("right" if blk.blockFormat().alignment() & Qt.AlignRight else "left")
+        current_align = (
+            "center"
+            if blk.blockFormat().alignment() & Qt.AlignHCenter
+            else ("right" if blk.blockFormat().alignment() & Qt.AlignRight else "left")
+        )
     except Exception:
         current_align = "left"
-    dlg = _ImagePropertiesDialog(text_edit, info.get("name"), info.get("w"), info.get("h"), info.get("iw") or 0, info.get("ih") or 0, current_align)  # (Removed legacy _table_recalculate_formulas after formula feature rollback.)
+    dlg = _ImagePropertiesDialog(
+        text_edit,
+        info.get("name"),
+        info.get("w"),
+        info.get("h"),
+        info.get("iw") or 0,
+        info.get("ih") or 0,
+        current_align,
+    )  # (Removed legacy _table_recalculate_formulas after formula feature rollback.)
     if dlg.exec_() != QtWidgets.QDialog.Accepted:
         return
     new_w, new_align, keep, alt_txt, title_txt = dlg.values()
@@ -400,7 +491,9 @@ def _image_properties_dialog_apply(text_edit: QtWidgets.QTextEdit, info: dict):
         # If not keeping ratio, fall back to proportional based on current dims
         ratio = (float(cur_h) / float(cur_w)) if cur_w else 1.0
         new_h = max(1.0, float(new_w) * ratio)
-    _apply_image_properties(text_edit, info["cursor_pos"], info["name"], float(new_w), float(new_h), alt_txt, title_txt)
+    _apply_image_properties(
+        text_edit, info["cursor_pos"], info["name"], float(new_w), float(new_h), alt_txt, title_txt
+    )
     if (new_align or "none").lower() != "none":
         _apply_block_alignment_for_image(text_edit, info["cursor_pos"], new_align)
 
@@ -408,7 +501,7 @@ def _image_properties_dialog_apply(text_edit: QtWidgets.QTextEdit, info: dict):
 def _html_escape(s: str) -> str:
     try:
         s = s.replace("&", "&amp;")
-        s = s.replace("\"", "&quot;")
+        s = s.replace('"', "&quot;")
         s = s.replace("<", "&lt;")
         s = s.replace(">", "&gt;")
         return s
@@ -416,7 +509,15 @@ def _html_escape(s: str) -> str:
         return s
 
 
-def _apply_image_properties(text_edit: QtWidgets.QTextEdit, cursor_pos: int, name: str, w: float, h: float, alt_txt: str, title_txt: str):
+def _apply_image_properties(
+    text_edit: QtWidgets.QTextEdit,
+    cursor_pos: int,
+    name: str,
+    w: float,
+    h: float,
+    alt_txt: str,
+    title_txt: str,
+):
     try:
         doc = text_edit.document()
         c = QTextCursor(doc)
@@ -438,9 +539,11 @@ def _apply_image_properties(text_edit: QtWidgets.QTextEdit, cursor_pos: int, nam
     except Exception:
         # Fallback to size-only application
         _apply_image_size_at(text_edit, cursor_pos, name, w, h)
-import os
-import tempfile
+
+
 import imghdr
+import tempfile
+
 
 # Safe checks for deleted Qt objects (helps prevent native crashes)
 def _is_alive(obj) -> bool:
@@ -450,6 +553,7 @@ def _is_alive(obj) -> bool:
         # Try to use sip.isdeleted if available, but don't hard-require sip
         try:
             import sip  # type: ignore
+
             try:
                 return not sip.isdeleted(obj)
             except Exception:
@@ -460,6 +564,7 @@ def _is_alive(obj) -> bool:
         return True
     except Exception:
         return False
+
 
 # Feature flag: allow disabling image resize overlay via environment for diagnostics
 def _is_image_resize_enabled() -> bool:
@@ -505,7 +610,9 @@ def _qdbb_standard_button(name: str):
 DEFAULT_FONT_FAMILY = "Arial"  # e.g., "Arial", "Calibri", "Times New Roman"
 DEFAULT_FONT_SIZE_PT = 12  # in points
 DEFAULT_IMAGE_LONG_SIDE = 400  # px; long side target when inserting images
-DEFAULT_VIDEO_LONG_SIDE = 400  # px; default long side for video thumbnails (can differ via settings)
+DEFAULT_VIDEO_LONG_SIDE = (
+    400  # px; default long side for video thumbnails (can differ via settings)
+)
 
 # List scheme configuration (can be changed at runtime from main menu)
 _ORDERED_SCHEME = "classic"  # 'classic' or 'decimal'
@@ -529,7 +636,7 @@ def _make_icon(kind: str, size: QSize = QSize(24, 24), fg: QColor = QColor("#303
             f.setItalic(italic)
             f.setPointSizeF(max(8.0, h * 0.48))
             p.setFont(f)
-            metrics = QtWidgets.QStyleOption().fontMetrics
+            QtWidgets.QStyleOption().fontMetrics
             # Fallback: draw centered
             rect = QRect(2, 2, w - 4, h - 4)
             p.drawText(rect, Qt.AlignCenter, txt)
@@ -641,7 +748,11 @@ def _make_icon(kind: str, size: QSize = QSize(24, 24), fg: QColor = QColor("#303
             px = rect.center().x()
             py = rect.center().y()
             size = int(min(rect.width(), rect.height()) * 0.5)
-            pts = [QPoint(px - size // 3, py - size // 2), QPoint(px - size // 3, py + size // 2), QPoint(px + size // 2, py)]
+            pts = [
+                QPoint(px - size // 3, py - size // 2),
+                QPoint(px - size // 3, py + size // 2),
+                QPoint(px + size // 2, py),
+            ]
             p.setBrush(QBrush(QColor(60, 60, 60)))
             p.setPen(Qt.NoPen)
             p.drawPolygon(*pts)
@@ -689,7 +800,8 @@ def add_rich_text_toolbar(
     toolbar = QtWidgets.QWidget(parent_tab)
     toolbar.setObjectName("richTextToolbar")
     toolbar.setSizePolicy(QtWidgets.QSizePolicy.Expanding, QtWidgets.QSizePolicy.Fixed)
-    toolbar.setStyleSheet("""
+    toolbar.setStyleSheet(
+        """
         QWidget#richTextToolbar {
             background: #f6f6f6;
             border-bottom: 1px solid #d0d0d0;
@@ -709,7 +821,8 @@ def add_rich_text_toolbar(
             border-radius: 3px;
         }
         QToolButton::menu-indicator { image: none; }
-    """)
+    """
+    )
     _tb = QtWidgets.QHBoxLayout(toolbar)
     _tb.setContentsMargins(4, 2, 4, 2)
     _tb.setSpacing(2)
@@ -741,8 +854,8 @@ def add_rich_text_toolbar(
         _tb.addWidget(f)
 
     # Undo/Redo
-    act_undo = _tb_btn("undo", "Undo (Ctrl+Z)", text_edit.undo)
-    act_redo = _tb_btn("redo", "Redo (Ctrl+Y)", text_edit.redo)
+    _tb_btn("undo", "Undo (Ctrl+Z)", text_edit.undo)
+    _tb_btn("redo", "Redo (Ctrl+Y)", text_edit.redo)
     _tb_sep()
 
     # Bold/Italic/Underline/Strike
@@ -765,10 +878,14 @@ def add_rich_text_toolbar(
                 cursor.setPosition(pos)
                 cursor.setPosition(pos + 1, cursor.KeepAnchor)
                 current_fmt = cursor.charFormat()
-                if flag_attr == "bold": current_fmt.setFontWeight(QFont.Bold if on else QFont.Normal)
-                elif flag_attr == "italic": current_fmt.setFontItalic(on)
-                elif flag_attr == "underline": current_fmt.setFontUnderline(on)
-                elif flag_attr == "strike": current_fmt.setFontStrikeOut(on)
+                if flag_attr == "bold":
+                    current_fmt.setFontWeight(QFont.Bold if on else QFont.Normal)
+                elif flag_attr == "italic":
+                    current_fmt.setFontItalic(on)
+                elif flag_attr == "underline":
+                    current_fmt.setFontUnderline(on)
+                elif flag_attr == "strike":
+                    current_fmt.setFontStrikeOut(on)
                 cursor.setCharFormat(current_fmt)
             cursor.endEditBlock()
             cursor.setPosition(start)
@@ -779,10 +896,24 @@ def add_rich_text_toolbar(
             cursor.mergeCharFormat(fmt)
         text_edit.mergeCurrentCharFormat(fmt)
 
-    act_bold = _tb_btn("bold", "Bold (Ctrl+B)", lambda checked: toggle_format("bold", checked), checkable=True)
-    act_italic = _tb_btn("italic", "Italic (Ctrl+I)", lambda checked: toggle_format("italic", checked), checkable=True)
-    act_underline = _tb_btn("underline", "Underline (Ctrl+U)", lambda checked: toggle_format("underline", checked), checkable=True)
-    act_strike = _tb_btn("strike", "Strikethrough", lambda checked: toggle_format("strike", checked), checkable=True)
+    act_bold = _tb_btn(
+        "bold", "Bold (Ctrl+B)", lambda checked: toggle_format("bold", checked), checkable=True
+    )
+    act_italic = _tb_btn(
+        "italic",
+        "Italic (Ctrl+I)",
+        lambda checked: toggle_format("italic", checked),
+        checkable=True,
+    )
+    act_underline = _tb_btn(
+        "underline",
+        "Underline (Ctrl+U)",
+        lambda checked: toggle_format("underline", checked),
+        checkable=True,
+    )
+    act_strike = _tb_btn(
+        "strike", "Strikethrough", lambda checked: toggle_format("strike", checked), checkable=True
+    )
     _tb_sep()
 
     # Font family and size
@@ -865,10 +996,21 @@ def add_rich_text_toolbar(
     _tb_sep()
 
     # Alignment
-    act_align_left = _tb_btn("align_left", "Align Left", lambda: text_edit.setAlignment(Qt.AlignLeft), checkable=True)
-    act_align_center = _tb_btn("align_center", "Align Center", lambda: text_edit.setAlignment(Qt.AlignHCenter), checkable=True)
-    act_align_right = _tb_btn("align_right", "Align Right", lambda: text_edit.setAlignment(Qt.AlignRight), checkable=True)
-    act_align_justify = _tb_btn("align_justify", "Justify", lambda: text_edit.setAlignment(Qt.AlignJustify), checkable=True)
+    act_align_left = _tb_btn(
+        "align_left", "Align Left", lambda: text_edit.setAlignment(Qt.AlignLeft), checkable=True
+    )
+    act_align_center = _tb_btn(
+        "align_center",
+        "Align Center",
+        lambda: text_edit.setAlignment(Qt.AlignHCenter),
+        checkable=True,
+    )
+    act_align_right = _tb_btn(
+        "align_right", "Align Right", lambda: text_edit.setAlignment(Qt.AlignRight), checkable=True
+    )
+    act_align_justify = _tb_btn(
+        "align_justify", "Justify", lambda: text_edit.setAlignment(Qt.AlignJustify), checkable=True
+    )
     _align_grp = QtWidgets.QButtonGroup(toolbar)
     _align_grp.setExclusive(True)
     for _ab in (act_align_left, act_align_center, act_align_right, act_align_justify):
@@ -876,12 +1018,12 @@ def add_rich_text_toolbar(
     _tb_sep()
 
     # Lists
-    act_bullets = _tb_btn("list_bullets", "Bulleted list", lambda: _toggle_list(text_edit, ordered=False))
-    act_numbers = _tb_btn("list_numbers", "Numbered list", lambda: _toggle_list(text_edit, ordered=True))
+    _tb_btn("list_bullets", "Bulleted list", lambda: _toggle_list(text_edit, ordered=False))
+    _tb_btn("list_numbers", "Numbered list", lambda: _toggle_list(text_edit, ordered=True))
 
     # Indent/Outdent for list nesting
-    act_indent = _tb_btn("indent", "Indent (Tab, Ctrl+])", lambda: _change_list_indent(text_edit, +1))
-    act_outdent = _tb_btn("outdent", "Outdent (Shift+Tab, Ctrl+[)", lambda: _change_list_indent(text_edit, -1))
+    _tb_btn("indent", "Indent (Tab, Ctrl+])", lambda: _change_list_indent(text_edit, +1))
+    _tb_btn("outdent", "Outdent (Shift+Tab, Ctrl+[)", lambda: _change_list_indent(text_edit, -1))
 
     # Enable Tab/Shift+Tab to control list levels
     _install_list_tab_handler(text_edit)
@@ -903,7 +1045,8 @@ def add_rich_text_toolbar(
     _tb_sep()
 
     # Clear formatting, HR, Insert image/video
-    act_clear = _tb_btn("color", "Clear formatting", lambda: text_edit.setCurrentCharFormat(QTextCharFormat()))
+    _tb_btn("color", "Clear formatting", lambda: text_edit.setCurrentCharFormat(QTextCharFormat()))
+
     def _insert_horizontal_rule():
         cur = text_edit.textCursor()
         cur.beginEditBlock()
@@ -920,13 +1063,13 @@ def add_rich_text_toolbar(
                 '<table width="100%" cellpadding="0" cellspacing="0" border="0" '
                 'style="border-collapse: collapse;">'
                 '<tr><td style="border-top: 1px solid #000000; padding: 0; height: 1px;"></td></tr>'
-                '</table><p></p>'
+                "</table><p></p>"
             )
             cur.insertHtml(hr_html)
         finally:
             cur.endEditBlock()
 
-    act_hr = _tb_btn("hr", "Insert horizontal rule", _insert_horizontal_rule)
+    _tb_btn("hr", "Insert horizontal rule", _insert_horizontal_rule)
     # Image insert: split-button with dropdown for sizing modes
     btn_img = QtWidgets.QToolButton(toolbar)
     btn_img.setIcon(_make_icon("image"))
@@ -967,7 +1110,9 @@ def add_rich_text_toolbar(
     vid_menu = QtWidgets.QMenu(btn_vid)
     # Sizing section (mirrors image sizing semantics)
     try:
-        act_vsz_def = vid_menu.addAction(f"Size: Default ({int(DEFAULT_IMAGE_LONG_SIDE)} px long side)")
+        act_vsz_def = vid_menu.addAction(
+            f"Size: Default ({int(DEFAULT_IMAGE_LONG_SIDE)} px long side)"
+        )
     except Exception:
         act_vsz_def = vid_menu.addAction("Size: Default")
     act_vsz_fit = vid_menu.addAction("Size: Fit editor width")
@@ -984,7 +1129,9 @@ def add_rich_text_toolbar(
 
     def _choose_custom_video_time():
         try:
-            secs, ok = QtWidgets.QInputDialog.getDouble(toolbar, "Insert Video", "Capture time (seconds):", 1.0, 0.0, 36000.0, 1)
+            secs, ok = QtWidgets.QInputDialog.getDouble(
+                toolbar, "Insert Video", "Capture time (seconds):", 1.0, 0.0, 36000.0, 1
+            )
             if not ok:
                 return
             _insert_video_via_dialog(text_edit, capture_seconds=float(secs), force_synthetic=False)
@@ -1004,30 +1151,65 @@ def add_rich_text_toolbar(
 
     def _choose_video_custom_width():
         try:
-            w, ok = QtWidgets.QInputDialog.getInt(toolbar, "Video width", "Width (px):", int(DEFAULT_IMAGE_LONG_SIDE), 50, 8000, 10)
+            w, ok = QtWidgets.QInputDialog.getInt(
+                toolbar, "Video width", "Width (px):", int(DEFAULT_IMAGE_LONG_SIDE), 50, 8000, 10
+            )
             if ok:
                 _set_video_size("custom", float(w))
         except Exception:
             pass
+
     act_vsz_custom.triggered.connect(_choose_video_custom_width)
 
-    act_v1.triggered.connect(lambda: _insert_video_via_dialog(text_edit, capture_seconds=1.0, force_synthetic=False, size_mode=_video_size_state["mode"], custom_width=_video_size_state["custom_width"]))
-    act_v3.triggered.connect(lambda: _insert_video_via_dialog(text_edit, capture_seconds=3.0, force_synthetic=False, size_mode=_video_size_state["mode"], custom_width=_video_size_state["custom_width"]))
-    act_v5.triggered.connect(lambda: _insert_video_via_dialog(text_edit, capture_seconds=5.0, force_synthetic=False, size_mode=_video_size_state["mode"], custom_width=_video_size_state["custom_width"]))
+    act_v1.triggered.connect(
+        lambda: _insert_video_via_dialog(
+            text_edit,
+            capture_seconds=1.0,
+            force_synthetic=False,
+            size_mode=_video_size_state["mode"],
+            custom_width=_video_size_state["custom_width"],
+        )
+    )
+    act_v3.triggered.connect(
+        lambda: _insert_video_via_dialog(
+            text_edit,
+            capture_seconds=3.0,
+            force_synthetic=False,
+            size_mode=_video_size_state["mode"],
+            custom_width=_video_size_state["custom_width"],
+        )
+    )
+    act_v5.triggered.connect(
+        lambda: _insert_video_via_dialog(
+            text_edit,
+            capture_seconds=5.0,
+            force_synthetic=False,
+            size_mode=_video_size_state["mode"],
+            custom_width=_video_size_state["custom_width"],
+        )
+    )
     act_vc.triggered.connect(_choose_custom_video_time)
-    act_vs.triggered.connect(lambda: _insert_video_via_dialog(text_edit, capture_seconds=None, force_synthetic=True, size_mode=_video_size_state["mode"], custom_width=_video_size_state["custom_width"]))
+    act_vs.triggered.connect(
+        lambda: _insert_video_via_dialog(
+            text_edit,
+            capture_seconds=None,
+            force_synthetic=True,
+            size_mode=_video_size_state["mode"],
+            custom_width=_video_size_state["custom_width"],
+        )
+    )
     btn_vid.setMenu(vid_menu)
     _tb.addWidget(btn_vid)
 
     # Paste Text Only quick action
-    act_paste_plain = _tb_btn("color", "Paste Text Only (Ctrl+Shift+V)", lambda: paste_text_only(text_edit))
+    _tb_btn("color", "Paste Text Only (Ctrl+Shift+V)", lambda: paste_text_only(text_edit))
 
     # HTML Source editor
-    act_html = _tb_btn("code", "HTML Source…", lambda: _open_html_source_dialog(text_edit))
+    _tb_btn("code", "HTML Source…", lambda: _open_html_source_dialog(text_edit))
 
     # Table: insert or edit if caret is inside a table
     _tb_sep()
-    act_table = _tb_btn("table", "Insert/edit table", lambda: _table_insert_or_edit(text_edit))
+    _tb_btn("table", "Insert/edit table", lambda: _table_insert_or_edit(text_edit))
     _tb.addStretch(1)  # push all buttons to the left
 
     # (Image Actions toolbar button removed by request)
@@ -1077,11 +1259,12 @@ def add_rich_text_toolbar(
         finally:
             # Delay clearing the flag to allow pending signals to be ignored
             QTimer.singleShot(100, lambda: _clear_applying_flag())
-    
+
     def _trigger_save_for_format_change(win):
         """Save page after a format change (font, size, etc.) since these don't trigger textChanged."""
         try:
             from two_pane_core import save_current_page
+
             save_current_page(win)
         except Exception:
             pass
@@ -1123,7 +1306,9 @@ def add_rich_text_toolbar(
 
     # Connect font/size combos to use guarded wrappers
     font_box.currentFontChanged.connect(lambda f: _guarded_apply_font_family(f.family()))
-    size_box.currentIndexChanged.connect(lambda _i: _guarded_apply_font_size(size_box.currentData()))
+    size_box.currentIndexChanged.connect(
+        lambda _i: _guarded_apply_font_size(size_box.currentData())
+    )
 
     text_edit.cursorPositionChanged.connect(_schedule_sync_toolbar)
 
@@ -1181,13 +1366,18 @@ def add_rich_text_toolbar(
                 cur = text_edit.textCursor()
                 info = _image_info_near_doc_pos(text_edit, cur.position())
             if info is None:
-                info = _image_info_in_block(text_edit, text_edit.textCursor().block(), prefer_pos=text_edit.textCursor().position())
+                info = _image_info_in_block(
+                    text_edit,
+                    text_edit.textCursor().block(),
+                    prefer_pos=text_edit.textCursor().position(),
+                )
             if info is None:
                 # No image nearby, do nothing
                 return
             _image_properties_dialog_apply(text_edit, info)
         except Exception:
             pass
+
     try:
         sc1 = QtWidgets.QShortcut(QKeySequence("Ctrl+Shift+I"), text_edit)
         sc1.setContext(Qt.WidgetWithChildrenShortcut)
@@ -1364,7 +1554,9 @@ def _image_info_at_position(text_edit: QtWidgets.QTextEdit, pos_or_posint):
 
         def _mk(imgf: QTextImageFormat, c: QTextCursor):
             try:
-                name = imgf.name() if hasattr(imgf, "name") else imgf.property(QTextFormat.ImageName)
+                name = (
+                    imgf.name() if hasattr(imgf, "name") else imgf.property(QTextFormat.ImageName)
+                )
             except Exception:
                 name = ""
             w = float(imgf.width() or 0.0)
@@ -1460,7 +1652,11 @@ def _image_info_at_cursor(text_edit: QtWidgets.QTextEdit):
                 cx = r.center().x()
                 cy = r.center().y()
                 # Sweep horizontally and slightly vertically
-                for dy in (0, int(r.height()/3) if r.height() > 0 else 6, -int(r.height()/3) if r.height() > 0 else -6):
+                for dy in (
+                    0,
+                    int(r.height() / 3) if r.height() > 0 else 6,
+                    -int(r.height() / 3) if r.height() > 0 else -6,
+                ):
                     for dx in (-64, -48, -32, -24, -16, -8, -4, 0, 4, 8, 16, 24, 32, 48, 64):
                         pt = QPoint(int(cx + dx), int(cy + dy))
                         # Clamp within viewport
@@ -1490,6 +1686,7 @@ def _image_info_near_doc_pos(text_edit: QtWidgets.QTextEdit, doc_pos: int, max_s
         # Limit search to the paragraph/block for precision
         start = blk.position()
         end = blk.position() + blk.length() - 1
+
         # Scan outward from doc_pos within [start,end]
         def _try_at(p):
             if p < start or p > end:
@@ -1499,9 +1696,14 @@ def _image_info_near_doc_pos(text_edit: QtWidgets.QTextEdit, doc_pos: int, max_s
             # Select the char at this position to retrieve object format
             c.movePosition(QTextCursor.Right, QTextCursor.KeepAnchor, 1)
             fmt = c.charFormat()
-            if fmt is not None and ((hasattr(fmt, "isImageFormat") and fmt.isImageFormat()) or fmt.objectType() == QTextFormat.ImageObject):
+            if fmt is not None and (
+                (hasattr(fmt, "isImageFormat") and fmt.isImageFormat())
+                or fmt.objectType() == QTextFormat.ImageObject
+            ):
                 imgf = QTextImageFormat(fmt)
-                name = imgf.name() if hasattr(imgf, "name") else imgf.property(QTextFormat.ImageName)
+                name = (
+                    imgf.name() if hasattr(imgf, "name") else imgf.property(QTextFormat.ImageName)
+                )
                 w = float(imgf.width() or 0.0)
                 h = float(imgf.height() or 0.0)
                 # Try to get intrinsic size
@@ -1518,6 +1720,7 @@ def _image_info_near_doc_pos(text_edit: QtWidgets.QTextEdit, doc_pos: int, max_s
                     pass
                 return {"cursor_pos": p, "name": name, "w": w, "h": h, "iw": iw, "ih": ih}
             return None
+
         # Check exact pos and neighbors out to max_scan (capped by block length)
         max_delta = int(min(max_scan, max(0, end - start)))
         # Prefer exact, then +/-1, +/-2, ...
@@ -1563,7 +1766,11 @@ def _image_info_from_selection(text_edit: QtWidgets.QTextEdit):
             ):
                 imgf = QTextImageFormat(fmt)
                 try:
-                    name = imgf.name() if hasattr(imgf, "name") else imgf.property(QTextFormat.ImageName)
+                    name = (
+                        imgf.name()
+                        if hasattr(imgf, "name")
+                        else imgf.property(QTextFormat.ImageName)
+                    )
                 except Exception:
                     name = ""
                 w = float(imgf.width() or 0.0)
@@ -1579,7 +1786,14 @@ def _image_info_from_selection(text_edit: QtWidgets.QTextEdit):
                         iw, ih = img.width(), img.height()
                 except Exception:
                     pass
-                return {"cursor_pos": c.position(), "name": name, "w": w, "h": h, "iw": iw, "ih": ih}
+                return {
+                    "cursor_pos": c.position(),
+                    "name": name,
+                    "w": w,
+                    "h": h,
+                    "iw": iw,
+                    "ih": ih,
+                }
             pos += 1
     except Exception:
         return None
@@ -1598,10 +1812,17 @@ def _image_info_in_block(text_edit: QtWidgets.QTextEdit, block, prefer_pos: int 
             frag = it.fragment()
             if frag.isValid():
                 fmt = frag.charFormat()
-                if fmt is not None and ((hasattr(fmt, "isImageFormat") and fmt.isImageFormat()) or fmt.objectType() == QTextFormat.ImageObject):
+                if fmt is not None and (
+                    (hasattr(fmt, "isImageFormat") and fmt.isImageFormat())
+                    or fmt.objectType() == QTextFormat.ImageObject
+                ):
                     imgf = QTextImageFormat(fmt)
                     try:
-                        name = imgf.name() if hasattr(imgf, "name") else imgf.property(QTextFormat.ImageName)
+                        name = (
+                            imgf.name()
+                            if hasattr(imgf, "name")
+                            else imgf.property(QTextFormat.ImageName)
+                        )
                     except Exception:
                         name = ""
                     w = float(imgf.width() or 0.0)
@@ -1617,14 +1838,16 @@ def _image_info_in_block(text_edit: QtWidgets.QTextEdit, block, prefer_pos: int 
                             iw, ih = img.width(), img.height()
                     except Exception:
                         pass
-                    imgs.append({
-                        "cursor_pos": frag.position(),
-                        "name": name,
-                        "w": w,
-                        "h": h,
-                        "iw": iw,
-                        "ih": ih,
-                    })
+                    imgs.append(
+                        {
+                            "cursor_pos": frag.position(),
+                            "name": name,
+                            "w": w,
+                            "h": h,
+                            "iw": iw,
+                            "ih": ih,
+                        }
+                    )
             it += 1
         if not imgs:
             return None
@@ -1637,7 +1860,9 @@ def _image_info_in_block(text_edit: QtWidgets.QTextEdit, block, prefer_pos: int 
         return None
 
 
-def _apply_image_size_at(text_edit: QtWidgets.QTextEdit, cursor_pos: int, name: str, w: float, h: float):
+def _apply_image_size_at(
+    text_edit: QtWidgets.QTextEdit, cursor_pos: int, name: str, w: float, h: float
+):
     try:
         doc = text_edit.document()
         # Ensure we target the actual image character; adjust if needed
@@ -1658,7 +1883,8 @@ def _apply_image_size_at(text_edit: QtWidgets.QTextEdit, cursor_pos: int, name: 
             # If selection is not an image, fall back later
             fmt = c.charFormat()
             is_img_sel = fmt is not None and (
-                (hasattr(fmt, "isImageFormat") and fmt.isImageFormat()) or fmt.objectType() == QTextFormat.ImageObject
+                (hasattr(fmt, "isImageFormat") and fmt.isImageFormat())
+                or fmt.objectType() == QTextFormat.ImageObject
             )
             if is_img_sel:
                 try:
@@ -1692,7 +1918,9 @@ def _apply_image_size_at(text_edit: QtWidgets.QTextEdit, cursor_pos: int, name: 
         pass
 
 
-def _fit_image_to_width_at(text_edit: QtWidgets.QTextEdit, cursor_pos: int, name: str, iw: int, ih: int):
+def _fit_image_to_width_at(
+    text_edit: QtWidgets.QTextEdit, cursor_pos: int, name: str, iw: int, ih: int
+):
     try:
         if not (iw and ih):
             return
@@ -1704,7 +1932,9 @@ def _fit_image_to_width_at(text_edit: QtWidgets.QTextEdit, cursor_pos: int, name
         pass
 
 
-def _reset_image_size_at(text_edit: QtWidgets.QTextEdit, cursor_pos: int, name: str, iw: int, ih: int):
+def _reset_image_size_at(
+    text_edit: QtWidgets.QTextEdit, cursor_pos: int, name: str, iw: int, ih: int
+):
     try:
         if iw and ih:
             _apply_image_size_at(text_edit, cursor_pos, name, float(iw), float(ih))
@@ -1712,11 +1942,25 @@ def _reset_image_size_at(text_edit: QtWidgets.QTextEdit, cursor_pos: int, name: 
         pass
 
 
-def _prompt_resize_image(text_edit: QtWidgets.QTextEdit, cursor_pos: int, name: str, cur_w: float, cur_h: float, iw: int, ih: int):
+def _prompt_resize_image(
+    text_edit: QtWidgets.QTextEdit,
+    cursor_pos: int,
+    name: str,
+    cur_w: float,
+    cur_h: float,
+    iw: int,
+    ih: int,
+):
     try:
-        aspect = (float(iw) / float(ih)) if (iw and ih and ih != 0) else (float(cur_w) / float(cur_h) if cur_h else 1.0)
+        aspect = (
+            (float(iw) / float(ih))
+            if (iw and ih and ih != 0)
+            else (float(cur_w) / float(cur_h) if cur_h else 1.0)
+        )
         w_default = int(cur_w or (iw or 400))
-        w_txt, ok = QtWidgets.QInputDialog.getText(text_edit, "Resize Image", "Width (px):", text=str(w_default))
+        w_txt, ok = QtWidgets.QInputDialog.getText(
+            text_edit, "Resize Image", "Width (px):", text=str(w_default)
+        )
         if not (ok and w_txt and w_txt.strip()):
             return
         try:
@@ -1756,7 +2000,11 @@ def _strip_match_style_html(html: str) -> str:
         kept = []
         for p in parts:
             key = p.split(":", 1)[0].strip().lower()
-            if key.startswith("background") or key in ("color", "font-weight", "font-style", "text-decoration",
+            if key.startswith("background") or key in (
+                "color",
+                "font-weight",
+                "font-style",
+                "text-decoration",
                 "font-size",
                 "font-family",
                 "font",
@@ -1822,7 +2070,26 @@ def sanitize_html_for_storage(raw_html: str) -> str:
                     # - table cell/row background-color and text-align
                     # - character styles: font-weight, font-style, text-decoration, color,
                     #   background/background-color, font-family, font-size
-                    if tag_l in ("ol", "ul", "li", "p", "div", "td", "th", "tr", "table", "span", "a", "em", "strong", "b", "i", "u", "s", "hr"):
+                    if tag_l in (
+                        "ol",
+                        "ul",
+                        "li",
+                        "p",
+                        "div",
+                        "td",
+                        "th",
+                        "tr",
+                        "table",
+                        "span",
+                        "a",
+                        "em",
+                        "strong",
+                        "b",
+                        "i",
+                        "u",
+                        "s",
+                        "hr",
+                    ):
                         try:
                             decls = [d.strip() for d in str(v).split(";") if d.strip()]
                             kept = []
@@ -1943,7 +2210,26 @@ def sanitize_html_for_storage(raw_html: str) -> str:
                         allowed.append((k, v))
                     continue
                 if lk == "style":
-                    if tag_l in ("ol", "ul", "li", "p", "div", "td", "th", "tr", "table", "span", "a", "em", "strong", "b", "i", "u", "s", "hr"):
+                    if tag_l in (
+                        "ol",
+                        "ul",
+                        "li",
+                        "p",
+                        "div",
+                        "td",
+                        "th",
+                        "tr",
+                        "table",
+                        "span",
+                        "a",
+                        "em",
+                        "strong",
+                        "b",
+                        "i",
+                        "u",
+                        "s",
+                        "hr",
+                    ):
                         try:
                             decls = [d.strip() for d in str(v).split(";") if d.strip()]
                             kept = []
@@ -2131,7 +2417,9 @@ def get_list_schemes():
     return _ORDERED_SCHEME, _UNORDERED_SCHEME
 
 
-def _insert_image_via_dialog(text_edit: QtWidgets.QTextEdit, mode: str = "default", custom_width: float = None):
+def _insert_image_via_dialog(
+    text_edit: QtWidgets.QTextEdit, mode: str = "default", custom_width: float = None
+):
     """Open a file dialog and insert the chosen image using the specified sizing mode.
 
     mode in {"default", "fit-width", "original", "custom"}
@@ -2145,7 +2433,9 @@ def _insert_image_via_dialog(text_edit: QtWidgets.QTextEdit, mode: str = "defaul
     _insert_image_from_path(text_edit, path, mode=mode, custom_width=custom_width)
 
 
-def _insert_image_from_path(text_edit: QtWidgets.QTextEdit, src_path: str, mode: str = "default", custom_width: float = None):
+def _insert_image_from_path(
+    text_edit: QtWidgets.QTextEdit, src_path: str, mode: str = "default", custom_width: float = None
+):
     """Insert an image scaled to DEFAULT_IMAGE_LONG_SIDE using QTextImageFormat.
 
     - Saves into the media store when a DB is open and uses a relative src resolved via document baseUrl.
@@ -2248,9 +2538,13 @@ def _insert_image_from_path(text_edit: QtWidgets.QTextEdit, src_path: str, mode:
         return
 
 
-
-
-def _insert_video_via_dialog(text_edit: QtWidgets.QTextEdit, capture_seconds: float = None, force_synthetic: bool = False, size_mode: str = "default", custom_width: float = None):
+def _insert_video_via_dialog(
+    text_edit: QtWidgets.QTextEdit,
+    capture_seconds: float = None,
+    force_synthetic: bool = False,
+    size_mode: str = "default",
+    custom_width: float = None,
+):
     path, _ = QtWidgets.QFileDialog.getOpenFileName(
         text_edit,
         "Insert Video",
@@ -2298,7 +2592,9 @@ def _insert_video_from_path(
                 try:
                     _nb_id, _sid, page_id = current_context(win)
                     if page_id is not None:
-                        add_media_ref(db_path, video_media_id, page_id=int(page_id), role="inline_video")
+                        add_media_ref(
+                            db_path, video_media_id, page_id=int(page_id), role="inline_video"
+                        )
                 except Exception:
                     pass
 
@@ -2313,6 +2609,7 @@ def _insert_video_from_path(
                 def _opencv_available() -> bool:
                     try:
                         import cv2  # type: ignore
+
                         _ = cv2.__version__
                         return True
                     except Exception:
@@ -2321,6 +2618,7 @@ def _insert_video_from_path(
                 def _extract_frame_with_opencv(source: str, out_png: str, t_sec: float) -> bool:
                     try:
                         import cv2  # type: ignore
+
                         cap = cv2.VideoCapture(source)
                         if not cap.isOpened():
                             return False
@@ -2342,10 +2640,16 @@ def _insert_video_from_path(
                         return False
 
                 tmp_dir = tempfile.gettempdir()
-                tmp_thumb = os.path.join(tmp_dir, f"nb_thumb_{os.getpid()}_{abs(hash(src_path))}.png")
+                tmp_thumb = os.path.join(
+                    tmp_dir, f"nb_thumb_{os.getpid()}_{abs(hash(src_path))}.png"
+                )
                 made_real = False
                 # Prefer OpenCV if available
-                use_sec = float(capture_seconds) if capture_seconds is not None else _video_thumb_seconds()
+                use_sec = (
+                    float(capture_seconds)
+                    if capture_seconds is not None
+                    else _video_thumb_seconds()
+                )
                 if (not force_synthetic) and _opencv_available():
                     if _extract_frame_with_opencv(src_path, tmp_thumb, use_sec):
                         made_real = True
@@ -2390,7 +2694,11 @@ def _insert_video_from_path(
                         f.setPointSizeF(max(12.0, overlay_h * 0.35))
                         f.setBold(False)
                         p.setFont(f)
-                        p.drawText(QRect(12, thumb_h - overlay_h, thumb_w - 24, overlay_h), Qt.AlignVCenter | Qt.TextSingleLine, name)
+                        p.drawText(
+                            QRect(12, thumb_h - overlay_h, thumb_w - 24, overlay_h),
+                            Qt.AlignVCenter | Qt.TextSingleLine,
+                            name,
+                        )
                     except Exception:
                         pass
                     try:
@@ -2405,11 +2713,20 @@ def _insert_video_from_path(
                 rel_thumb = None
                 if tmp_thumb and os.path.exists(tmp_thumb):
                     try:
-                        thumb_media_id, rel_thumb = save_file_into_store(db_path, tmp_thumb, original_filename=os.path.basename(src_path) + ".thumb.png")
+                        thumb_media_id, rel_thumb = save_file_into_store(
+                            db_path,
+                            tmp_thumb,
+                            original_filename=os.path.basename(src_path) + ".thumb.png",
+                        )
                         try:
                             _nb_id, _sid, page_id = current_context(win)
                             if page_id is not None:
-                                add_media_ref(db_path, thumb_media_id, page_id=int(page_id), role="video_thumbnail")
+                                add_media_ref(
+                                    db_path,
+                                    thumb_media_id,
+                                    page_id=int(page_id),
+                                    role="video_thumbnail",
+                                )
                         except Exception:
                             pass
                     except Exception:
@@ -2422,7 +2739,11 @@ def _insert_video_from_path(
                 if rel_thumb is not None:
                     try:
                         # Probe intrinsic size from stored file
-                        abs_probe = os.path.join(media_root, rel_thumb) if not os.path.isabs(rel_thumb) else rel_thumb
+                        abs_probe = (
+                            os.path.join(media_root, rel_thumb)
+                            if not os.path.isabs(rel_thumb)
+                            else rel_thumb
+                        )
                         img_probe = QImage(abs_probe)
                         iw = int(img_probe.width()) if not img_probe.isNull() else 1280
                         ih = int(img_probe.height()) if not img_probe.isNull() else 720
@@ -2446,18 +2767,35 @@ def _insert_video_from_path(
                                 disp_h = max(1, int(ih * scale))
                             else:  # default long-side scaling
                                 # Prefer separate video default if defined
-                                target_long_default = float(DEFAULT_VIDEO_LONG_SIDE) if 'DEFAULT_VIDEO_LONG_SIDE' in globals() and DEFAULT_VIDEO_LONG_SIDE else float(DEFAULT_IMAGE_LONG_SIDE)
-                                target_long = float(custom_width) if (size_mode == "custom" and custom_width and custom_width > 0) else target_long_default
+                                target_long_default = (
+                                    float(DEFAULT_VIDEO_LONG_SIDE)
+                                    if "DEFAULT_VIDEO_LONG_SIDE" in globals()
+                                    and DEFAULT_VIDEO_LONG_SIDE
+                                    else float(DEFAULT_IMAGE_LONG_SIDE)
+                                )
+                                target_long = (
+                                    float(custom_width)
+                                    if (size_mode == "custom" and custom_width and custom_width > 0)
+                                    else target_long_default
+                                )
                                 scale = target_long / float(max(iw, ih)) if max(iw, ih) > 0 else 1.0
                                 disp_w = max(1, int(iw * scale))
                                 disp_h = max(1, int(ih * scale))
                         except Exception:
-                            target_long = float(DEFAULT_VIDEO_LONG_SIDE) if 'DEFAULT_VIDEO_LONG_SIDE' in globals() else float(DEFAULT_IMAGE_LONG_SIDE)
+                            target_long = (
+                                float(DEFAULT_VIDEO_LONG_SIDE)
+                                if "DEFAULT_VIDEO_LONG_SIDE" in globals()
+                                else float(DEFAULT_IMAGE_LONG_SIDE)
+                            )
                             scale = target_long / float(max(iw, ih)) if max(iw, ih) > 0 else 1.0
                             disp_w = max(1, int(iw * scale))
                             disp_h = max(1, int(ih * scale))
                     except Exception:
-                        base_long = float(DEFAULT_VIDEO_LONG_SIDE) if 'DEFAULT_VIDEO_LONG_SIDE' in globals() else float(DEFAULT_IMAGE_LONG_SIDE)
+                        base_long = (
+                            float(DEFAULT_VIDEO_LONG_SIDE)
+                            if "DEFAULT_VIDEO_LONG_SIDE" in globals()
+                            else float(DEFAULT_IMAGE_LONG_SIDE)
+                        )
                         disp_w = int(base_long)
                         disp_h = int(base_long * 9 / 16)
                     alt = os.path.basename(src_path)
@@ -2480,8 +2818,6 @@ def _insert_video_from_path(
         text_edit.textCursor().insertHtml(html)
     except Exception:
         return
-
-
 
 
 class _ImageResizeHandler(QObject):
@@ -2558,7 +2894,11 @@ class _ImageResizeHandler(QObject):
                     continue
                 imgf, c = info
                 try:
-                    name = imgf.name() if hasattr(imgf, "name") else imgf.property(QTextFormat.ImageName)
+                    name = (
+                        imgf.name()
+                        if hasattr(imgf, "name")
+                        else imgf.property(QTextFormat.ImageName)
+                    )
                 except Exception:
                     name = ""
 
@@ -2584,7 +2924,7 @@ class _ImageResizeHandler(QObject):
                 # Fallback to image format/intrinsic dims if layout width is zero
                 w = imgf.width() if hasattr(imgf, "width") and imgf.width() else 0
                 h = imgf.height() if hasattr(imgf, "height") and imgf.height() else 0
-                if (not w or not h):
+                if not w or not h:
                     # Try intrinsic by loading image from media root
                     abs_path = name
                     try:
@@ -2610,7 +2950,14 @@ class _ImageResizeHandler(QObject):
                     y_top = int(r1.center().y() - (ih / 2))
 
                 screen_rect = QRect(int(x_left), int(y_top), int(iw), int(ih))
-                return {"cursor": c, "format": imgf, "name": name, "rect": screen_rect, "w": iw, "h": ih}
+                return {
+                    "cursor": c,
+                    "format": imgf,
+                    "name": name,
+                    "rect": screen_rect,
+                    "w": iw,
+                    "h": ih,
+                }
         except Exception:
             return None
         return None
@@ -2659,7 +3006,9 @@ class _ImageResizeHandler(QObject):
                     rect = info["rect"]
                     # Near right edge within 18px, allow a tiny vertical tolerance
                     edge_x = rect.x() + rect.width()
-                    near_right = abs(pos_vp.x() - edge_x) <= 18 and QRect(rect.x(), rect.y()-4, rect.width(), rect.height()+8).contains(pos_vp, True)
+                    near_right = abs(pos_vp.x() - edge_x) <= 18 and QRect(
+                        rect.x(), rect.y() - 4, rect.width(), rect.height() + 8
+                    ).contains(pos_vp, True)
                     if near_right:
                         self._resizing = True
                         self._start_pos = QPoint(pos_vp)
@@ -2716,7 +3065,9 @@ class _ImageResizeHandler(QObject):
                             r2 = self._edit.cursorRect(cur2)
                             x_left = min(r1.left(), r2.left())
                             y_top = min(r1.top(), r2.top())
-                            self._overlay.show_for_rect(QRect(int(x_left), int(y_top), int(new_w), int(new_h)))
+                            self._overlay.show_for_rect(
+                                QRect(int(x_left), int(y_top), int(new_w), int(new_h))
+                            )
                     except Exception:
                         pass
                     return True
@@ -2729,7 +3080,9 @@ class _ImageResizeHandler(QObject):
                             # Loosen hover region slightly to reduce flicker
                             hover_rect = rect.adjusted(-4, -4, 4, 4)
                             inside = hover_rect.contains(pos_vp, True)
-                            near_right = abs(pos_vp.x() - (rect.x() + rect.width())) <= 18 and inside
+                            near_right = (
+                                abs(pos_vp.x() - (rect.x() + rect.width())) <= 18 and inside
+                            )
                             if _is_alive(self._overlay) and inside:
                                 self._overlay.show_for_rect(rect)
                             if near_right:
@@ -2807,6 +3160,7 @@ class _ImageResizeHandler(QObject):
 
 class _ImageContextMenuHandler(QObject):
     """Adds image-specific options to the context menu: Resize…, Fit to width, Reset size."""
+
     def __init__(self, edit: QtWidgets.QTextEdit):
         super().__init__(edit)
         self._edit = edit
@@ -2835,15 +3189,31 @@ class _ImageContextMenuHandler(QObject):
             cur = edit.cursorForPosition(pos_vp)
             for candidate in (QTextCursor(cur),):
                 fmt = candidate.charFormat()
-                if fmt is not None and ((hasattr(fmt, "isImageFormat") and fmt.isImageFormat()) or fmt.objectType() == QTextFormat.ImageObject):
+                if fmt is not None and (
+                    (hasattr(fmt, "isImageFormat") and fmt.isImageFormat())
+                    or fmt.objectType() == QTextFormat.ImageObject
+                ):
                     imgf = QTextImageFormat(fmt)
-                    return {"cursor_pos": candidate.position(), "name": imgf.name(), "w": imgf.width() or 0.0, "h": imgf.height() or 0.0}
+                    return {
+                        "cursor_pos": candidate.position(),
+                        "name": imgf.name(),
+                        "w": imgf.width() or 0.0,
+                        "h": imgf.height() or 0.0,
+                    }
                 prev = QTextCursor(candidate)
                 prev.movePosition(QTextCursor.Left)
                 pf = prev.charFormat()
-                if pf is not None and ((hasattr(pf, "isImageFormat") and pf.isImageFormat()) or pf.objectType() == QTextFormat.ImageObject):
+                if pf is not None and (
+                    (hasattr(pf, "isImageFormat") and pf.isImageFormat())
+                    or pf.objectType() == QTextFormat.ImageObject
+                ):
                     imgf = QTextImageFormat(pf)
-                    return {"cursor_pos": prev.position(), "name": imgf.name(), "w": imgf.width() or 0.0, "h": imgf.height() or 0.0}
+                    return {
+                        "cursor_pos": prev.position(),
+                        "name": imgf.name(),
+                        "w": imgf.width() or 0.0,
+                        "h": imgf.height() or 0.0,
+                    }
         except Exception:
             return None
         return None
@@ -2898,7 +3268,9 @@ class _ImageContextMenuHandler(QObject):
         iw, ih = self._intrinsic_size(name)
         aspect = (iw / ih) if (iw and ih and ih != 0) else (cur_w / cur_h if cur_h else 1.0)
         try:
-            w_txt, ok = QtWidgets.QInputDialog.getText(self._edit, "Resize Image", "Width (px):", text=str(int(cur_w or (iw or 400))))
+            w_txt, ok = QtWidgets.QInputDialog.getText(
+                self._edit, "Resize Image", "Width (px):", text=str(int(cur_w or (iw or 400)))
+            )
         except Exception:
             ok = False
             w_txt = None
@@ -2953,7 +3325,9 @@ class _ImageContextMenuHandler(QObject):
             if info is None:
                 try:
                     c_try = self._edit.cursorForPosition(pos_vp)
-                    info = _image_info_in_block(self._edit, c_try.block(), prefer_pos=c_try.position())
+                    info = _image_info_in_block(
+                        self._edit, c_try.block(), prefer_pos=c_try.position()
+                    )
                 except Exception:
                     pass
             if info is None:
@@ -2965,6 +3339,7 @@ class _ImageContextMenuHandler(QObject):
                 # Add spell suggestions if available
                 try:
                     from spell_check import get_spell_checker
+
                     spell_checker = get_spell_checker(self._edit)
                     if spell_checker and spell_checker.enabled:
                         spell_checker._add_spell_suggestions_to_menu(menu)
@@ -2987,8 +3362,10 @@ class _ImageContextMenuHandler(QObject):
             rel_video = None
             try:
                 # First try via char format anchor
-                ctmp = QTextCursor(self._edit.document()); ctmp.setPosition(cursor_pos)
-                csel = QTextCursor(ctmp); csel.movePosition(QTextCursor.Right, QTextCursor.KeepAnchor, 1)
+                ctmp = QTextCursor(self._edit.document())
+                ctmp.setPosition(cursor_pos)
+                csel = QTextCursor(ctmp)
+                csel.movePosition(QTextCursor.Right, QTextCursor.KeepAnchor, 1)
                 fmt = csel.charFormat()
                 href = None
                 try:
@@ -2998,9 +3375,15 @@ class _ImageContextMenuHandler(QObject):
                     href = None
                 # Fallback: inspect block HTML around cursor
                 if not href:
-                    blk = ctmp.block(); bc = QTextCursor(blk); bc.select(QTextCursor.BlockUnderCursor)
+                    blk = ctmp.block()
+                    bc = QTextCursor(blk)
+                    bc.select(QTextCursor.BlockUnderCursor)
                     frag_html = bc.selection().toHtml()
-                    m = re.search(r"<a[^>]+href=\"([^\"]+)\"[^>]*>\s*<img[^>]*>\s*</a>", frag_html, re.IGNORECASE)
+                    m = re.search(
+                        r"<a[^>]+href=\"([^\"]+)\"[^>]*>\s*<img[^>]*>\s*</a>",
+                        frag_html,
+                        re.IGNORECASE,
+                    )
                     href = m.group(1) if m else None
                 if isinstance(href, str) and href.strip():
                     hv = href.strip()
@@ -3026,13 +3409,20 @@ class _ImageContextMenuHandler(QObject):
                 return
             if chosen == act_resize:
                 iw, ih = self._intrinsic_size(name)
-                info_d = {"cursor_pos": cursor_pos, "name": name, "w": cur_w, "h": cur_h, "iw": iw, "ih": ih}
+                info_d = {
+                    "cursor_pos": cursor_pos,
+                    "name": name,
+                    "w": cur_w,
+                    "h": cur_h,
+                    "iw": iw,
+                    "ih": ih,
+                }
                 _image_properties_dialog_apply(self._edit, info_d)
             elif chosen == act_fit:
                 self._fit_to_width(cursor_pos, name)
             elif chosen == act_reset:
                 self._reset_size(cursor_pos, name)
-            elif rel_video and 'act_open_video' in locals() and chosen == act_open_video:
+            elif rel_video and "act_open_video" in locals() and chosen == act_open_video:
                 try:
                     base = getattr(self._edit.window(), "_media_root", None)
                     if base and not re.match(r"^[a-zA-Z]+:|^/", rel_video):
@@ -3042,7 +3432,12 @@ class _ImageContextMenuHandler(QObject):
                         QDesktopServices.openUrl(QUrl(rel_video))
                 except Exception:
                     pass
-            elif rel_video and 'act_v1' in locals() and chosen in (act_v1, act_v3, act_v5, act_vc, act_vs):
+            elif (
+                rel_video
+                and "act_v1" in locals()
+                and chosen in (act_v1, act_v3, act_v5, act_vc, act_vs)
+            ):
+
                 def _do_regen(secs=None, synthetic=False):
                     try:
                         base = getattr(self._edit.window(), "_media_root", None)
@@ -3054,11 +3449,15 @@ class _ImageContextMenuHandler(QObject):
                             v_abs = os.path.join(base, v_abs)
                         # Insert new thumbnail at current position
                         cpos = int(cursor_pos)
-                        cset = QTextCursor(self._edit.document()); cset.setPosition(cpos)
+                        cset = QTextCursor(self._edit.document())
+                        cset.setPosition(cpos)
                         self._edit.setTextCursor(cset)
-                        _insert_video_from_path(self._edit, v_abs, capture_seconds=secs, force_synthetic=synthetic)
+                        _insert_video_from_path(
+                            self._edit, v_abs, capture_seconds=secs, force_synthetic=synthetic
+                        )
                         # Remove the old image char
-                        cdel = QTextCursor(self._edit.document()); cdel.setPosition(cpos)
+                        cdel = QTextCursor(self._edit.document())
+                        cdel.setPosition(cpos)
                         cdel.movePosition(QTextCursor.Right, QTextCursor.KeepAnchor, 1)
                         try:
                             cdel.removeSelectedText()
@@ -3066,11 +3465,14 @@ class _ImageContextMenuHandler(QObject):
                             pass
                     except Exception:
                         pass
+
                 if chosen == act_vs:
                     _do_regen(secs=None, synthetic=True)
                 elif chosen == act_vc:
                     try:
-                        secs, ok = QtWidgets.QInputDialog.getDouble(self._edit, "Thumbnail time", "Seconds:", 1.0, 0.0, 36000.0, 1)
+                        secs, ok = QtWidgets.QInputDialog.getDouble(
+                            self._edit, "Thumbnail time", "Seconds:", 1.0, 0.0, 36000.0, 1
+                        )
                         if ok:
                             _do_regen(secs=float(secs), synthetic=False)
                     except Exception:
@@ -3084,12 +3486,13 @@ class _ImageContextMenuHandler(QObject):
                 # Add spell suggestions if available
                 try:
                     from spell_check import get_spell_checker
+
                     spell_checker = get_spell_checker(self._edit)
                     if spell_checker and spell_checker.enabled:
                         spell_checker._add_spell_suggestions_to_menu(menu)
                 except Exception:
                     pass
-                menu.exec_(self._edit.mapToGlobal(pos if isinstance(pos, QPoint) else QPoint(0,0)))
+                menu.exec_(self._edit.mapToGlobal(pos if isinstance(pos, QPoint) else QPoint(0, 0)))
             except Exception:
                 pass
 
@@ -3121,7 +3524,13 @@ class _ImageHud(QObject):
         self._last_info = None
 
     def eventFilter(self, obj, event):
-        if obj is self._vp and event.type() in (QEvent.Resize, QEvent.Paint, QEvent.Wheel, QEvent.Scroll, QEvent.LayoutRequest):
+        if obj is self._vp and event.type() in (
+            QEvent.Resize,
+            QEvent.Paint,
+            QEvent.Wheel,
+            QEvent.Scroll,
+            QEvent.LayoutRequest,
+        ):
             self._update()
         return super().eventFilter(obj, event)
 
@@ -3132,7 +3541,9 @@ class _ImageHud(QObject):
             cur = edit.textCursor()
             info = _image_info_near_doc_pos(edit, cur.position())
         if info is None:
-            info = _image_info_in_block(edit, edit.textCursor().block(), prefer_pos=edit.textCursor().position())
+            info = _image_info_in_block(
+                edit, edit.textCursor().block(), prefer_pos=edit.textCursor().position()
+            )
         return info
 
     def _update(self):
@@ -3220,6 +3631,7 @@ def _install_image_resize_handler(text_edit: QtWidgets.QTextEdit):
                 except Exception:
                     pass
                 handler.set_overlay(overlay)
+
                 # Keep overlay sized with the viewport
                 def _sync_overlay():
                     try:
@@ -3227,6 +3639,7 @@ def _install_image_resize_handler(text_edit: QtWidgets.QTextEdit):
                         overlay.update()
                     except Exception:
                         pass
+
                 try:
                     watcher = _ResizeViewportWatcher(overlay, _sync_overlay)
                     overlay._vpWatcher = watcher  # keep a python-side ref
@@ -3265,6 +3678,7 @@ def _install_image_resize_handler(text_edit: QtWidgets.QTextEdit):
 
 class _ResizeViewportWatcher(QObject):
     """Internal helper to keep an overlay synced with the viewport size."""
+
     def __init__(self, overlay: QtWidgets.QWidget, on_change):
         super().__init__(overlay)
         self._overlay = overlay
@@ -3282,6 +3696,7 @@ class _ResizeViewportWatcher(QObject):
 
 class _ImageResizeOverlay(QtWidgets.QWidget):
     """A transparent overlay that draws visual resize handles around the hovered image."""
+
     def __init__(self, edit: QtWidgets.QTextEdit):
         super().__init__(edit)
         self._edit = edit
@@ -3326,7 +3741,9 @@ class _ImageResizeOverlay(QtWidgets.QWidget):
             handle_size = 16
             rx = self._rect.right()
             cy = self._rect.center().y()
-            handle_rect = QRect(rx - handle_size // 2, cy - handle_size // 2, handle_size, handle_size)
+            handle_rect = QRect(
+                rx - handle_size // 2, cy - handle_size // 2, handle_size, handle_size
+            )
             # Handle with outline for contrast
             p.fillRect(handle_rect, accent)
             p.setPen(QPen(QColor(255, 255, 255), 1))
@@ -3376,6 +3793,7 @@ def _enforce_uniform_table_borders(text_edit: QtWidgets.QTextEdit):
     # Load theme (grid color and width)
     try:
         from settings_manager import get_table_theme
+
         theme = get_table_theme()
         grid_hex = theme.get("grid_color", "#000000")
         grid_w = float(theme.get("grid_width", 1.5))
@@ -3396,11 +3814,16 @@ def _enforce_uniform_table_borders(text_edit: QtWidgets.QTextEdit):
                     fmt = tbl.format()
                     prop = fmt.property(int(QTextFormat.UserProperty) + 101)
                     skip = bool(prop)
-                    
-                    # Do not overwrite borders if the table is NOT a Planning Register 
+
+                    # Do not overwrite borders if the table is NOT a Planning Register
                     # and already has a custom border setting (avoids "brittle" UI)
                     from ui_planning_register import PLANNING_REG_PROPERTY
-                    if not fmt.property(PLANNING_REG_PROPERTY) and fmt.border() != 1.0 and fmt.border() > 0:
+
+                    if (
+                        not fmt.property(PLANNING_REG_PROPERTY)
+                        and fmt.border() != 1.0
+                        and fmt.border() > 0
+                    ):
                         skip = True
 
                     # Additionally detect 1x1 top-border-only tables (HTML reload path)
@@ -3424,10 +3847,10 @@ def _enforce_uniform_table_borders(text_edit: QtWidgets.QTextEdit):
                                     cf = _to_table_cell_format(cell.format())
                                     if cf is None:
                                         raise ValueError("Could not read table cell format")
-                                    tb = float(getattr(cf, 'topBorder', lambda: 0.0)() or 0.0)
-                                    lb = float(getattr(cf, 'leftBorder', lambda: 0.0)() or 0.0)
-                                    rb = float(getattr(cf, 'rightBorder', lambda: 0.0)() or 0.0)
-                                    bb = float(getattr(cf, 'bottomBorder', lambda: 0.0)() or 0.0)
+                                    tb = float(getattr(cf, "topBorder", lambda: 0.0)() or 0.0)
+                                    lb = float(getattr(cf, "leftBorder", lambda: 0.0)() or 0.0)
+                                    rb = float(getattr(cf, "rightBorder", lambda: 0.0)() or 0.0)
+                                    bb = float(getattr(cf, "bottomBorder", lambda: 0.0)() or 0.0)
                                     if tb > 0.0 and lb == 0.0 and rb == 0.0 and bb == 0.0:
                                         skip = True
                             except Exception:
@@ -3619,7 +4042,9 @@ def _table_apply_padding_and_spacing(table, cell_padding: float = None, cell_spa
                 pass
 
 
-def insert_table_from_preset(text_edit: QtWidgets.QTextEdit, preset_name: str, fit_width_100: bool = True):
+def insert_table_from_preset(
+    text_edit: QtWidgets.QTextEdit, preset_name: str, fit_width_100: bool = True
+):
     """Insert a table defined by a saved preset at the current cursor position.
 
     Supports two schemas:
@@ -3655,7 +4080,10 @@ def insert_table_from_preset(text_edit: QtWidgets.QTextEdit, preset_name: str, f
         except Exception:
             pass
         try:
-            from ui_planning_register import ensure_planning_register_watcher, refresh_planning_register_styles
+            from ui_planning_register import (
+                ensure_planning_register_watcher,
+                refresh_planning_register_styles,
+            )
 
             ensure_planning_register_watcher(text_edit)
             refresh_planning_register_styles(text_edit)
@@ -3705,6 +4133,7 @@ def choose_and_insert_preset(text_edit: QtWidgets.QTextEdit, fit_width_100: bool
         return
     insert_table_from_preset(text_edit, name.strip(), fit_width_100=fit_width_100)
 
+
 def insert_planning_register_via_dialog(window: QtWidgets.QMainWindow):
     """Insert a new Planning Register into the active editor."""
     try:
@@ -3713,6 +4142,7 @@ def insert_planning_register_via_dialog(window: QtWidgets.QMainWindow):
         insert_planning_register(window)
     except Exception:
         pass
+
 
 def save_current_table_as_preset(text_edit: QtWidgets.QTextEdit):
     """Save the table under the caret as a reusable preset (HTML-based).
@@ -3725,7 +4155,9 @@ def save_current_table_as_preset(text_edit: QtWidgets.QTextEdit):
     tbl = _current_table(text_edit)
     if tbl is None:
         try:
-            QtWidgets.QMessageBox.information(text_edit, "Save Table as Preset", "Place the caret inside a table to save it.")
+            QtWidgets.QMessageBox.information(
+                text_edit, "Save Table as Preset", "Place the caret inside a table to save it."
+            )
         except Exception:
             pass
         return
@@ -3755,7 +4187,10 @@ def save_current_table_as_preset(text_edit: QtWidgets.QTextEdit):
                 candidate = probe.currentTable()
                 if candidate is None:
                     break
-                if candidate.firstPosition() < outer.firstPosition() and candidate.lastPosition() >= outer.lastPosition():
+                if (
+                    candidate.firstPosition() < outer.firstPosition()
+                    and candidate.lastPosition() >= outer.lastPosition()
+                ):
                     outer = candidate
                     continue
                 break
@@ -3791,7 +4226,9 @@ def save_current_table_as_preset(text_edit: QtWidgets.QTextEdit):
         table_html = ""
     if not table_html:
         try:
-            QtWidgets.QMessageBox.information(text_edit, "Save Table as Preset", "Couldn't capture table HTML.")
+            QtWidgets.QMessageBox.information(
+                text_edit, "Save Table as Preset", "Couldn't capture table HTML."
+            )
         except Exception:
             pass
         return
@@ -3801,7 +4238,9 @@ def save_current_table_as_preset(text_edit: QtWidgets.QTextEdit):
         from settings_manager import save_table_preset
 
         save_table_preset(name.strip(), preset)
-        QtWidgets.QToolTip.showText(text_edit.mapToGlobal(text_edit.rect().center()), f"Saved preset '{name.strip()}'")
+        QtWidgets.QToolTip.showText(
+            text_edit.mapToGlobal(text_edit.rect().center()), f"Saved preset '{name.strip()}'"
+        )
     except Exception:
         pass
 
@@ -3889,7 +4328,7 @@ def _build_plain_table_html(
     col_pct = 100.0 / float(cols)
     fixed_width_px = float(fixed_width_px) if fixed_width_px is not None else None
     if fixed_width_px is not None and fixed_width_px > 0.0:
-        width_attr = f'{int(round(fixed_width_px))}'
+        width_attr = f"{int(round(fixed_width_px))}"
         table_styles = [f"width:{fixed_width_px:.1f}px", "table-layout:fixed"]
     else:
         width_attr = f"{table_width_pct:.1f}%"
@@ -3906,17 +4345,17 @@ def _build_plain_table_html(
         f"border:{float(border):.1f}px solid #000000; "
         "vertical-align:top"
     )
-    row_html = "<tr>" + "".join(
-        f'<td width="{col_pct:.6f}%" style="{cell_style}"></td>' for _ in range(cols)
-    ) + "</tr>"
+    row_html = (
+        "<tr>"
+        + "".join(f'<td width="{col_pct:.6f}%" style="{cell_style}"></td>' for _ in range(cols))
+        + "</tr>"
+    )
     table_html = (
         f'<table width="{width_attr}" '
         f'cellpadding="{float(cell_padding):.1f}" '
         f'cellspacing="{float(cell_spacing):.1f}" '
         f'border="{float(border):.1f}" '
-        f'style="{"; ".join(table_styles)}">'
-        + (row_html * rows)
-        + "</table>"
+        f'style="{"; ".join(table_styles)}">' + (row_html * rows) + "</table>"
     )
     return table_html
 
@@ -3945,8 +4384,10 @@ def _find_inserted_table(text_edit: QtWidgets.QTextEdit, start_pos: int, end_pos
                     first_table = tbl
                 if tbl.firstPosition() >= start_pos:
                     span = tbl.lastPosition() - tbl.firstPosition()
-                    if best_table is None or span < best_span or (
-                        span == best_span and tbl.firstPosition() > best_table.firstPosition()
+                    if (
+                        best_table is None
+                        or span < best_span
+                        or (span == best_span and tbl.firstPosition() > best_table.firstPosition())
                     ):
                         best_table = tbl
                         best_span = span
@@ -4243,7 +4684,11 @@ class _TableContextMenu(QObject):
                         pass
                 if info is None:
                     try:
-                        info = _image_info_in_block(self._edit, self._edit.textCursor().block(), prefer_pos=self._edit.textCursor().position())
+                        info = _image_info_in_block(
+                            self._edit,
+                            self._edit.textCursor().block(),
+                            prefer_pos=self._edit.textCursor().position(),
+                        )
                     except Exception:
                         pass
                 if info is not None:
@@ -4264,7 +4709,14 @@ class _TableContextMenu(QObject):
                                 iw, ih = _ImageContextMenuHandler(self._edit)._intrinsic_size(name)
                             except Exception:
                                 pass
-                            info_d = {"cursor_pos": cursor_pos, "name": name, "w": cur_w, "h": cur_h, "iw": iw, "ih": ih}
+                            info_d = {
+                                "cursor_pos": cursor_pos,
+                                "name": name,
+                                "w": cur_w,
+                                "h": cur_h,
+                                "iw": iw,
+                                "ih": ih,
+                            }
                             _image_properties_dialog_apply(self._edit, info_d)
                         elif chosen == act_fit:
                             try:
@@ -4296,9 +4748,12 @@ class _TableContextMenu(QObject):
                 # Add spell suggestions at the top of the menu
                 try:
                     from spell_check import get_spell_checker
+
                     spell_checker = get_spell_checker(self._edit)
                     if spell_checker and spell_checker.enabled:
-                        spell_checker._add_spell_suggestions_to_menu(menu, prepend=True, pos=widget_pos)
+                        spell_checker._add_spell_suggestions_to_menu(
+                            menu, prepend=True, pos=widget_pos
+                        )
                 except Exception:
                     pass
                 sub_ins = menu.addMenu("Insert")
@@ -4327,9 +4782,12 @@ class _TableContextMenu(QObject):
             # Add spell suggestions at the top if word is misspelled
             try:
                 from spell_check import get_spell_checker
+
                 spell_checker = get_spell_checker(self._edit)
                 if spell_checker and spell_checker.enabled:
-                    spell_checker._add_spell_suggestions_to_menu(menu, prepend=False, pos=widget_pos)
+                    spell_checker._add_spell_suggestions_to_menu(
+                        menu, prepend=False, pos=widget_pos
+                    )
             except Exception:
                 pass
             # Precompute selection rectangle early (for multi-column operations)
@@ -4537,7 +4995,9 @@ def _table_copy_inserted_row_cell_formats(table, insert_row: int, count: int, ro
             src_cell = table.cellAt(source_row, cc)
             if src_cell.isValid():
                 src_fmt = _to_table_cell_format(src_cell.format())
-                template_formats.append(QTextTableCellFormat(src_fmt) if src_fmt is not None else None)
+                template_formats.append(
+                    QTextTableCellFormat(src_fmt) if src_fmt is not None else None
+                )
             else:
                 template_formats.append(None)
         for rr in range(insert_row, insert_row + count):
@@ -4603,7 +5063,11 @@ def _table_insert_rows_from_selection(text_edit: QtWidgets.QTextEdit, table, rec
         # For Planning Register tables and Cost List tables, ensure numeric columns in the
         # newly inserted rows are right-aligned so the caret appears on the right in empty cells.
         try:
-            from ui_planning_register import _is_planning_register_table, _is_cost_list_table, _is_protected_cell
+            from ui_planning_register import (
+                _is_cost_list_table,
+                _is_planning_register_table,
+                _is_protected_cell,
+            )
 
             bf = QTextBlockFormat()
             bf.setAlignment(Qt.AlignRight)
@@ -4651,7 +5115,11 @@ def _table_insert_rows_from_selection(text_edit: QtWidgets.QTextEdit, table, rec
                     if rr == 0:
                         continue
                     last_cell_txt = _table_cell_plain_text(table, rows_total - 1, 0)
-                    if isinstance(last_cell_txt, str) and last_cell_txt.strip().lower() == "total" and rr == (rows_total - 1):
+                    if (
+                        isinstance(last_cell_txt, str)
+                        and last_cell_txt.strip().lower() == "total"
+                        and rr == (rows_total - 1)
+                    ):
                         continue
                     for cc in currency_cols:
                         cell = table.cellAt(rr, cc)
@@ -5038,7 +5506,7 @@ def _letters_to_index(letters: str) -> int:
         return -1
     idx = 0
     for ch in s:
-        idx = idx * 26 + (ord(ch) - ord('A') + 1)
+        idx = idx * 26 + (ord(ch) - ord("A") + 1)
     return idx - 1
 
 
@@ -5074,7 +5542,9 @@ def _table_cell_plain_text(table, row: int, col: int) -> str:
         return ""
 
 
-def _table_set_cell_plain_text(text_edit: QtWidgets.QTextEdit, table, row: int, col: int, text: str):
+def _table_set_cell_plain_text(
+    text_edit: QtWidgets.QTextEdit, table, row: int, col: int, text: str
+):
     try:
         cell = table.cellAt(row, col)
         if not cell.isValid():
@@ -5144,12 +5614,14 @@ _CURRENCY_SUFFIX = " ($)"
 # Legacy suffix for backward compatibility with existing documents
 _CURRENCY_SUFFIX_LEGACY = " (Currency)"
 
+
 def _format_currency(value: float) -> str:
     try:
         # Show negative values with leading minus (simple style)
         return ("-$%s" % f"{abs(value):,.2f}") if value < 0 else f"${value:,.2f}"
     except Exception:
         return str(value)
+
 
 def _has_currency_suffix(text: str) -> bool:
     """Check if text ends with current or legacy currency suffix (whitespace-normalized)."""
@@ -5158,11 +5630,13 @@ def _has_currency_suffix(text: str) -> bool:
     normalized = text.rstrip()
     return normalized.endswith(_CURRENCY_SUFFIX) or normalized.endswith(_CURRENCY_SUFFIX_LEGACY)
 
+
 def _column_has_currency_data(table, col: int) -> bool:
     """Check if a column contains currency-formatted values ($X.XX pattern)."""
     try:
         import re
-        currency_pattern = re.compile(r'^\s*-?\$[\d,]+\.?\d*\s*$')
+
+        currency_pattern = re.compile(r"^\s*-?\$[\d,]+\.?\d*\s*$")
         rows = table.rows()
         currency_count = 0
         for r in range(1, rows):  # Skip header
@@ -5176,6 +5650,7 @@ def _column_has_currency_data(table, col: int) -> bool:
         pass
     return False
 
+
 def _detect_currency_columns(table) -> set:
     """
     Detect currency columns using:
@@ -5187,13 +5662,15 @@ def _detect_currency_columns(table) -> set:
         if table.rows() == 0:
             return cols
         cols_count = table.columns()
-        
+
         # Check for Total row (indicates currency formatting was applied)
         has_total_row = False
         if table.rows() > 1:
             last_cell_txt = _table_cell_plain_text(table, table.rows() - 1, 0)
-            has_total_row = isinstance(last_cell_txt, str) and last_cell_txt.strip().lower() == "total"
-        
+            has_total_row = (
+                isinstance(last_cell_txt, str) and last_cell_txt.strip().lower() == "total"
+            )
+
         for c in range(cols_count):
             hdr_txt = _table_cell_plain_text(table, 0, c)
             # Primary detection: header suffix
@@ -5205,6 +5682,7 @@ def _detect_currency_columns(table) -> set:
     except Exception:
         pass
     return cols
+
 
 def _table_mark_currency_columns(text_edit: QtWidgets.QTextEdit, table, sel_rect, clicked_col=None):
     if table is None:
@@ -5296,7 +5774,7 @@ def _table_mark_currency_columns(text_edit: QtWidgets.QTextEdit, table, sel_rect
                     # Remove suffix (current or legacy) if present
                     for suffix in (_CURRENCY_SUFFIX, _CURRENCY_SUFFIX_LEGACY):
                         if cleaned.endswith(suffix):
-                            cleaned = cleaned[:-len(suffix)].strip()
+                            cleaned = cleaned[: -len(suffix)].strip()
                             break
                     val = float(cleaned) if cleaned else 0.0
                     total += val
@@ -5317,6 +5795,7 @@ def _table_mark_currency_columns(text_edit: QtWidgets.QTextEdit, table, sel_rect
         pass
     ensure_currency_columns_watcher(text_edit)
 
+
 def _table_recompute_currency_columns(text_edit: QtWidgets.QTextEdit, table):
     if table is None or table.rows() < 2:
         return
@@ -5331,9 +5810,10 @@ def _table_recompute_currency_columns(text_edit: QtWidgets.QTextEdit, table):
         table.appendRows(1)
         last_row_idx = table.rows() - 1
         _table_set_cell_plain_text(text_edit, table, last_row_idx, 0, "Total")
+
     # Recompute totals
     # Helper to right-align all paragraphs within a cell
-    def _right_align_cell(r:int, c:int):
+    def _right_align_cell(r: int, c: int):
         try:
             cell = table.cellAt(r, c)
             if not cell.isValid():
@@ -5384,7 +5864,11 @@ def _snap_cursor_if_currency_cell(text_edit, table, cell):
             return
         # Skip Total row
         last_row_text = _table_cell_plain_text(table, table.rows() - 1, 0)
-        if cell.row() == table.rows() - 1 and isinstance(last_row_text, str) and last_row_text.strip().lower() == "total":
+        if (
+            cell.row() == table.rows() - 1
+            and isinstance(last_row_text, str)
+            and last_row_text.strip().lower() == "total"
+        ):
             return
         # Ensure cell has right-alignment (may be lost on page reload for empty cells)
         try:
@@ -5459,16 +5943,27 @@ def ensure_currency_columns_watcher(text_edit: QtWidgets.QTextEdit):
                             try:
                                 # Check if this table has a Total row (indicates currency formatting is active)
                                 if prev_tbl.rows() > 1:
-                                    last_cell_txt = _table_cell_plain_text(prev_tbl, prev_tbl.rows() - 1, 0)
-                                    if isinstance(last_cell_txt, str) and last_cell_txt.strip().lower() == "total":
+                                    last_cell_txt = _table_cell_plain_text(
+                                        prev_tbl, prev_tbl.rows() - 1, 0
+                                    )
+                                    if (
+                                        isinstance(last_cell_txt, str)
+                                        and last_cell_txt.strip().lower() == "total"
+                                    ):
                                         # This is a currency table - check if header lost its suffix
                                         hdr_txt = _table_cell_plain_text(prev_tbl, 0, prev_col)
-                                        if isinstance(hdr_txt, str) and hdr_txt and not _has_currency_suffix(hdr_txt):
+                                        if (
+                                            isinstance(hdr_txt, str)
+                                            and hdr_txt
+                                            and not _has_currency_suffix(hdr_txt)
+                                        ):
                                             # Only restore suffix if this column has currency-formatted data
                                             # (prevents auto-marking newly inserted empty columns)
                                             has_currency_data = False
                                             for r in range(1, prev_tbl.rows()):
-                                                cell_txt = _table_cell_plain_text(prev_tbl, r, prev_col)
+                                                cell_txt = _table_cell_plain_text(
+                                                    prev_tbl, r, prev_col
+                                                )
                                                 if isinstance(cell_txt, str) and "$" in cell_txt:
                                                     has_currency_data = True
                                                     break
@@ -5476,13 +5971,21 @@ def ensure_currency_columns_watcher(text_edit: QtWidgets.QTextEdit):
                                             has_other_currency = False
                                             for c in range(prev_tbl.columns()):
                                                 if c != prev_col and c > 0:
-                                                    other_hdr = _table_cell_plain_text(prev_tbl, 0, c)
+                                                    other_hdr = _table_cell_plain_text(
+                                                        prev_tbl, 0, c
+                                                    )
                                                     if _has_currency_suffix(other_hdr):
                                                         has_other_currency = True
                                                         break
                                             # Only restore suffix if column has currency data AND other columns are currency
                                             if has_other_currency and has_currency_data:
-                                                _table_cell_append_text(text_edit, prev_tbl, 0, prev_col, _CURRENCY_SUFFIX)
+                                                _table_cell_append_text(
+                                                    text_edit,
+                                                    prev_tbl,
+                                                    0,
+                                                    prev_col,
+                                                    _CURRENCY_SUFFIX,
+                                                )
                             finally:
                                 text_edit._currency_updating = False
                         # Recompute totals when leaving previous cell
@@ -5541,7 +6044,9 @@ def ensure_currency_columns_watcher(text_edit: QtWidgets.QTextEdit):
                                 currency_cols = _detect_currency_columns(table)
                                 # Only trigger if this is a currency table with a Total row
                                 if currency_cols and table.rows() > 1:
-                                    last_row_text = _table_cell_plain_text(table, table.rows() - 1, 0)
+                                    last_row_text = _table_cell_plain_text(
+                                        table, table.rows() - 1, 0
+                                    )
                                     if last_row_text == "Total":
                                         # Tab on last data row AND last column inserts new row
                                         last_data_row = table.rows() - 2
@@ -5556,12 +6061,16 @@ def ensure_currency_columns_watcher(text_edit: QtWidgets.QTextEdit):
                                                 new_row = last_data_row + 1
                                                 # Move cursor to first cell of new row
                                                 new_cell = table.cellAt(new_row, 0)
-                                                text_edit.setTextCursor(new_cell.firstCursorPosition())
+                                                text_edit.setTextCursor(
+                                                    new_cell.firstCursorPosition()
+                                                )
                                                 # Right-align currency columns in new row
                                                 bfmt = QTextBlockFormat()
                                                 bfmt.setAlignment(Qt.AlignRight)
                                                 for c in currency_cols:
-                                                    ccur = table.cellAt(new_row, c).firstCursorPosition()
+                                                    ccur = table.cellAt(
+                                                        new_row, c
+                                                    ).firstCursorPosition()
                                                     ccur.mergeBlockFormat(bfmt)
                                                 # Clear any inherited background from Total row
                                                 for clr_c in range(table.columns()):
@@ -5573,7 +6082,7 @@ def ensure_currency_columns_watcher(text_edit: QtWidgets.QTextEdit):
                                                 text_edit._currency_updating = False
                                             event.accept()  # consume the Tab event
                                             return True
-                
+
                 # Handle FocusOut to recompute on leaving editor
                 if event.type() == QEvent.FocusOut:
                     prev = getattr(text_edit, "_currency_last_cell", None)
@@ -5614,50 +6123,50 @@ def _apply_selection_colors(text_edit: QtWidgets.QTextEdit, bg: QColor, fg: QCol
 def _apply_font_family(text_edit: QtWidgets.QTextEdit, family: str):
     if not family:
         return
-    
+
     cursor = text_edit.textCursor()
-    
+
     if cursor.hasSelection():
         # IMPORTANT: mergeCharFormat() APPENDS to font stacks instead of replacing.
         # We need to iterate through each character and REPLACE the font family
         # while preserving other properties (bold, italic, color, etc.)
-        
+
         start = cursor.selectionStart()
         end = cursor.selectionEnd()
-        
+
         cursor.beginEditBlock()
-        
+
         # Iterate through each character position in the selection
         for pos in range(start, end):
             cursor.setPosition(pos)
             cursor.setPosition(pos + 1, cursor.KeepAnchor)
-            
+
             # Get current format to preserve other properties
             current_fmt = cursor.charFormat()
-            
+
             # REPLACE font - clear any existing font stack and set single font
             try:
                 # Clear font families list and set our single font
                 current_fmt.setFontFamilies([str(family)])
             except AttributeError:
                 current_fmt.setFontFamily(str(family))
-            
+
             # Also set the primary font family directly
             current_fmt.setFontFamily(str(family))
-            
+
             # Use setCharFormat to REPLACE (not merge)
             cursor.setCharFormat(current_fmt)
-        
+
         cursor.endEditBlock()
-        
+
         # Restore selection
         cursor.setPosition(start)
         cursor.setPosition(end, cursor.KeepAnchor)
         text_edit.setTextCursor(cursor)
-        
+
         # Force document to update
         text_edit.document().setModified(True)
-        
+
         # Force viewport repaint
         text_edit.viewport().update()
     else:
@@ -5674,9 +6183,9 @@ def _apply_font_size(text_edit: QtWidgets.QTextEdit, size_pt: float):
         size_f = float(size_pt)
     except Exception:
         return
-    
+
     cursor = text_edit.textCursor()
-    
+
     if cursor.hasSelection():
         # REPLACE font size character by character to avoid additive stacks
         start = cursor.selectionStart()
@@ -6111,14 +6620,16 @@ def paste_clean_formatting(text_edit: QtWidgets.QTextEdit):
     except Exception:
         cleaned = html
     cursor = text_edit.textCursor()
-    pre_fmt = text_edit.currentCharFormat()
+    text_edit.currentCharFormat()
     before = cursor.position()
-    
+
     # Build a neutral format for "clean" paste
     neutral_fmt = QTextCharFormat()
     doc_font = _effective_default_font(text_edit)
     neutral_fmt.setFontFamily(doc_font.family())
-    neutral_fmt.setFontPointSize(doc_font.pointSizeF() if doc_font.pointSizeF() > 0 else float(doc_font.pointSize()))
+    neutral_fmt.setFontPointSize(
+        doc_font.pointSizeF() if doc_font.pointSizeF() > 0 else float(doc_font.pointSize())
+    )
     neutral_fmt.setForeground(text_edit.palette().text().color())
     neutral_fmt.clearBackground()
     neutral_fmt.setFontWeight(QFont.Normal)
@@ -6129,7 +6640,9 @@ def paste_clean_formatting(text_edit: QtWidgets.QTextEdit):
     cursor.insertHtml(cleaned)
     after = cursor.position()
     # Force REPLACE formatting on inserted range
-    rng = QTextCursor(text_edit.document()); rng.setPosition(before); rng.setPosition(after, QTextCursor.KeepAnchor)
+    rng = QTextCursor(text_edit.document())
+    rng.setPosition(before)
+    rng.setPosition(after, QTextCursor.KeepAnchor)
     rng.setCharFormat(neutral_fmt)
     # Restore typing format
     text_edit.setCurrentCharFormat(neutral_fmt)
@@ -6211,7 +6724,9 @@ class _LinkClickHandler(QObject):
                     try:
                         # Resolve relative paths (like media/...) against document base for external open
                         if href and not re.match(r"^[a-zA-Z]+:|^/", href):
-                            base = self._edit.document().baseUrl().toLocalFile() if self._edit else ""
+                            base = (
+                                self._edit.document().baseUrl().toLocalFile() if self._edit else ""
+                            )
                             if base:
                                 # Join using OS path, then convert to file URL
                                 abs_path = os.path.normpath(os.path.join(base, href))
