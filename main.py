@@ -3,6 +3,7 @@ main.py
 Entry point for the NoteBook application. Handles main window setup, menu actions, database creation/opening, and application startup.
 """
 import os
+import re
 
 import sys
 import warnings
@@ -110,7 +111,7 @@ def create_new_database_file(db_path: str):
             conn.executescript(schema_sql)
         # Set initial user_version
         try:
-            conn.execute("PRAGMA user_version = 5")
+            conn.execute("PRAGMA user_version = 6")
         except Exception:
             pass
         conn.commit()
@@ -138,7 +139,7 @@ def ensure_database_initialized(db_path: str):
                 with open(schema_file, "r", encoding="utf-8") as f:
                     conn.executescript(f.read())
                 try:
-                    conn.execute("PRAGMA user_version = 5")
+                    conn.execute("PRAGMA user_version = 6")
                 except Exception:
                     pass
                 conn.commit()
@@ -150,37 +151,43 @@ def ensure_database_initialized(db_path: str):
 def migrate_database_if_needed(db_path: str, parent_window=None) -> bool:
     """Apply in-place migrations based on PRAGMA user_version.
 
-    Current target version = 5. Returns True if migration succeeded or wasn't needed,
+    Current target version = 6. Returns True if migration succeeded or wasn't needed,
     False if user cancelled/chose to load a different database.
     
     Version history:
     - Version 4: Base schema (notebooks, sections, pages with order_index, parent_page_id)
     - Version 5: Added deleted_at column to notebooks, sections, pages for soft-delete
+    - Version 6: Added spreadsheets table for external spreadsheet metadata
     """
     import sqlite3
-    TARGET = 5
+    TARGET = 6
     conn = sqlite3.connect(db_path)
     try:
         cur = conn.cursor()
         cur.execute("PRAGMA user_version")
         version = cur.fetchone()[0]
         
-        if version >= TARGET:
-            return True  # Already up to date
-        
         # Check if deleted_at column exists (handles case where version wasn't bumped)
         def column_exists(table, column):
             cur.execute(f"PRAGMA table_info({table})")
             columns = [row[1] for row in cur.fetchall()]
             return column in columns
+
+        def table_exists(table):
+            cur.execute("SELECT name FROM sqlite_master WHERE type='table' AND name=?", (table,))
+            return cur.fetchone() is not None
         
         needs_soft_delete = (
             not column_exists('notebooks', 'deleted_at') or
             not column_exists('sections', 'deleted_at') or
             not column_exists('pages', 'deleted_at')
         )
+        needs_spreadsheets = not table_exists('spreadsheets')
+
+        if version >= TARGET and not needs_soft_delete and not needs_spreadsheets:
+            return True  # Already up to date
         
-        if needs_soft_delete:
+        if needs_soft_delete or needs_spreadsheets:
             # Prompt user before upgrading
             if parent_window is not None:
                 msg_box = QtWidgets.QMessageBox(parent_window)
@@ -189,7 +196,7 @@ def migrate_database_if_needed(db_path: str, parent_window=None) -> bool:
                 msg_box.setText(
                     f"The database '{os.path.basename(db_path)}' uses an older schema.\n\n"
                     "This version of NoteBook requires a schema upgrade to support "
-                    "the new soft-delete/restore feature.\n\n"
+                    "current recovery and spreadsheet features.\n\n"
                     "It's recommended to back up your database before proceeding.\n\n"
                     "Would you like to upgrade now?"
                 )
@@ -203,19 +210,25 @@ def migrate_database_if_needed(db_path: str, parent_window=None) -> bool:
                     conn.close()
                     return False  # Caller should handle - either exit or prompt for different DB
             
-            # Apply migration: add deleted_at columns
+            # Apply migration: add deleted_at columns and spreadsheet metadata table
             try:
-                if not column_exists('notebooks', 'deleted_at'):
-                    cur.execute("ALTER TABLE notebooks ADD COLUMN deleted_at TEXT NULL")
-                if not column_exists('sections', 'deleted_at'):
-                    cur.execute("ALTER TABLE sections ADD COLUMN deleted_at TEXT NULL")
-                if not column_exists('pages', 'deleted_at'):
-                    cur.execute("ALTER TABLE pages ADD COLUMN deleted_at TEXT NULL")
-                
-                # Create indexes for soft-delete queries
-                cur.execute("CREATE INDEX IF NOT EXISTS idx_notebooks_deleted ON notebooks(deleted_at)")
-                cur.execute("CREATE INDEX IF NOT EXISTS idx_sections_deleted ON sections(deleted_at)")
-                cur.execute("CREATE INDEX IF NOT EXISTS idx_pages_deleted ON pages(deleted_at)")
+                if needs_soft_delete:
+                    if not column_exists('notebooks', 'deleted_at'):
+                        cur.execute("ALTER TABLE notebooks ADD COLUMN deleted_at TEXT NULL")
+                    if not column_exists('sections', 'deleted_at'):
+                        cur.execute("ALTER TABLE sections ADD COLUMN deleted_at TEXT NULL")
+                    if not column_exists('pages', 'deleted_at'):
+                        cur.execute("ALTER TABLE pages ADD COLUMN deleted_at TEXT NULL")
+
+                    # Create indexes for soft-delete queries
+                    cur.execute("CREATE INDEX IF NOT EXISTS idx_notebooks_deleted ON notebooks(deleted_at)")
+                    cur.execute("CREATE INDEX IF NOT EXISTS idx_sections_deleted ON sections(deleted_at)")
+                    cur.execute("CREATE INDEX IF NOT EXISTS idx_pages_deleted ON pages(deleted_at)")
+
+                if needs_spreadsheets:
+                    from spreadsheet_store import SPREADSHEET_TABLES_SQL
+
+                    cur.executescript(SPREADSHEET_TABLES_SQL)
                 
                 conn.commit()
             except Exception as e:
@@ -817,6 +830,428 @@ def insert_attachment(window):
             show_toast(window, f"Attached: {rel_path}", 2500)
     except Exception as e:
         QtWidgets.QMessageBox.warning(window, "Insert Attachment", f"Failed to attach file: {e}")
+
+
+def insert_new_spreadsheet(window):
+    """Create a starter spreadsheet file for the current page and insert a link to it."""
+    section_id, page_id = _current_page_context(window)
+    if page_id is None:
+        QtWidgets.QMessageBox.information(
+            window, "Insert New Spreadsheet", "Please open or create a page first."
+        )
+        return
+
+    title, ok = QtWidgets.QInputDialog.getText(
+        window,
+        "Insert New Spreadsheet",
+        "Spreadsheet name:",
+        text="Spreadsheet",
+    )
+    if not ok:
+        return
+    title = (title or "").strip() or "Spreadsheet"
+
+    db_path = getattr(window, "_db_path", None) or get_last_db() or "notes.db"
+    try:
+        from spreadsheet_store import create_blank_xlsx_spreadsheet
+
+        _spreadsheet_id, rel_path, abs_path = create_blank_xlsx_spreadsheet(
+            db_path, int(page_id), title
+        )
+
+        _insert_spreadsheet_link_into_editor(window, title, rel_path)
+
+        show_toast(window, f"Spreadsheet created: {os.path.basename(abs_path)}", 2500)
+    except Exception as e:
+        QtWidgets.QMessageBox.warning(
+            window,
+            "Insert New Spreadsheet",
+            f"Failed to create spreadsheet: {e}",
+        )
+
+
+def insert_spreadsheet_from_template(window):
+    """Create a spreadsheet for the current page by copying a saved template file."""
+    section_id, page_id = _current_page_context(window)
+    if page_id is None:
+        QtWidgets.QMessageBox.information(
+            window,
+            "Insert From Spreadsheet Template",
+            "Please open or create a page first.",
+        )
+        return
+
+    db_path = getattr(window, "_db_path", None) or get_last_db() or "notes.db"
+    try:
+        from spreadsheet_store import (
+            create_spreadsheet_from_template,
+            ensure_spreadsheet_support,
+            list_spreadsheet_templates,
+            spreadsheet_templates_root_for_db,
+        )
+
+        ensure_spreadsheet_support(db_path)
+        template_root = spreadsheet_templates_root_for_db(db_path)
+        template_names = list_spreadsheet_templates(db_path)
+        if not template_names:
+            msg_box = QtWidgets.QMessageBox(window)
+            msg_box.setWindowTitle("Insert From Spreadsheet Template")
+            msg_box.setIcon(QtWidgets.QMessageBox.Information)
+            msg_box.setText(
+                "No spreadsheet templates are available yet.\n\n"
+                f"Add template files to:\n{template_root}"
+            )
+            open_btn = msg_box.addButton("Open Template Folder", QtWidgets.QMessageBox.ActionRole)
+            msg_box.addButton(QtWidgets.QMessageBox.Ok)
+            msg_box.exec_()
+            if msg_box.clickedButton() == open_btn:
+                QtGui.QDesktopServices.openUrl(QUrl.fromLocalFile(template_root))
+            return
+
+        template_name, ok = QtWidgets.QInputDialog.getItem(
+            window,
+            "Insert From Spreadsheet Template",
+            "Template:",
+            template_names,
+            0,
+            False,
+        )
+        if not ok or not template_name:
+            return
+
+        default_title = os.path.splitext(str(template_name))[0] or "Spreadsheet"
+        title, ok = QtWidgets.QInputDialog.getText(
+            window,
+            "Insert From Spreadsheet Template",
+            "Spreadsheet name:",
+            text=default_title,
+        )
+        if not ok:
+            return
+        title = (title or "").strip() or default_title
+
+        _spreadsheet_id, rel_path, abs_path = create_spreadsheet_from_template(
+            db_path, int(page_id), title, str(template_name)
+        )
+
+        _insert_spreadsheet_link_into_editor(window, title, rel_path)
+
+        show_toast(window, f"Spreadsheet created from template: {os.path.basename(abs_path)}", 2500)
+    except Exception as e:
+        QtWidgets.QMessageBox.warning(
+            window,
+            "Insert From Spreadsheet Template",
+            f"Failed to create spreadsheet from template: {e}",
+        )
+
+
+def insert_existing_spreadsheet(window):
+    """Copy an existing spreadsheet file into the notebook store and link it to the page."""
+    section_id, page_id = _current_page_context(window)
+    if page_id is None:
+        QtWidgets.QMessageBox.information(
+            window,
+            "Insert Existing Spreadsheet",
+            "Please open or create a page first.",
+        )
+        return
+
+    file_path, _ = QtWidgets.QFileDialog.getOpenFileName(
+        window,
+        "Insert Existing Spreadsheet",
+        "",
+        "Spreadsheet Files (*.csv *.xlsx *.xls *.ods *.tsv);;All Files (*)",
+    )
+    if not file_path:
+        return
+
+    default_title = os.path.splitext(os.path.basename(file_path))[0] or "Spreadsheet"
+    title, ok = QtWidgets.QInputDialog.getText(
+        window,
+        "Insert Existing Spreadsheet",
+        "Spreadsheet name:",
+        text=default_title,
+    )
+    if not ok:
+        return
+    title = (title or "").strip() or default_title
+
+    db_path = getattr(window, "_db_path", None) or get_last_db() or "notes.db"
+    try:
+        from spreadsheet_store import import_existing_spreadsheet
+
+        _spreadsheet_id, rel_path, abs_path = import_existing_spreadsheet(
+            db_path, int(page_id), title, file_path
+        )
+
+        _insert_spreadsheet_link_into_editor(window, title, rel_path)
+
+        show_toast(window, f"Spreadsheet imported: {os.path.basename(abs_path)}", 2500)
+    except Exception as e:
+        QtWidgets.QMessageBox.warning(
+            window,
+            "Insert Existing Spreadsheet",
+            f"Failed to import spreadsheet: {e}",
+        )
+
+
+def _insert_spreadsheet_link_into_editor(window, title: str, rel_path: str) -> bool:
+    try:
+        te = window.findChild(QtWidgets.QTextEdit, "pageEdit")
+        if te is None:
+            return False
+        link_html = _build_spreadsheet_link_html(title, rel_path)
+        cur = te.textCursor()
+        cur.insertHtml(link_html)
+        te.setTextCursor(cur)
+        try:
+            save_current_page(window)
+        except Exception:
+            pass
+        return True
+    except Exception:
+        return False
+
+
+def _build_spreadsheet_link_html(title: str, rel_path: str) -> str:
+    from html import escape
+
+    href = (rel_path or "").replace("\\", "/")
+    return f'<p><a href="{href}">Spreadsheet: {escape(title)}</a></p><br />'
+
+
+def _normalize_spreadsheet_links_in_editor(
+    window, rel_path: str | None = None, *, persist: bool = True
+) -> bool:
+    te = window.findChild(QtWidgets.QTextEdit, "pageEdit")
+    if te is None:
+        return False
+    _section_id, page_id = _current_page_context(window)
+    if page_id is None:
+        return False
+
+    try:
+        from spreadsheet_store import get_spreadsheets_for_page
+
+        spreadsheets = get_spreadsheets_for_page(
+            getattr(window, "_db_path", None) or get_last_db() or "notes.db",
+            int(page_id),
+        )
+        doc = te.document()
+        changed = False
+        replacements = []
+        for meta in spreadsheets:
+            href = str(meta.get("rel_path") or "").replace("\\", "/")
+            if rel_path and href != str(rel_path).replace("\\", "/"):
+                continue
+            replacement = _build_spreadsheet_link_html(
+                str(meta.get("title") or "Spreadsheet"),
+                href,
+            )
+            block = doc.firstBlock()
+            while block.isValid():
+                block_text = block.text() or ""
+                if "Spreadsheet:" not in block_text:
+                    block = block.next()
+                    continue
+                start_pos = block.position()
+                end_pos = start_pos + max(0, block.length() - 1)
+                cursor = QtGui.QTextCursor(doc)
+                cursor.setPosition(start_pos)
+                cursor.setPosition(end_pos, QtGui.QTextCursor.KeepAnchor)
+                fragment_html = cursor.selection().toHtml()
+                if href not in fragment_html or cursor.currentTable() is not None:
+                    block = block.next()
+                    continue
+
+                probe = QtGui.QTextCursor(doc)
+                probe.setPosition(end_pos)
+                outer_table = None
+                search_limit = min(doc.characterCount() - 1, end_pos + 800)
+                while probe.position() < search_limit:
+                    probe.movePosition(QtGui.QTextCursor.NextCharacter)
+                    table = probe.currentTable()
+                    if table is not None:
+                        outer_table = table
+                        while True:
+                            try:
+                                parent_probe = QtGui.QTextCursor(doc)
+                                parent_probe.setPosition(max(0, outer_table.firstPosition() - 1))
+                                parent_table = parent_probe.currentTable()
+                                if (
+                                    parent_table is not None
+                                    and parent_table.firstPosition() < outer_table.firstPosition()
+                                    and parent_table.lastPosition() >= outer_table.lastPosition()
+                                ):
+                                    outer_table = parent_table
+                                    continue
+                            except Exception:
+                                pass
+                            break
+                        break
+                if outer_table is None:
+                    block = block.next()
+                    continue
+
+                replace_start = start_pos
+                replace_end = outer_table.lastPosition()
+                tail_block = outer_table.lastCursorPosition().block().next()
+                if tail_block.isValid():
+                    tail_text = (tail_block.text() or "").strip()
+                    tail_cursor = QtGui.QTextCursor(doc)
+                    tail_cursor.setPosition(tail_block.position())
+                    tail_cursor.setPosition(
+                        tail_block.position() + max(0, tail_block.length() - 1),
+                        QtGui.QTextCursor.KeepAnchor,
+                    )
+                    tail_html = tail_cursor.selection().toHtml()
+                    if not tail_text and "Spreadsheet:" not in tail_html:
+                        replace_end = tail_block.position() + max(0, tail_block.length() - 1)
+                replacements.append((replace_start, replace_end, replacement))
+                break
+
+        if replacements:
+            for start_pos, end_pos, replacement in sorted(
+                replacements,
+                key=lambda item: item[0],
+                reverse=True,
+            ):
+                cursor = QtGui.QTextCursor(doc)
+                cursor.setPosition(start_pos)
+                cursor.setPosition(end_pos, QtGui.QTextCursor.KeepAnchor)
+                cursor.insertHtml(replacement)
+                changed = True
+        if changed and persist:
+            try:
+                save_current_page(window)
+            except Exception:
+                pass
+        return changed
+    except Exception:
+        return False
+
+
+def manage_page_spreadsheets(window):
+    """Open a page-scoped manager for spreadsheet files linked to the current page."""
+    section_id, page_id = _current_page_context(window)
+    if page_id is None:
+        QtWidgets.QMessageBox.information(
+            window,
+            "Manage Page Spreadsheets",
+            "Please open or create a page first.",
+        )
+        return
+
+    db_path = getattr(window, "_db_path", None) or get_last_db() or "notes.db"
+    try:
+        from spreadsheet_store import get_spreadsheets_for_page, resolve_spreadsheet_path
+
+        spreadsheets = get_spreadsheets_for_page(db_path, int(page_id))
+        if not spreadsheets:
+            QtWidgets.QMessageBox.information(
+                window,
+                "Manage Page Spreadsheets",
+                "No spreadsheets are registered for this page yet.",
+            )
+            return
+
+        dialog = QtWidgets.QDialog(window)
+        dialog.setWindowTitle("Manage Page Spreadsheets")
+        dialog.resize(560, 360)
+
+        layout = QtWidgets.QVBoxLayout(dialog)
+        layout.addWidget(QtWidgets.QLabel("Spreadsheets linked to the current page:", dialog))
+
+        list_widget = QtWidgets.QListWidget(dialog)
+        item_data_role = QtCore.Qt.ItemDataRole.UserRole
+        for spreadsheet in spreadsheets:
+            label = f"{spreadsheet['title']} ({str(spreadsheet['file_ext'] or 'csv').upper()})"
+            item = QtWidgets.QListWidgetItem(label)
+            item.setData(item_data_role, spreadsheet)
+            list_widget.addItem(item)
+        layout.addWidget(list_widget)
+
+        button_row = QtWidgets.QHBoxLayout()
+        open_btn = QtWidgets.QPushButton("Open", dialog)
+        folder_btn = QtWidgets.QPushButton("Open Folder", dialog)
+        insert_link_btn = QtWidgets.QPushButton("Insert Link", dialog)
+        copy_path_btn = QtWidgets.QPushButton("Copy Path", dialog)
+        close_btn = QtWidgets.QPushButton("Close", dialog)
+        for btn in (
+            open_btn,
+            folder_btn,
+            insert_link_btn,
+            copy_path_btn,
+            close_btn,
+        ):
+            button_row.addWidget(btn)
+        layout.addLayout(button_row)
+
+        def _selected_meta():
+            item = list_widget.currentItem()
+            return item.data(item_data_role) if item is not None else None
+
+        def _update_buttons():
+            meta = _selected_meta()
+            has_item = meta is not None
+            open_btn.setEnabled(has_item)
+            folder_btn.setEnabled(has_item)
+            insert_link_btn.setEnabled(has_item)
+            copy_path_btn.setEnabled(has_item)
+
+        def _open_selected():
+            meta = _selected_meta()
+            if not meta:
+                return
+            abs_path = resolve_spreadsheet_path(db_path, meta["rel_path"])
+            if not os.path.isfile(abs_path):
+                QtWidgets.QMessageBox.warning(
+                    dialog,
+                    "Manage Page Spreadsheets",
+                    f"File not found:\n{abs_path}",
+                )
+                return
+            QtGui.QDesktopServices.openUrl(QUrl.fromLocalFile(abs_path))
+
+        def _open_folder_selected():
+            meta = _selected_meta()
+            if not meta:
+                return
+            abs_path = resolve_spreadsheet_path(db_path, meta["rel_path"])
+            QtGui.QDesktopServices.openUrl(QUrl.fromLocalFile(os.path.dirname(abs_path)))
+
+        def _insert_link_selected():
+            meta = _selected_meta()
+            if not meta:
+                return
+            if _insert_spreadsheet_link_into_editor(window, meta["title"], meta["rel_path"]):
+                show_toast(window, f"Inserted link: {meta['title']}", 2000)
+
+        def _copy_path_selected():
+            meta = _selected_meta()
+            if not meta:
+                return
+            QtWidgets.QApplication.clipboard().setText(meta["rel_path"])
+            show_toast(window, f"Copied path: {meta['rel_path']}", 2000)
+
+        list_widget.currentItemChanged.connect(lambda *_: _update_buttons())
+        list_widget.itemDoubleClicked.connect(lambda *_: _open_selected())
+        open_btn.clicked.connect(_open_selected)
+        folder_btn.clicked.connect(_open_folder_selected)
+        insert_link_btn.clicked.connect(_insert_link_selected)
+        copy_path_btn.clicked.connect(_copy_path_selected)
+        close_btn.clicked.connect(dialog.accept)
+
+        if list_widget.count() > 0:
+            list_widget.setCurrentRow(0)
+        _update_buttons()
+        dialog.exec()
+    except Exception as e:
+        QtWidgets.QMessageBox.warning(
+            window,
+            "Manage Page Spreadsheets",
+            f"Failed to load page spreadsheets: {e}",
+        )
 
 
 def backup_database_now(window):
@@ -2613,6 +3048,22 @@ def main():
     act_insert_attachment = window.findChild(QtWidgets.QAction, "actionInsert_Attachment")
     if act_insert_attachment:
         act_insert_attachment.triggered.connect(lambda: insert_attachment(window))
+    act_insert_new_spreadsheet = window.findChild(QtWidgets.QAction, "actionInsert_New_Spreadsheet")
+    if act_insert_new_spreadsheet:
+        act_insert_new_spreadsheet.triggered.connect(lambda: insert_new_spreadsheet(window))
+    act_insert_spreadsheet_from_template = window.findChild(QtWidgets.QAction, "actionInsert_Spreadsheet_From_Template")
+    if act_insert_spreadsheet_from_template:
+        act_insert_spreadsheet_from_template.triggered.connect(
+            lambda: insert_spreadsheet_from_template(window)
+        )
+    act_insert_existing_spreadsheet = window.findChild(QtWidgets.QAction, "actionInsert_Existing_Spreadsheet")
+    if act_insert_existing_spreadsheet:
+        act_insert_existing_spreadsheet.triggered.connect(
+            lambda: insert_existing_spreadsheet(window)
+        )
+    act_manage_page_spreadsheets = window.findChild(QtWidgets.QAction, "actionManage_Page_Spreadsheets")
+    if act_manage_page_spreadsheets:
+        act_manage_page_spreadsheets.triggered.connect(lambda: manage_page_spreadsheets(window))
     # Tools: Manual Database Backup
     try:
         act_backup_now = window.findChild(QtWidgets.QAction, "actionBackup_Database")
@@ -2656,21 +3107,9 @@ def main():
                 if te is None or not te.isEnabled():
                     QtWidgets.QMessageBox.information(window, "Insert Planning Register", "Please open or create a page first.")
                     return
-                # Offer only saved presets for this chooser.
-                try:
-                    from settings_manager import list_table_preset_names
-                    preset_names = list_table_preset_names()
-                except Exception:
-                    preset_names = []
-                if not preset_names:
-                    QtWidgets.QMessageBox.information(window, "Insert Planning Register", "No planning register presets saved yet.")
-                    return
-                choice, ok = QtWidgets.QInputDialog.getItem(
-                    window, "Insert Planning Register", "Choose:", preset_names, 0, False
-                )
-                if not (ok and choice):
-                    return
-                insert_table_from_preset(te, choice, fit_width_100=True)
+                from ui_planning_register import insert_planning_register
+
+                insert_planning_register(window)
             except Exception:
                 pass
         act_plan_reg.triggered.connect(_insert_planning_register_via_dialog)

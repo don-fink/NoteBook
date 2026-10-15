@@ -45,6 +45,19 @@ def _to_table_cell_format(fmt):
         return None
 
 
+def _qtextlength_type(name: str):
+    try:
+        return getattr(QTextLength, name)
+    except Exception:
+        try:
+            return getattr(QTextLength.Type, name)
+        except Exception:
+            return None
+
+
+_PERCENTAGE_LENGTH = _qtextlength_type("PercentageLength")
+
+
 def _apply_cell_borders_to_table(tbl):
     """Set 1px solid black border on all sides for every cell in the given table."""
     try:
@@ -82,9 +95,9 @@ def _insert_inner_table_in_cursor(cursor):
     inner_fmt.setHeaderRowCount(1)
     inner_fmt.setColumnWidthConstraints(
         [
-            QTextLength(QTextLength.PercentageLength, 50.0),
-            QTextLength(QTextLength.PercentageLength, 25.0),
-            QTextLength(QTextLength.PercentageLength, 25.0),
+            QTextLength(_PERCENTAGE_LENGTH, 50.0),
+            QTextLength(_PERCENTAGE_LENGTH, 25.0),
+            QTextLength(_PERCENTAGE_LENGTH, 25.0),
         ]
     )
     # Tag this table as a Planning Register
@@ -165,8 +178,8 @@ def _insert_right_cost_table_in_cursor(cursor):
     fmt.setProperty(COST_LIST_TABLE_PROPERTY, True)
     fmt.setColumnWidthConstraints(
         [
-            QTextLength(QTextLength.PercentageLength, 70.0),
-            QTextLength(QTextLength.PercentageLength, 30.0),
+            QTextLength(_PERCENTAGE_LENGTH, 70.0),
+            QTextLength(_PERCENTAGE_LENGTH, 30.0),
         ]
     )
     table = cursor.insertTable(7, 2, fmt)
@@ -738,12 +751,12 @@ def insert_planning_register(window: QtWidgets.QMainWindow):
     outer_fmt.setCellPadding(4)
     outer_fmt.setCellSpacing(0)
     outer_fmt.setBorder(1.0)
-    outer_fmt.setWidth(QTextLength(QTextLength.PercentageLength, 100.0))
+    outer_fmt.setWidth(QTextLength(_PERCENTAGE_LENGTH, 100.0))
     # Evenly split the two columns
     outer_fmt.setColumnWidthConstraints(
         [
-            QTextLength(QTextLength.PercentageLength, 50.0),
-            QTextLength(QTextLength.PercentageLength, 50.0),
+            QTextLength(_PERCENTAGE_LENGTH, 50.0),
+            QTextLength(_PERCENTAGE_LENGTH, 50.0),
         ]
     )
     outer = cursor.insertTable(1, 2, outer_fmt)
@@ -821,11 +834,11 @@ def refresh_planning_register_styles(text_edit: QtWidgets.QTextEdit):
                 try:
                     if tbl.rows() == 1 and tbl.columns() == 2:
                         fmt_o = tbl.format()
-                        fmt_o.setWidth(QTextLength(QTextLength.PercentageLength, 100.0))
+                        fmt_o.setWidth(QTextLength(_PERCENTAGE_LENGTH, 100.0))
                         fmt_o.setColumnWidthConstraints(
                             [
-                                QTextLength(QTextLength.PercentageLength, 50.0),
-                                QTextLength(QTextLength.PercentageLength, 50.0),
+                                QTextLength(_PERCENTAGE_LENGTH, 50.0),
+                                QTextLength(_PERCENTAGE_LENGTH, 50.0),
                             ]
                         )
                         tbl.setFormat(fmt_o)
@@ -839,13 +852,13 @@ def refresh_planning_register_styles(text_edit: QtWidgets.QTextEdit):
                     # Ensure table fills its container and column widths are 50/25/25
                     try:
                         fmt = tbl.format()
-                        fmt.setWidth(QTextLength(QTextLength.PercentageLength, 100.0))
+                        fmt.setWidth(QTextLength(_PERCENTAGE_LENGTH, 100.0))
                         if cols >= 3:
                             fmt.setColumnWidthConstraints(
                                 [
-                                    QTextLength(QTextLength.PercentageLength, 50.0),
-                                    QTextLength(QTextLength.PercentageLength, 25.0),
-                                    QTextLength(QTextLength.PercentageLength, 25.0),
+                                    QTextLength(_PERCENTAGE_LENGTH, 50.0),
+                                    QTextLength(_PERCENTAGE_LENGTH, 25.0),
+                                    QTextLength(_PERCENTAGE_LENGTH, 25.0),
                                 ]
                             )
                         tbl.setFormat(fmt)
@@ -882,12 +895,12 @@ def refresh_planning_register_styles(text_edit: QtWidgets.QTextEdit):
                     try:
                         rows, cols = tbl.rows(), tbl.columns()
                         fmt = tbl.format()
-                        fmt.setWidth(QTextLength(QTextLength.PercentageLength, 100.0))
+                        fmt.setWidth(QTextLength(_PERCENTAGE_LENGTH, 100.0))
                         if cols >= 2:
                             fmt.setColumnWidthConstraints(
                                 [
-                                    QTextLength(QTextLength.PercentageLength, 70.0),
-                                    QTextLength(QTextLength.PercentageLength, 30.0),
+                                    QTextLength(_PERCENTAGE_LENGTH, 70.0),
+                                    QTextLength(_PERCENTAGE_LENGTH, 30.0),
                                 ]
                             )
                         tbl.setFormat(fmt)
@@ -921,6 +934,24 @@ def ensure_planning_register_watcher(text_edit: QtWidgets.QTextEdit):
     and protected rows even if the register was not inserted in the current session.
     """
     if text_edit is None:
+        return
+    document_cursor = QTextCursor(text_edit.document())
+    seen = set()
+    has_planning_table = False
+    while True:
+        table = document_cursor.currentTable()
+        if table is not None:
+            key = (table.firstPosition(), table.lastPosition())
+            if key not in seen:
+                seen.add(key)
+                if _is_planning_register_table(text_edit, table) or _is_cost_list_table(
+                    text_edit, table
+                ):
+                    has_planning_table = True
+                    break
+        if not document_cursor.movePosition(QTextCursor.NextBlock):
+            break
+    if not has_planning_table:
         return
     if not hasattr(text_edit, "_planning_register_watcher"):
         text_edit._planning_register_watcher = _PlanningRegisterWatcher(text_edit)

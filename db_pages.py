@@ -194,6 +194,10 @@ def permanently_delete_page(page_id: int, db_path: str):
             idx += 1
         # Delete from leaves up (reverse order)
         for pid in reversed(to_delete):
+            try:
+                cur.execute("DELETE FROM spreadsheets WHERE page_id = ?", (int(pid),))
+            except Exception:
+                pass
             cur.execute("DELETE FROM pages WHERE id = ?", (int(pid),))
         conn.commit()
     finally:

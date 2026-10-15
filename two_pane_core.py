@@ -113,6 +113,12 @@ def load_page(window, page_id: int = None, html: str = None):
     except Exception:
         pass
     _set_page_edit_html(window, html or "")
+    try:
+        from main import _normalize_spreadsheet_links_in_editor
+
+        _normalize_spreadsheet_links_in_editor(window, persist=False)
+    except Exception:
+        pass
     
     # Check if page is deleted (deleted_at is column index 8)
     is_deleted = False
@@ -243,6 +249,14 @@ def save_current_page(window):
         except Exception:
             pass
         html = te.toHtml()
+        try:
+            if "Spreadsheet:" in html:
+                from main import _normalize_spreadsheet_links_in_editor
+
+                if _normalize_spreadsheet_links_in_editor(window, persist=False):
+                    html = te.toHtml()
+        except Exception:
+            pass
         try:
             from ui_richtext import sanitize_html_for_storage
 

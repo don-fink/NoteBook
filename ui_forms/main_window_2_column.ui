@@ -145,6 +145,10 @@
     <addaction name="actionRename_Page"/>
     <addaction name="separator"/>
     <addaction name="actionInsert_Attachment"/>
+    <addaction name="actionInsert_New_Spreadsheet"/>
+    <addaction name="actionInsert_Spreadsheet_From_Template"/>
+    <addaction name="actionInsert_Existing_Spreadsheet"/>
+    <addaction name="actionManage_Page_Spreadsheets"/>
     <addaction name="separator"/>
     <addaction name="actionPlanning_Register"/>
     <addaction name="actionSave_Planning_Register_as_Preset"/>
@@ -318,6 +322,26 @@
   <action name="actionInsert_Attachment">
    <property name="text">
     <string>Insert Attachment…</string>
+   </property>
+  </action>
+  <action name="actionInsert_New_Spreadsheet">
+   <property name="text">
+    <string>Insert New Spreadsheet…</string>
+   </property>
+  </action>
+  <action name="actionInsert_Spreadsheet_From_Template">
+   <property name="text">
+    <string>Insert From Spreadsheet Template…</string>
+   </property>
+  </action>
+  <action name="actionInsert_Existing_Spreadsheet">
+   <property name="text">
+    <string>Insert Existing Spreadsheet…</string>
+   </property>
+  </action>
+  <action name="actionManage_Page_Spreadsheets">
+   <property name="text">
+    <string>Manage Page Spreadsheets…</string>
    </property>
   </action>
   <action name="actionInsert_Table_Preset">

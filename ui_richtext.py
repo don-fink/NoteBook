@@ -3706,53 +3706,11 @@ def choose_and_insert_preset(text_edit: QtWidgets.QTextEdit, fit_width_100: bool
     insert_table_from_preset(text_edit, name.strip(), fit_width_100=fit_width_100)
 
 def insert_planning_register_via_dialog(window: QtWidgets.QMainWindow):
-    """Open a chooser to insert a saved Planning Register preset.
-
-    This is invoked from the page context menu. It looks up the main page editor
-    ('pageEdit') and then offers any saved presets (HTML-based).
-    """
+    """Insert a new Planning Register into the active editor."""
     try:
-        te = window.findChild(QtWidgets.QTextEdit, "pageEdit")
-    except Exception:
-        te = None
-    if te is None or not te.isEnabled():
-        try:
-            QtWidgets.QMessageBox.information(window, "Insert Planning Register", "Please open or create a page first.")
-        except Exception:
-            pass
-        return
+        from ui_planning_register import insert_planning_register
 
-    # Offer only saved presets for this chooser.
-    try:
-        from settings_manager import list_table_preset_names
-
-        preset_names = list_table_preset_names()
-    except Exception:
-        preset_names = []
-    if not preset_names:
-        try:
-            QtWidgets.QMessageBox.information(window, "Insert Planning Register", "No planning register presets saved yet.")
-        except Exception:
-            pass
-        return
-
-    try:
-        choice, ok = QtWidgets.QInputDialog.getItem(
-            window, "Insert Planning Register", "Choose:", preset_names, 0, False
-        )
-    except Exception:
-        ok = False
-        choice = None
-    if not (ok and choice):
-        return
-
-    # Insert from preset into the current editor; ensure full-width container
-    try:
-        insert_table_from_preset(te, choice, fit_width_100=True)
-        try:
-            _enforce_uniform_table_borders(te)
-        except Exception:
-            pass
+        insert_planning_register(window)
     except Exception:
         pass
 
@@ -4407,17 +4365,20 @@ class _TableContextMenu(QObject):
             act_clear_cells = menu.addAction("Clear Selected Cells")
             # Enable/disable depending on context
             has_tbl = tbl is not None
-            act_prop.setEnabled(has_tbl)
-            act_fit.setEnabled(has_tbl)
-            act_dist.setEnabled(has_tbl)
-            act_set_col.setEnabled(has_tbl)
-            act_row_above.setEnabled(has_tbl)
-            act_row_below.setEnabled(has_tbl)
-            act_col_left.setEnabled(has_tbl)
-            act_col_right.setEnabled(has_tbl)
-            act_rm_row.setEnabled(has_tbl)
-            act_rm_col.setEnabled(has_tbl)
-            act_clear_cells.setEnabled(has_tbl and sel_rect is not None)
+            allow_table_edit = has_tbl
+            act_prop.setEnabled(allow_table_edit)
+            act_fit.setEnabled(allow_table_edit)
+            act_dist.setEnabled(allow_table_edit)
+            act_set_col.setEnabled(allow_table_edit)
+            act_mark_currency.setEnabled(allow_table_edit)
+            act_save_preset.setEnabled(allow_table_edit)
+            act_row_above.setEnabled(allow_table_edit)
+            act_row_below.setEnabled(allow_table_edit)
+            act_col_left.setEnabled(allow_table_edit)
+            act_col_right.setEnabled(allow_table_edit)
+            act_rm_row.setEnabled(allow_table_edit)
+            act_rm_col.setEnabled(allow_table_edit)
+            act_clear_cells.setEnabled(allow_table_edit and sel_rect is not None)
             chosen = menu.exec_(global_pos)
             if chosen is None:
                 return True
@@ -4591,8 +4552,13 @@ def _table_copy_inserted_row_cell_formats(table, insert_row: int, count: int, ro
 
 
 def _table_insert_rows_from_selection(text_edit: QtWidgets.QTextEdit, table, rect, above: bool):
-    cur = text_edit.textCursor()
-    cell = table.cellAt(cur)
+    try:
+        cur = text_edit.textCursor()
+        cell = table.cellAt(cur)
+    except RuntimeError:
+        return
+    except Exception:
+        return
     if not cell.isValid():
         return
     base_row = cell.row()
@@ -4770,15 +4736,13 @@ def _qtextlength_type(name: str):
     try:
         return getattr(QTextLength, name)
     except Exception:
-        pass
-    try:
-        return getattr(QTextLength.Type, name)
-    except Exception:
-        pass
-    return None
+        try:
+            return getattr(QTextLength.Type, name)
+        except Exception:
+            return None
 
 
-def _table_usable_viewport_width(text_edit: QtWidgets.QTextEdit):
+def _table_usable_viewport_width(text_edit: QtWidgets.QTextEdit) -> float:
     if text_edit is None:
         return 0.0
     try:
@@ -5351,6 +5315,7 @@ def _table_mark_currency_columns(text_edit: QtWidgets.QTextEdit, table, sel_rect
                 pass
     except Exception:
         pass
+    ensure_currency_columns_watcher(text_edit)
 
 def _table_recompute_currency_columns(text_edit: QtWidgets.QTextEdit, table):
     if table is None or table.rows() < 2:
@@ -5450,6 +5415,22 @@ def ensure_currency_columns_watcher(text_edit: QtWidgets.QTextEdit):
     if text_edit is None or not isinstance(text_edit, QtWidgets.QTextEdit):
         return
     if hasattr(text_edit, "_currency_columns_watcher_active"):
+        return
+    document_cursor = QTextCursor(text_edit.document())
+    seen = set()
+    has_currency_table = False
+    while True:
+        table = document_cursor.currentTable()
+        if table is not None:
+            key = (table.firstPosition(), table.lastPosition())
+            if key not in seen:
+                seen.add(key)
+                if _detect_currency_columns(table):
+                    has_currency_table = True
+                    break
+        if not document_cursor.movePosition(QTextCursor.NextBlock):
+            break
+    if not has_currency_table:
         return
     text_edit._currency_columns_watcher_active = True
     text_edit._currency_last_cell = None

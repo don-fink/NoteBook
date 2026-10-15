@@ -114,6 +114,13 @@ def permanently_delete_notebook(notebook_id: int, db_path: str):
     conn = sqlite3.connect(db_path)
     cur = conn.cursor()
     try:
+        try:
+            cur.execute(
+                "DELETE FROM spreadsheets WHERE page_id IN (SELECT id FROM pages WHERE section_id IN (SELECT id FROM sections WHERE notebook_id = ?))",
+                (notebook_id,),
+            )
+        except Exception:
+            pass
         # Delete all pages in all sections of this notebook
         cur.execute(
             "DELETE FROM pages WHERE section_id IN (SELECT id FROM sections WHERE notebook_id = ?)",
@@ -173,6 +180,12 @@ def empty_all_deleted(db_path: str) -> dict:
         counts['notebooks'] = cur.fetchone()[0]
         
         # Delete in order: pages first, then sections, then notebooks
+        try:
+            cur.execute(
+                "DELETE FROM spreadsheets WHERE page_id IN (SELECT id FROM pages WHERE deleted_at IS NOT NULL)"
+            )
+        except Exception:
+            pass
         cur.execute("DELETE FROM pages WHERE deleted_at IS NOT NULL")
         cur.execute("DELETE FROM sections WHERE deleted_at IS NOT NULL")
         cur.execute("DELETE FROM notebooks WHERE deleted_at IS NOT NULL")

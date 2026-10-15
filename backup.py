@@ -439,7 +439,7 @@ def _current_notebook_id_from_ui(window) -> Optional[int]:
 
 
 def _fetch_binder_payload(db_path: str, notebook_id: int) -> Optional[dict]:
-    """Collect binder, sections, pages and referenced media + refs for export payload."""
+    """Collect binder, sections, pages, spreadsheets, and referenced media for export."""
     con = sqlite3.connect(db_path)
     con.row_factory = sqlite3.Row
     try:
@@ -471,6 +471,20 @@ def _fetch_binder_payload(db_path: str, notebook_id: int) -> Optional[dict]:
                 sid = int(p["section_id"])
                 if sid in pages_by_sec:
                     pages_by_sec[sid].append(p)
+
+        spreadsheet_rows = []
+        if pages:
+            page_ids = [int(r["id"]) for r in pages]
+            q = (
+                "SELECT id, page_id, title, rel_path, file_ext, created_at, modified_at "
+                "FROM spreadsheets WHERE page_id IN (" + ",".join(["?"] * len(page_ids)) + ") "
+                "ORDER BY id"
+            )
+            try:
+                cur.execute(q, page_ids)
+                spreadsheet_rows = cur.fetchall()
+            except Exception:
+                spreadsheet_rows = []
 
         # Collect referenced media ids
         media_ids = set()
@@ -555,6 +569,7 @@ def _fetch_binder_payload(db_path: str, notebook_id: int) -> Optional[dict]:
                 "modified_at": nb["modified_at"],
             },
             "sections": [],
+            "spreadsheets": [],
             "media": [],
             "refs": refs,
         }
@@ -590,6 +605,18 @@ def _fetch_binder_payload(db_path: str, notebook_id: int) -> Optional[dict]:
                     "original_filename": m["original_filename"],
                     "size_bytes": int(m["size_bytes"] or 0),
                     "created_at": m["created_at"],
+                }
+            )
+        for s in spreadsheet_rows:
+            out["spreadsheets"].append(
+                {
+                    "orig_id": int(s["id"]),
+                    "page_orig_id": int(s["page_id"]),
+                    "title": s["title"],
+                    "rel_path": (s["rel_path"] or "").replace("\\", "/"),
+                    "file_ext": s["file_ext"] or "csv",
+                    "created_at": s["created_at"],
+                    "modified_at": s["modified_at"],
                 }
             )
         return out
@@ -674,11 +701,22 @@ def export_binder(window):
             # Media files under media/
             try:
                 from media_store import build_rel_path, resolve_media_path
+                from spreadsheet_store import resolve_spreadsheet_path
 
                 for m in payload.get("media", []):
                     try:
                         rel = build_rel_path(m["sha256"], m["ext"]).replace("\\", "/")
                         abs_p = resolve_media_path(db_path, rel)
+                        if os.path.isfile(abs_p):
+                            zf.write(abs_p, rel)
+                    except Exception:
+                        pass
+                for s in payload.get("spreadsheets", []):
+                    try:
+                        rel = (s.get("rel_path") or "").replace("\\", "/")
+                        if not rel:
+                            continue
+                        abs_p = resolve_spreadsheet_path(db_path, rel)
                         if os.path.isfile(abs_p):
                             zf.write(abs_p, rel)
                     except Exception:
@@ -795,6 +833,8 @@ def import_binder(window):
 
             # Ensure media tables exist using the SAME connection to avoid cross-connection locks
             try:
+                from spreadsheet_store import SPREADSHEET_TABLES_SQL
+
                 cur.executescript(
                     """
                     CREATE TABLE IF NOT EXISTS media (
@@ -824,8 +864,21 @@ def import_binder(window):
                     CREATE INDEX IF NOT EXISTS idx_media_refs_notebook ON media_refs(notebook_id);
                     """
                 )
+                cur.executescript(SPREADSHEET_TABLES_SQL)
             except Exception:
                 pass
+
+            spreadsheet_rel_map = {}
+            try:
+                from spreadsheet_store import ensure_unique_spreadsheet_rel_path
+
+                for spreadsheet in manifest.get("spreadsheets", []):
+                    src_rel = (spreadsheet.get("rel_path") or "").replace("\\", "/")
+                    if not src_rel:
+                        continue
+                    spreadsheet_rel_map[src_rel] = ensure_unique_spreadsheet_rel_path(db_path, src_rel)
+            except Exception:
+                spreadsheet_rel_map = {}
 
             # Create notebook with unique title
             src_nb = manifest.get("notebook", {})
@@ -872,6 +925,10 @@ def import_binder(window):
                 for p in s.get("pages", []):
                     p_title = p.get("title") or "Untitled Page"
                     p_html = p.get("content_html") or ""
+                    if spreadsheet_rel_map:
+                        for src_rel, target_rel in spreadsheet_rel_map.items():
+                            if src_rel != target_rel and src_rel in p_html:
+                                p_html = p_html.replace(src_rel, target_rel)
                     p_order = int(p.get("order_index") or 0)
                     p_created = p.get("created_at")
                     p_modified = p.get("modified_at")
@@ -934,6 +991,50 @@ def import_binder(window):
                     )
                     media_id = int(cur.lastrowid)
                 sha_to_id[sha] = media_id
+
+            # Import spreadsheet files and metadata records
+            try:
+                from spreadsheet_store import resolve_spreadsheet_path
+
+                for spreadsheet in manifest.get("spreadsheets", []):
+                    orig_page_id = spreadsheet.get("page_orig_id")
+                    if orig_page_id is None:
+                        continue
+                    new_page_id = page_map.get(int(orig_page_id))
+                    if not new_page_id:
+                        continue
+
+                    src_rel = (spreadsheet.get("rel_path") or "").replace("\\", "/")
+                    if not src_rel:
+                        continue
+                    target_rel = spreadsheet_rel_map.get(src_rel, src_rel)
+                    abs_p = resolve_spreadsheet_path(db_path, target_rel)
+                    os.makedirs(os.path.dirname(abs_p), exist_ok=True)
+                    try:
+                        with zf.open(src_rel) as src, open(abs_p, "wb") as dst:
+                            for chunk in iter(lambda: src.read(1024 * 1024), b""):
+                                dst.write(chunk)
+                    except KeyError:
+                        if not os.path.exists(abs_p):
+                            with open(abs_p, "wb"):
+                                pass
+
+                    cur.execute(
+                        """
+                        INSERT INTO spreadsheets(page_id, title, rel_path, file_ext, created_at, modified_at)
+                        VALUES (?, ?, ?, ?, COALESCE(?, datetime('now')), COALESCE(?, datetime('now')))
+                        """,
+                        (
+                            int(new_page_id),
+                            spreadsheet.get("title") or "Spreadsheet",
+                            target_rel,
+                            spreadsheet.get("file_ext") or "csv",
+                            spreadsheet.get("created_at"),
+                            spreadsheet.get("modified_at"),
+                        ),
+                    )
+            except Exception:
+                pass
 
             # Recreate refs (fallback to content scan if absent)
             refs = manifest.get("refs") or []

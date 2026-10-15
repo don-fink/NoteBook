@@ -135,6 +135,13 @@ def permanently_delete_section(section_id: int, db_path: str):
     conn = sqlite3.connect(db_path)
     cur = conn.cursor()
     try:
+        try:
+            cur.execute(
+                "DELETE FROM spreadsheets WHERE page_id IN (SELECT id FROM pages WHERE section_id = ?)",
+                (section_id,),
+            )
+        except Exception:
+            pass
         # Delete all pages in this section
         cur.execute("DELETE FROM pages WHERE section_id = ?", (section_id,))
         # Delete the section itself
