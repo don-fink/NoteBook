@@ -1,3 +1,5 @@
+import os
+
 from qt_compat import QtCore, QtGui, QtWidgets
 
 QEvent = QtCore.QEvent
@@ -34,6 +36,11 @@ def _set_page_edit_html(window, html: str):
     te = window.findChild(QtWidgets.QTextEdit, "pageEdit")
     if te is None:
         return
+    # setHtml deletes the current tables, so the watchers must not keep references to them
+    te._currency_last_cell = None
+    planning_watcher = getattr(te, "_planning_register_watcher", None)
+    if planning_watcher is not None:
+        planning_watcher._prev = None
     try:
         te.blockSignals(True)
         if not html:
@@ -61,6 +68,20 @@ def _set_page_edit_html(window, html: str):
         spell_checker = get_spell_checker(te)
         if spell_checker and spell_checker.enabled:
             spell_checker.check_now()
+    except Exception:
+        pass
+
+
+def _ensure_table_watchers(te):
+    """Activate currency and Planning Register behavior for tables in the loaded page."""
+    if os.environ.get("NOTEBOOK_SAFE_MODE", "0").strip() in {"1", "true", "yes"}:
+        return
+    try:
+        from ui_planning_register import ensure_planning_register_watcher
+        from ui_richtext import ensure_currency_columns_watcher
+
+        ensure_planning_register_watcher(te)
+        ensure_currency_columns_watcher(te)
     except Exception:
         pass
 
@@ -120,6 +141,7 @@ def load_page(window, page_id: int = None, html: str = None):
         _normalize_spreadsheet_links_in_editor(window, persist=False)
     except Exception:
         pass
+    _ensure_table_watchers(te)
 
     # Check if page is deleted (deleted_at is column index 8)
     is_deleted = False
