@@ -113,7 +113,7 @@ def _read_settings_pointer_with_source():
     try:
         p_local = _local_pointer_file_path()
         if os.path.exists(p_local):
-            with open(p_local, "r", encoding="utf-8") as f:
+            with open(p_local, "r", encoding="utf-8-sig") as f:
                 line = _normalize_pointer_path_value(f.readline())
                 if line:
                     return line, "local"
@@ -122,7 +122,7 @@ def _read_settings_pointer_with_source():
     try:
         p_global = _pointer_file_path()
         if os.path.exists(p_global):
-            with open(p_global, "r", encoding="utf-8") as f:
+            with open(p_global, "r", encoding="utf-8-sig") as f:
                 line = _normalize_pointer_path_value(f.readline())
                 if line:
                     return line, "global"
@@ -221,13 +221,13 @@ def get_storage_diagnostics() -> dict:
     raw_global_pointer = None
     try:
         if os.path.exists(_local_pointer_file_path()):
-            with open(_local_pointer_file_path(), "r", encoding="utf-8") as f:
+            with open(_local_pointer_file_path(), "r", encoding="utf-8-sig") as f:
                 raw_local_pointer = f.readline().strip()
     except Exception:
         pass
     try:
         if os.path.exists(_pointer_file_path()):
-            with open(_pointer_file_path(), "r", encoding="utf-8") as f:
+            with open(_pointer_file_path(), "r", encoding="utf-8-sig") as f:
                 raw_global_pointer = f.readline().strip()
     except Exception:
         pass
@@ -252,7 +252,7 @@ def load_settings():
     path = _resolve_settings_path()
     try:
         if os.path.exists(path):
-            with open(path, "r", encoding="utf-8") as f:
+            with open(path, "r", encoding="utf-8-sig") as f:
                 return json.load(f)
     except Exception:
         pass
