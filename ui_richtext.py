@@ -4665,11 +4665,7 @@ class _TableContextMenu(QObject):
                     global_pos = self._edit.mapToGlobal(pos)
                 except Exception:
                     return False
-            # Capture original selection and table BEFORE making any cursor changes
             orig_cur = self._edit.textCursor()
-            orig_tbl = orig_cur.currentTable()
-            # Compute selection rectangle from original selection (do not disturb selection)
-            orig_rect = _table_selection_rect(self._edit, orig_tbl)
 
             # First priority: if click is on/near an image, show image menu and consume
             try:
@@ -4736,9 +4732,11 @@ class _TableContextMenu(QObject):
                 clicked_cur = self._edit.cursorForPosition(widget_pos)
             except Exception:
                 clicked_cur = orig_cur
-            clicked_tbl = clicked_cur.currentTable()
-            # Choose active table for the menu: prefer the one with a valid selection rect
-            tbl = orig_tbl if (orig_tbl is not None and orig_rect is not None) else clicked_tbl
+            # The menu acts on the clicked table. Right-clicking does not move the caret by itself,
+            # so move it to the clicked cell unless the click is inside the current selection.
+            tbl = clicked_cur.currentTable()
+            if tbl is not None and not _table_click_in_selection(self._edit, tbl, clicked_cur):
+                self._edit.setTextCursor(clicked_cur)
             # When not over a table, show standard context menu with spell suggestions
             if tbl is None:
                 try:
@@ -4854,16 +4852,13 @@ class _TableContextMenu(QObject):
                 # Get clicked cell column explicitly to avoid stale rect issues
                 clicked_col = None
                 try:
-                    self._edit.setTextCursor(clicked_cur)
                     clicked_cell = tbl.cellAt(clicked_cur)
                     if clicked_cell.isValid():
                         clicked_col = clicked_cell.column()
                 except Exception:
                     pass
-                # Recompute sel_rect after cursor update
-                fresh_rect = _table_selection_rect(self._edit, tbl)
                 try:
-                    _table_mark_currency_columns(self._edit, tbl, fresh_rect, clicked_col)
+                    _table_mark_currency_columns(self._edit, tbl, sel_rect, clicked_col)
                 except Exception:
                     pass
             elif chosen == act_prop and has_tbl:
@@ -4955,6 +4950,19 @@ def _table_selection_rect(text_edit: QtWidgets.QTextEdit, table):
         return (r0, c0, r1, c1i)
     except Exception:
         return None
+
+
+def _table_click_in_selection(text_edit: QtWidgets.QTextEdit, table, clicked_cursor) -> bool:
+    """Return True if clicked_cursor falls inside the current selection within table."""
+    cur = text_edit.textCursor()
+    if not cur.hasSelection() or cur.currentTable() != table:
+        return False
+    rect = _table_selection_rect(text_edit, table)
+    cell = table.cellAt(clicked_cursor)
+    if rect is None or not cell.isValid():
+        return False
+    r0, c0, r1, c1 = rect
+    return r0 <= cell.row() <= r1 and c0 <= cell.column() <= c1
 
 
 def _table_clear_selected_cells(text_edit: QtWidgets.QTextEdit, table, rect):
@@ -5137,16 +5145,15 @@ def _table_insert_rows_from_selection(text_edit: QtWidgets.QTextEdit, table, rec
 
 
 def _table_remove_rows_from_selection(text_edit: QtWidgets.QTextEdit, table, rect):
-    cur = text_edit.textCursor()
-    cell = table.cellAt(cur)
-    if rect is None or not cell.isValid():
-        # Remove current row
-        try:
-            table.removeRows(cell.row(), 1)
-        except Exception:
-            pass
-        _table_delete_if_empty(text_edit, table)
+    try:
+        cell = table.cellAt(text_edit.textCursor())
+    except RuntimeError:
         return
+    if rect is None:
+        # Remove current row. Qt crashes on removeRows(-1, ...), so require a valid cell.
+        if not cell.isValid():
+            return
+        rect = (cell.row(), cell.column(), cell.row(), cell.column())
     r0, _c0, r1, _c1 = rect
     try:
         table.removeRows(r0, r1 - r0 + 1)
