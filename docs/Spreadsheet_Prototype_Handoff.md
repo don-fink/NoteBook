@@ -34,24 +34,23 @@ Ship spreadsheet support as managed linked files stored under the notebook media
 - ✅ Spreadsheet insertion now uses a simple page link instead of embedding a preview table in the note
 - ✅ Removed embedded spreadsheet preview generation and preview-refresh actions from the notebook page workflow
 - ✅ Removed spreadsheet-preview-specific rich-text interception and context menu behavior
-- ✅ Load/save now normalize older embedded spreadsheet preview blocks back to simple links so existing pages are cleaned up over time
+- ✅ Removed the load/save cleanup that collapsed preview blocks back to links; it could not tell a preview from a user's table and deleted tables placed after a spreadsheet link
 - ✅ Spreadsheet work is now routed to the external spreadsheet application via normal file open behavior
 - ✅ Guarded rich-text row insertion against stale/deleted `QTextTable` objects in PyQt6
 
 ### Current State
 1. Spreadsheets are treated as linked media assets, not inline spreadsheet widgets.
 2. Notebook pages now use a simple `Spreadsheet: ...` link as the insertion surface.
-3. Existing legacy preview blocks are collapsed back to links when pages are loaded and saved.
+3. Any legacy preview block still on a page stays as an ordinary table and can be deleted by hand.
 4. Spreadsheet editing should happen in Excel, LibreOffice, or another external spreadsheet application.
 
 ### Next Session Priorities
 1. Add orphan spreadsheet cleanup for files left behind under `media/spreadsheets/` after links are removed from page content.
-2. Investigate the table creation regression where a newly inserted table appears briefly and then disappears a couple of seconds later.
+2. Confirm in the running app that a table inserted below a spreadsheet link no longer disappears a couple of seconds later (the removed load/save cleanup ran on autosave).
 3. Fix link-edit behavior so typing after an existing link does not extend the hyperlink into the new text.
 4. Retest the simplified spreadsheet workflow in the running app:
    - insert a new/template/existing spreadsheet and confirm a plain link is inserted
    - use `Manage Page Spreadsheets...` and confirm `Open` launches the external spreadsheet app
-   - reopen a page that previously had an embedded spreadsheet preview and confirm it is cleaned back to a link
 5. Decide whether the page manager should later gain lightweight metadata fields such as description or note text for each spreadsheet link.
 
 ### Known Issues to Address in Future Versions
