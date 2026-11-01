@@ -57,8 +57,8 @@ Set your default paste mode under **Edit → Default Paste Mode**. Regardless of
 To insert an image into a page:
 
 1. Use **Notebook → Insert Attachment** and select an image file.
-2. Once inserted, click the image to select it — resize handles will appear at the corners.
-3. Drag a corner handle to resize the image.
+2. To change its size, right-click the image and choose **Image Properties…**, **Fit to editor width**, or **Reset to original size**.
+3. With the caret next to an image, you can also press **F2** or **Ctrl+Shift+I** to open Image Properties.
 
 Images are stored inside the database (or in a companion `.media` folder alongside it), so they move with your database file automatically.
 

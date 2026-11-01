@@ -8,6 +8,7 @@ Insert image, Horizontal rule.
 
 import os
 import re
+import sys
 from datetime import datetime
 
 from qt_compat import QtCore, QtGui, QtWidgets
@@ -103,122 +104,52 @@ def _qimage_dims(text_edit: QtWidgets.QTextEdit, name: str):
     return None, None
 
 
-def _image_info_at_cursor(text_edit: QtWidgets.QTextEdit):
-    cur = text_edit.textCursor()
-    # Check char under cursor
-    fmt = cur.charFormat()
-    if fmt is not None and (
-        (hasattr(fmt, "isImageFormat") and fmt.isImageFormat())
-        or fmt.objectType() == QTextFormat.ImageObject
-    ):
-        imgf = QTextImageFormat(fmt)
-        w = float(imgf.width() or 0.0)
-        h = float(imgf.height() or 0.0)
-        iw, ih = _qimage_dims(text_edit, imgf.name())
-        return {
-            "cursor_pos": cur.position(),
-            "name": imgf.name(),
-            "w": w,
-            "h": h,
-            "iw": iw,
-            "ih": ih,
-        }
-    # Try selecting next char (caret just before image)
-    c2 = QTextCursor(cur)
-    c2.movePosition(QTextCursor.Right, QTextCursor.KeepAnchor, 1)
-    fmt2 = c2.charFormat()
-    if fmt2 is not None and (
-        (hasattr(fmt2, "isImageFormat") and fmt2.isImageFormat())
-        or fmt2.objectType() == QTextFormat.ImageObject
-    ):
-        imgf = QTextImageFormat(fmt2)
-        w = float(imgf.width() or 0.0)
-        h = float(imgf.height() or 0.0)
-        iw, ih = _qimage_dims(text_edit, imgf.name())
-        return {
-            "cursor_pos": cur.position(),
-            "name": imgf.name(),
-            "w": w,
-            "h": h,
-            "iw": iw,
-            "ih": ih,
-        }
-    # Try selecting previous char (caret just after image)
-    c3 = QTextCursor(cur)
-    c3.movePosition(QTextCursor.Left, QTextCursor.KeepAnchor, 1)
-    fmt3 = c3.charFormat()
-    if fmt3 is not None and (
-        (hasattr(fmt3, "isImageFormat") and fmt3.isImageFormat())
-        or fmt3.objectType() == QTextFormat.ImageObject
-    ):
-        imgf = QTextImageFormat(fmt3)
-        w = float(imgf.width() or 0.0)
-        h = float(imgf.height() or 0.0)
-        iw, ih = _qimage_dims(text_edit, imgf.name())
-        # Use the start of the selection as the image position
-        pos = min(c3.position(), c3.anchor())
-        return {"cursor_pos": pos, "name": imgf.name(), "w": w, "h": h, "iw": iw, "ih": ih}
+def _image_format_at(doc, pos: int):
+    """Return the image format of the character at pos, or None if it is not an image."""
+    if not 0 <= pos < doc.characterCount() - 1 or doc.characterAt(pos) != "\ufffc":
+        return None
+    c = QTextCursor(doc)
+    c.setPosition(pos)
+    c.setPosition(pos + 1, QTextCursor.KeepAnchor)
+    fmt = c.charFormat()
+    return fmt.toImageFormat() if fmt.isImageFormat() else None
+
+
+def _image_info(text_edit: QtWidgets.QTextEdit, pos: int, imgf) -> dict:
+    """Describe the image at pos. cursor_pos is always the position of the image itself."""
+    iw, ih = _qimage_dims(text_edit, imgf.name())
+    return {
+        "cursor_pos": pos,
+        "name": imgf.name(),
+        "w": float(imgf.width() or 0.0),
+        "h": float(imgf.height() or 0.0),
+        "iw": iw,
+        "ih": ih,
+        "alt": str(imgf.property(QTextFormat.Property.ImageAltText) or ""),
+        "title": str(imgf.property(QTextFormat.Property.ImageTitle) or ""),
+    }
+
+
+def _image_info_under_point(text_edit: QtWidgets.QTextEdit, vp_pos: QPoint):
+    """Return the image drawn at a viewport point, or None if the point is not on one."""
+    doc = text_edit.document()
+    hit = text_edit.cursorForPosition(vp_pos).position()
+    for pos in (hit, hit - 1):
+        imgf = _image_format_at(doc, pos)
+        if imgf is None:
+            continue
+        c = QTextCursor(doc)
+        c.setPosition(pos)
+        before = text_edit.cursorRect(c)
+        c.setPosition(pos + 1)
+        after = text_edit.cursorRect(c)
+        right = after.left() if after.top() == before.top() else 0
+        if right <= before.left():
+            right = before.left() + int(imgf.width() or 0)
+        top = min(before.top(), before.bottom() - int(imgf.height() or 0))
+        if before.left() <= vp_pos.x() <= right and top <= vp_pos.y() <= before.bottom():
+            return _image_info(text_edit, pos, imgf)
     return None
-
-
-def _image_info_at_view_pos(text_edit: QtWidgets.QTextEdit, view_pos: QPoint):
-    try:
-        cur = text_edit.cursorForPosition(view_pos)
-        cands = [QTextCursor(cur)]
-        c1 = QTextCursor(cur)
-        c1.movePosition(QTextCursor.Left)
-        cands.append(c1)
-        c2 = QTextCursor(cur)
-        c2.movePosition(QTextCursor.Right)
-        cands.append(c2)
-        for c in cands:
-            fmt = c.charFormat()
-            if fmt is not None and (
-                (hasattr(fmt, "isImageFormat") and fmt.isImageFormat())
-                or fmt.objectType() == QTextFormat.ImageObject
-            ):
-                imgf = QTextImageFormat(fmt)
-                w = float(imgf.width() or 0.0)
-                h = float(imgf.height() or 0.0)
-                iw, ih = _qimage_dims(text_edit, imgf.name())
-                return {
-                    "cursor_pos": c.position(),
-                    "name": imgf.name(),
-                    "w": w,
-                    "h": h,
-                    "iw": iw,
-                    "ih": ih,
-                }
-            csel = QTextCursor(c)
-            csel.movePosition(QTextCursor.Right, QTextCursor.KeepAnchor, 1)
-            fmt2 = csel.charFormat()
-            if fmt2 is not None and (
-                (hasattr(fmt2, "isImageFormat") and fmt2.isImageFormat())
-                or fmt2.objectType() == QTextFormat.ImageObject
-            ):
-                imgf = QTextImageFormat(fmt2)
-                w = float(imgf.width() or 0.0)
-                h = float(imgf.height() or 0.0)
-                iw, ih = _qimage_dims(text_edit, imgf.name())
-                return {
-                    "cursor_pos": c.position(),
-                    "name": imgf.name(),
-                    "w": w,
-                    "h": h,
-                    "iw": iw,
-                    "ih": ih,
-                }
-    except Exception:
-        pass
-    return None
-
-
-def _open_image_properties(text_edit: QtWidgets.QTextEdit, info: dict = None):
-    if info is None:
-        info = _image_info_at_cursor(text_edit)
-    if not info:
-        return
-    _image_properties_dialog_apply(text_edit, info)
 
 
 def _install_image_context_menu(text_edit: QtWidgets.QTextEdit):
@@ -241,26 +172,11 @@ def install_image_support(text_edit: QtWidgets.QTextEdit):
     except Exception:
         pass
     _install_image_context_menu(text_edit)
-    try:
-        _install_image_shortcuts(text_edit)
-    except Exception:
-        pass
 
 
 # ----------------------------- Image insertion -----------------------------
 
 
-def _install_image_shortcuts(text_edit: QtWidgets.QTextEdit):
-    # Ctrl+Shift+I opens Image Properties; F2 as backup
-    sc1 = QtWidgets.QShortcut(QKeySequence("Ctrl+Shift+I"), text_edit)
-    sc1.setContext(Qt.WidgetWithChildrenShortcut)
-    sc1.activated.connect(lambda: _open_image_properties(text_edit))
-    sc2 = QtWidgets.QShortcut(QKeySequence("F2"), text_edit)
-    sc2.setContext(Qt.WidgetWithChildrenShortcut)
-    sc2.activated.connect(lambda: _open_image_properties(text_edit))
-
-
-# ----------------------------- HTML Source dialog -----------------------------
 class _HtmlHighlighter(QSyntaxHighlighter):
     def __init__(self, doc):
         super().__init__(doc)
@@ -374,6 +290,8 @@ class _ImagePropertiesDialog(QtWidgets.QDialog):
         intrinsic_w: int,
         intrinsic_h: int,
         current_align: str,
+        alt_text: str = "",
+        title_text: str = "",
     ):
         super().__init__(parent)
         self.setWindowTitle("Image Properties")
@@ -386,13 +304,8 @@ class _ImagePropertiesDialog(QtWidgets.QDialog):
         self.cb_keep.setChecked(True)
         self.lbl_height = QtWidgets.QLabel(self)
         # Alt / Title
-        self.le_alt = QtWidgets.QLineEdit(self)
-        try:
-            base = os.path.basename(src_name) if src_name else ""
-        except Exception:
-            base = ""
-        self.le_alt.setText(base)
-        self.le_title = QtWidgets.QLineEdit(self)
+        self.le_alt = QtWidgets.QLineEdit(alt_text, self)
+        self.le_title = QtWidgets.QLineEdit(title_text, self)
         # Alignment
         self.combo_align = QtWidgets.QComboBox(self)
         self.combo_align.addItems(["None", "Left", "Center", "Right"])
@@ -470,6 +383,8 @@ def _apply_block_alignment_for_image(text_edit: QtWidgets.QTextEdit, cursor_pos:
 
 
 def _image_properties_dialog_apply(text_edit: QtWidgets.QTextEdit, info: dict):
+    if text_edit.isReadOnly():
+        return
     # Determine current alignment from block
     try:
         cur = QTextCursor(text_edit.document())
@@ -490,6 +405,8 @@ def _image_properties_dialog_apply(text_edit: QtWidgets.QTextEdit, info: dict):
         info.get("iw") or 0,
         info.get("ih") or 0,
         current_align,
+        info.get("alt", ""),
+        info.get("title", ""),
     )  # (Removed legacy _table_recalculate_formulas after formula feature rollback.)
     if dlg.exec_() != QtWidgets.QDialog.Accepted:
         return
@@ -525,6 +442,14 @@ def _html_escape(s: str) -> str:
         return s
 
 
+def _set_image_format(text_edit: QtWidgets.QTextEdit, pos: int, imgf):
+    """Replace the format of the image at pos, leaving the surrounding text untouched."""
+    c = QTextCursor(text_edit.document())
+    c.setPosition(pos)
+    c.setPosition(pos + 1, QTextCursor.KeepAnchor)
+    c.setCharFormat(imgf)
+
+
 def _apply_image_properties(
     text_edit: QtWidgets.QTextEdit,
     cursor_pos: int,
@@ -534,27 +459,23 @@ def _apply_image_properties(
     alt_txt: str,
     title_txt: str,
 ):
-    try:
-        doc = text_edit.document()
-        c = QTextCursor(doc)
-        c.setPosition(int(cursor_pos))
-        # Select object replacement char if present
-        c.movePosition(QTextCursor.Right, QTextCursor.KeepAnchor, 1)
-        try:
-            c.removeSelectedText()
-        except Exception:
-            pass
-        # Build HTML img tag with attributes
-        src_attr = f'src="{_html_escape(name)}"' if name else ""
-        w_attr = f' width="{int(max(1.0, w))}"' if w else ""
-        h_attr = f' height="{int(max(1.0, h))}"' if h else ""
-        alt_attr = f' alt="{_html_escape(alt_txt)}"' if alt_txt else ""
-        title_attr = f' title="{_html_escape(title_txt)}"' if title_txt else ""
-        html = f'<img {src_attr}{w_attr}{h_attr}{(" " + alt_attr) if alt_attr else ""}{(" " + title_attr) if title_attr else ""} />'
-        c.insertHtml(html)
-    except Exception:
-        # Fallback to size-only application
-        _apply_image_size_at(text_edit, cursor_pos, name, w, h)
+    if text_edit.isReadOnly():
+        return
+    pos = int(cursor_pos)
+    imgf = _image_format_at(text_edit.document(), pos)
+    if imgf is None:
+        return
+    imgf.setWidth(float(max(1.0, w)))
+    imgf.setHeight(float(max(1.0, h)))
+    for prop, value in (
+        (QTextFormat.Property.ImageAltText, alt_txt),
+        (QTextFormat.Property.ImageTitle, title_txt),
+    ):
+        if value:
+            imgf.setProperty(prop, value)
+        else:
+            imgf.clearProperty(prop)
+    _set_image_format(text_edit, pos, imgf)
 
 
 import imghdr
@@ -1334,10 +1255,9 @@ def add_rich_text_toolbar(
 
     text_edit.cursorPositionChanged.connect(_schedule_sync_toolbar)
 
-    # Install image context menu and shortcuts
+    # Install image context menu
     try:
         _install_image_context_menu(text_edit)
-        _install_image_shortcuts(text_edit)
     except Exception:
         pass
     try:
@@ -1413,11 +1333,6 @@ def add_rich_text_toolbar(
     except Exception:
         pass
 
-    # Install a small image HUD button that appears when caret is on/near an image
-    try:
-        _install_image_hud(text_edit)
-    except Exception:
-        pass
     return toolbar
 
 
@@ -1567,381 +1482,72 @@ def paste_match_style(text_edit: QtWidgets.QTextEdit):
 
 
 def _image_info_at_position(text_edit: QtWidgets.QTextEdit, pos_or_posint):
-    """Detect image info at a specific document position (int) or viewport QPoint.
-    Returns {cursor_pos,name,w,h,iw,ih} or None.
-    """
-    try:
-        # Map from viewport QPoint to document position if needed
-        if isinstance(pos_or_posint, QPoint):
-            cur = text_edit.cursorForPosition(pos_or_posint)
-        else:
-            cur = QTextCursor(text_edit.document())
-            cur.setPosition(int(pos_or_posint))
-
-        def _mk(imgf: QTextImageFormat, c: QTextCursor):
-            try:
-                name = (
-                    imgf.name() if hasattr(imgf, "name") else imgf.property(QTextFormat.ImageName)
-                )
-            except Exception:
-                name = ""
-            w = float(imgf.width() or 0.0)
-            h = float(imgf.height() or 0.0)
-            iw = ih = None
-            try:
-                base = getattr(text_edit.window(), "_media_root", None)
-                path = name
-                if base and name and not os.path.isabs(name):
-                    path = os.path.join(base, name)
-                if not _is_raw_ext(path):
-                    img = QImage(path)
-                    if not img.isNull():
-                        iw, ih = img.width(), img.height()
-            except Exception:
-                pass
-            return {"cursor_pos": c.position(), "name": name, "w": w, "h": h, "iw": iw, "ih": ih}
-
-        # Check current, previous, and next positions
-        candidates = []
-        for offset in (0, -1, +1):
-            c = QTextCursor(cur)
-            if offset < 0:
-                c.movePosition(QTextCursor.Left)
-            elif offset > 0:
-                c.movePosition(QTextCursor.Right)
-            candidates.append(c)
-        for c in candidates:
-            fmt = c.charFormat()
-            if fmt is not None and (
-                (hasattr(fmt, "isImageFormat") and fmt.isImageFormat())
-                or fmt.objectType() == QTextFormat.ImageObject
-            ):
-                return _mk(QTextImageFormat(fmt), QTextCursor(c))
-            # Try selecting the char at this position to fetch the actual object format
-            try:
-                csel = QTextCursor(c)
-                csel.movePosition(QTextCursor.Right, QTextCursor.KeepAnchor, 1)
-                fmt2 = csel.charFormat()
-                if fmt2 is not None and (
-                    (hasattr(fmt2, "isImageFormat") and fmt2.isImageFormat())
-                    or fmt2.objectType() == QTextFormat.ImageObject
-                ):
-                    return _mk(QTextImageFormat(fmt2), QTextCursor(c))
-            except Exception:
-                pass
-    except Exception:
-        return None
-    return None
+    """Return info for the image drawn at a viewport QPoint, or stored at a document position."""
+    if isinstance(pos_or_posint, QPoint):
+        return _image_info_under_point(text_edit, pos_or_posint)
+    pos = int(pos_or_posint)
+    imgf = _image_format_at(text_edit.document(), pos)
+    return _image_info(text_edit, pos, imgf) if imgf is not None else None
 
 
 def _image_info_at_cursor(text_edit: QtWidgets.QTextEdit):
-    """Robustly detect an image under/near the caret or selection start.
-    Strategy:
-    1) Check current pos and neighbors
-    2) Check selection start and neighbors
-    3) Scan left/right within a small radius of positions
-    4) Sample viewport points around the caret rect center
-    """
-    try:
-        cur = text_edit.textCursor()
-        # Try current pos and neighbors
-        info = _image_info_at_position(text_edit, cur.position())
-        if info:
+    """Return info for an image selected by, or directly next to, the caret."""
+    cur = text_edit.textCursor()
+    positions = [cur.position(), cur.position() - 1]
+    if cur.hasSelection():
+        positions.insert(0, cur.selectionStart())
+    for pos in positions:
+        info = _image_info_at_position(text_edit, pos)
+        if info is not None:
             return info
-        # Try selection anchor/start if available
-        try:
-            start_pos = min(cur.anchor(), cur.position())
-        except Exception:
-            start_pos = cur.position()
-        if start_pos != cur.position():
-            info = _image_info_at_position(text_edit, start_pos)
-            if info:
-                return info
-            info = _image_info_at_position(text_edit, max(0, start_pos - 1))
-            if info:
-                return info
-        # Scan positions around caret within a small radius
-        try:
-            p0 = cur.position()
-            for d in (1, 2, 3, 4, 6, 8, 12, 16, 24, 32):
-                for pos_try in (max(0, p0 - d), p0 + d):
-                    info = _image_info_at_position(text_edit, pos_try)
-                    if info:
-                        return info
-        except Exception:
-            pass
-        # Sample viewport around caret rect center
-        try:
-            r = text_edit.cursorRect(cur)
-            if r is not None and r.isValid():
-                vp = text_edit.viewport()
-                cx = r.center().x()
-                cy = r.center().y()
-                # Sweep horizontally and slightly vertically
-                for dy in (
-                    0,
-                    int(r.height() / 3) if r.height() > 0 else 6,
-                    -int(r.height() / 3) if r.height() > 0 else -6,
-                ):
-                    for dx in (-64, -48, -32, -24, -16, -8, -4, 0, 4, 8, 16, 24, 32, 48, 64):
-                        pt = QPoint(int(cx + dx), int(cy + dy))
-                        # Clamp within viewport
-                        if vp is not None:
-                            rr = vp.rect()
-                            if not rr.contains(pt):
-                                continue
-                        info = _image_info_at_position(text_edit, pt)
-                        if info:
-                            return info
-        except Exception:
-            pass
-    except Exception:
-        return None
     return None
 
 
 def _image_info_near_doc_pos(text_edit: QtWidgets.QTextEdit, doc_pos: int, max_scan: int = 512):
-    """Find image nearest to a given document position, scanning within the current block first.
-    Returns {cursor_pos,name,w,h,iw,ih} or None.
-    """
-    try:
-        doc = text_edit.document()
-        cur = QTextCursor(doc)
-        cur.setPosition(int(doc_pos))
-        blk = cur.block()
-        # Limit search to the paragraph/block for precision
-        start = blk.position()
-        end = blk.position() + blk.length() - 1
-
-        # Scan outward from doc_pos within [start,end]
-        def _try_at(p):
-            if p < start or p > end:
-                return None
-            c = QTextCursor(doc)
-            c.setPosition(p)
-            # Select the char at this position to retrieve object format
-            c.movePosition(QTextCursor.Right, QTextCursor.KeepAnchor, 1)
-            fmt = c.charFormat()
-            if fmt is not None and (
-                (hasattr(fmt, "isImageFormat") and fmt.isImageFormat())
-                or fmt.objectType() == QTextFormat.ImageObject
-            ):
-                imgf = QTextImageFormat(fmt)
-                name = (
-                    imgf.name() if hasattr(imgf, "name") else imgf.property(QTextFormat.ImageName)
-                )
-                w = float(imgf.width() or 0.0)
-                h = float(imgf.height() or 0.0)
-                # Try to get intrinsic size
-                iw = ih = None
-                try:
-                    base = getattr(text_edit.window(), "_media_root", None)
-                    path = name
-                    if base and name and not os.path.isabs(name):
-                        path = os.path.join(base, name)
-                    img = QImage(path)
-                    if not img.isNull():
-                        iw, ih = img.width(), img.height()
-                except Exception:
-                    pass
-                return {"cursor_pos": p, "name": name, "w": w, "h": h, "iw": iw, "ih": ih}
-            return None
-
-        # Check exact pos and neighbors out to max_scan (capped by block length)
-        max_delta = int(min(max_scan, max(0, end - start)))
-        # Prefer exact, then +/-1, +/-2, ...
-        for d in range(0, max_delta + 1):
-            # exact
-            if d == 0:
-                info = _try_at(doc_pos)
-                if info:
-                    return info
-                continue
-            # left then right
-            info = _try_at(doc_pos - d)
-            if info:
-                return info
-            info = _try_at(doc_pos + d)
-            if info:
-                return info
-    except Exception:
-        return None
+    """Return the image nearest to doc_pos within its paragraph, or None."""
+    block = text_edit.document().findBlock(int(doc_pos))
+    info = _image_info_in_block(text_edit, block, prefer_pos=int(doc_pos))
+    if info is not None and abs(info["cursor_pos"] - int(doc_pos)) <= max_scan:
+        return info
     return None
 
 
 def _image_info_from_selection(text_edit: QtWidgets.QTextEdit):
-    """If there's a selection, scan the selected range for an image object and return its info."""
-    try:
-        cur = text_edit.textCursor()
-        a = cur.anchor()
-        p = cur.position()
-        start = min(a, p)
-        end = max(a, p)
-        if start == end:
-            return None
-        doc = text_edit.document()
-        pos = start
-        while pos <= end:
-            c = QTextCursor(doc)
-            c.setPosition(pos)
-            c.movePosition(QTextCursor.Right, QTextCursor.KeepAnchor, 1)
-            fmt = c.charFormat()
-            if fmt is not None and (
-                (hasattr(fmt, "isImageFormat") and fmt.isImageFormat())
-                or fmt.objectType() == QTextFormat.ImageObject
-            ):
-                imgf = QTextImageFormat(fmt)
-                try:
-                    name = (
-                        imgf.name()
-                        if hasattr(imgf, "name")
-                        else imgf.property(QTextFormat.ImageName)
-                    )
-                except Exception:
-                    name = ""
-                w = float(imgf.width() or 0.0)
-                h = float(imgf.height() or 0.0)
-                iw = ih = None
-                try:
-                    base = getattr(text_edit.window(), "_media_root", None)
-                    path = name
-                    if base and name and not os.path.isabs(name):
-                        path = os.path.join(base, name)
-                    img = QImage(path)
-                    if not img.isNull():
-                        iw, ih = img.width(), img.height()
-                except Exception:
-                    pass
-                return {
-                    "cursor_pos": c.position(),
-                    "name": name,
-                    "w": w,
-                    "h": h,
-                    "iw": iw,
-                    "ih": ih,
-                }
-            pos += 1
-    except Exception:
-        return None
+    """Return info for the first image in the current selection, or None."""
+    cur = text_edit.textCursor()
+    for pos in range(cur.selectionStart(), cur.selectionEnd()):
+        info = _image_info_at_position(text_edit, pos)
+        if info is not None:
+            return info
     return None
 
 
 def _image_info_in_block(text_edit: QtWidgets.QTextEdit, block, prefer_pos: int = None):
-    """Scan QTextBlock fragments to find an embedded image. If multiple, pick the one nearest prefer_pos.
-    Returns {cursor_pos,name,w,h,iw,ih} or None.
-    """
-    try:
-        # Collect all image fragments with their positions
-        imgs = []
-        it = block.begin()
-        while not it.atEnd():
-            frag = it.fragment()
-            if frag.isValid():
-                fmt = frag.charFormat()
-                if fmt is not None and (
-                    (hasattr(fmt, "isImageFormat") and fmt.isImageFormat())
-                    or fmt.objectType() == QTextFormat.ImageObject
-                ):
-                    imgf = QTextImageFormat(fmt)
-                    try:
-                        name = (
-                            imgf.name()
-                            if hasattr(imgf, "name")
-                            else imgf.property(QTextFormat.ImageName)
-                        )
-                    except Exception:
-                        name = ""
-                    w = float(imgf.width() or 0.0)
-                    h = float(imgf.height() or 0.0)
-                    iw = ih = None
-                    try:
-                        base = getattr(text_edit.window(), "_media_root", None)
-                        path = name
-                        if base and name and not os.path.isabs(name):
-                            path = os.path.join(base, name)
-                        img = QImage(path)
-                        if not img.isNull():
-                            iw, ih = img.width(), img.height()
-                    except Exception:
-                        pass
-                    imgs.append(
-                        {
-                            "cursor_pos": frag.position(),
-                            "name": name,
-                            "w": w,
-                            "h": h,
-                            "iw": iw,
-                            "ih": ih,
-                        }
-                    )
-            it += 1
-        if not imgs:
-            return None
-        if prefer_pos is None:
-            return imgs[0]
-        # Choose the image with position closest to prefer_pos
-        imgs.sort(key=lambda d: abs(int(d.get("cursor_pos", 0)) - int(prefer_pos)))
-        return imgs[0]
-    except Exception:
+    """Return info for the image in a paragraph, nearest to prefer_pos if there are several."""
+    if not block.isValid():
         return None
+    doc = text_edit.document()
+    start = block.position()
+    positions = [p for p in range(start, start + block.length() - 1) if _image_format_at(doc, p)]
+    if not positions:
+        return None
+    if prefer_pos is not None:
+        positions.sort(key=lambda p: abs(p - prefer_pos))
+    return _image_info_at_position(text_edit, positions[0])
 
 
 def _apply_image_size_at(
     text_edit: QtWidgets.QTextEdit, cursor_pos: int, name: str, w: float, h: float
 ):
-    try:
-        doc = text_edit.document()
-        # Ensure we target the actual image character; adjust if needed
-        info_here = _image_info_at_position(text_edit, cursor_pos)
-        if info_here is None:
-            info_here = _image_info_at_position(text_edit, max(0, cursor_pos - 1))
-        if info_here is not None:
-            target_pos = int(info_here.get("cursor_pos", cursor_pos))
-        else:
-            target_pos = int(cursor_pos)
-
-        # Preferred: replace the object with a new image fragment at the desired size
-        try:
-            c = QTextCursor(doc)
-            c.setPosition(target_pos)
-            # Select the object replacement char if present
-            c.movePosition(QTextCursor.Right, QTextCursor.KeepAnchor, 1)
-            # If selection is not an image, fall back later
-            fmt = c.charFormat()
-            is_img_sel = fmt is not None and (
-                (hasattr(fmt, "isImageFormat") and fmt.isImageFormat())
-                or fmt.objectType() == QTextFormat.ImageObject
-            )
-            if is_img_sel:
-                try:
-                    c.removeSelectedText()
-                except Exception:
-                    pass
-                imgf = QTextImageFormat()
-                if name:
-                    imgf.setName(name)
-                imgf.setWidth(float(max(1.0, w)))
-                imgf.setHeight(float(max(1.0, h)))
-                c.insertImage(imgf)
-                return
-        except Exception:
-            pass
-
-        # Fallback: setCharFormat on a 1-char selection at the requested position
-        try:
-            c = QTextCursor(doc)
-            c.setPosition(target_pos)
-            c.movePosition(QTextCursor.Right, QTextCursor.KeepAnchor, 1)
-            imgf = QTextImageFormat()
-            if name:
-                imgf.setName(name)
-            imgf.setWidth(float(max(1.0, w)))
-            imgf.setHeight(float(max(1.0, h)))
-            c.setCharFormat(imgf)
-        except Exception:
-            pass
-    except Exception:
-        pass
+    if text_edit.isReadOnly():
+        return
+    pos = int(cursor_pos)
+    imgf = _image_format_at(text_edit.document(), pos)
+    if imgf is None:
+        return
+    imgf.setWidth(float(max(1.0, w)))
+    imgf.setHeight(float(max(1.0, h)))
+    _set_image_format(text_edit, pos, imgf)
 
 
 def _fit_image_to_width_at(
@@ -1952,6 +1558,12 @@ def _fit_image_to_width_at(
             return
         vp = text_edit.viewport()
         avail = max(16.0, float(vp.width() - 24)) if vp is not None else float(iw)
+        cur = QTextCursor(text_edit.document())
+        cur.setPosition(int(cursor_pos))
+        if cur.currentTable() is not None:
+            avail = max(
+                16.0, min(avail, float(_table_available_insert_width_px(text_edit, cur)) - 8)
+            )
         scale = avail / float(iw)
         _apply_image_size_at(text_edit, cursor_pos, name, avail, max(1.0, ih * scale))
     except Exception:
@@ -1998,6 +1610,28 @@ def _prompt_resize_image(
         _apply_image_size_at(text_edit, cursor_pos, name, new_w, new_h)
     except Exception:
         pass
+
+
+def _show_image_menu(text_edit: QtWidgets.QTextEdit, info: dict, global_pos):
+    menu = QtWidgets.QMenu(text_edit)
+    pos, name = int(info["cursor_pos"]), info.get("name", "")
+    iw, ih = info.get("iw"), info.get("ih")
+    act_props = menu.addAction("Image Properties…")
+    menu.addSeparator()
+    act_fit = menu.addAction("Fit to editor width")
+    act_reset = menu.addAction("Reset to original size")
+    editable = not text_edit.isReadOnly()
+    act_props.setEnabled(editable)
+    # Both need the image file, so they can't work when it is missing or a RAW format
+    act_fit.setEnabled(editable and bool(iw and ih))
+    act_reset.setEnabled(editable and bool(iw and ih))
+    chosen = menu.exec_(global_pos)
+    if chosen == act_props:
+        _image_properties_dialog_apply(text_edit, info)
+    elif chosen == act_fit:
+        _fit_image_to_width_at(text_edit, pos, name, iw, ih)
+    elif chosen == act_reset:
+        _reset_image_size_at(text_edit, pos, name, iw, ih)
 
 
 def _strip_match_style_html(html: str) -> str:
@@ -2765,27 +2399,15 @@ class _ImageResizeHandler(QObject):
 
     def _image_at(self, pos):
         try:
-            # Helper to detect if a cursor sits on an image char and return its image format + adjusted cursor
+            # Helper to find an image at or just before a cursor, returning a cursor on the image
             def _img_info_for_cursor(cur: QTextCursor):
-                try:
-                    fmt = cur.charFormat()
-                    if fmt is None:
-                        return None
-                    if hasattr(fmt, "isImageFormat") and fmt.isImageFormat():
-                        return QTextImageFormat(fmt), QTextCursor(cur)
-                    if fmt.objectType() == QTextFormat.ImageObject:
-                        return QTextImageFormat(fmt), QTextCursor(cur)
-                    # Try previous char (common when caret is just after the image)
-                    prev = QTextCursor(cur)
-                    prev.movePosition(QTextCursor.Left)
-                    pf = prev.charFormat()
-                    if pf is not None and (
-                        (hasattr(pf, "isImageFormat") and pf.isImageFormat())
-                        or pf.objectType() == QTextFormat.ImageObject
-                    ):
-                        return QTextImageFormat(pf), QTextCursor(prev)
-                except Exception:
-                    return None
+                doc = cur.document()
+                for p in (cur.position(), cur.position() - 1):
+                    imgf = _image_format_at(doc, p)
+                    if imgf is not None:
+                        c = QTextCursor(doc)
+                        c.setPosition(p)
+                        return imgf, c
                 return None
 
             base_cursor = self._edit.cursorForPosition(pos)
@@ -3081,85 +2703,15 @@ class _ImageContextMenuHandler(QObject):
         self._edit = edit
 
     def _find_image_at(self, pos_vp):
-        try:
-            edit = self._edit
-            if not _is_alive(edit):
-                return None
-            # Try robust shared detector first
-            info = _image_info_at_position(edit, pos_vp)
-            if info is not None:
-                return info
-            # Expand search: scan a small neighborhood around click point
-            vp = edit.viewport()
-            rect = vp.rect() if vp is not None else None
-            for dy in (0, 4, -4, 8, -8, 12, -12):
-                for dx in (0, 4, -4, 8, -8, 12, -12, 16, -16, 24, -24):
-                    pt = QPoint(int(pos_vp.x() + dx), int(pos_vp.y() + dy))
-                    if rect is not None and not rect.contains(pt):
-                        continue
-                    info = _image_info_at_position(edit, pt)
-                    if info is not None:
-                        return info
-            # As a last resort, look at cursor at/near click position and neighbors
-            cur = edit.cursorForPosition(pos_vp)
-            for candidate in (QTextCursor(cur),):
-                fmt = candidate.charFormat()
-                if fmt is not None and (
-                    (hasattr(fmt, "isImageFormat") and fmt.isImageFormat())
-                    or fmt.objectType() == QTextFormat.ImageObject
-                ):
-                    imgf = QTextImageFormat(fmt)
-                    return {
-                        "cursor_pos": candidate.position(),
-                        "name": imgf.name(),
-                        "w": imgf.width() or 0.0,
-                        "h": imgf.height() or 0.0,
-                    }
-                prev = QTextCursor(candidate)
-                prev.movePosition(QTextCursor.Left)
-                pf = prev.charFormat()
-                if pf is not None and (
-                    (hasattr(pf, "isImageFormat") and pf.isImageFormat())
-                    or pf.objectType() == QTextFormat.ImageObject
-                ):
-                    imgf = QTextImageFormat(pf)
-                    return {
-                        "cursor_pos": prev.position(),
-                        "name": imgf.name(),
-                        "w": imgf.width() or 0.0,
-                        "h": imgf.height() or 0.0,
-                    }
-        except Exception:
+        if not _is_alive(self._edit):
             return None
-        return None
+        return _image_info_under_point(self._edit, pos_vp)
 
     def _intrinsic_size(self, name: str):
-        try:
-            path = name
-            base = getattr(self._edit.window(), "_media_root", None)
-            if base and name and not os.path.isabs(name):
-                path = os.path.join(base, name)
-            img = QImage(path)
-            if not img.isNull():
-                return img.width(), img.height()
-        except Exception:
-            pass
-        return None, None
+        return _qimage_dims(self._edit, name)
 
     def _apply_size(self, cursor_pos: int, name: str, w: float, h: float):
-        try:
-            doc = self._edit.document()
-            c = QTextCursor(doc)
-            c.setPosition(cursor_pos)
-            c.movePosition(QTextCursor.Right, QTextCursor.KeepAnchor, 1)
-            imgf = QTextImageFormat()
-            if name:
-                imgf.setName(name)
-            imgf.setWidth(float(max(1.0, w)))
-            imgf.setHeight(float(max(1.0, h)))
-            c.setCharFormat(imgf)
-        except Exception:
-            pass
+        _apply_image_size_at(self._edit, cursor_pos, name, w, h)
 
     def _fit_to_width(self, cursor_pos: int, name: str):
         iw, ih = self._intrinsic_size(name)
@@ -3410,89 +2962,6 @@ class _ImageContextMenuHandler(QObject):
                 menu.exec_(self._edit.mapToGlobal(pos if isinstance(pos, QPoint) else QPoint(0, 0)))
             except Exception:
                 pass
-
-
-class _ImageHud(QObject):
-    def __init__(self, edit: QtWidgets.QTextEdit):
-        super().__init__(edit)
-        self._edit = edit
-        self._vp = edit.viewport()
-        self._btn = QtWidgets.QToolButton(self._vp)
-        self._btn.setText("Image…")
-        try:
-            self._btn.setIcon(_make_icon("image", QSize(16, 16)))
-        except Exception:
-            pass
-        self._btn.setToolTip("Image Properties / Fit / Reset")
-        self._btn.setVisible(False)
-        self._btn.setAutoRaise(True)
-        self._btn.clicked.connect(self._on_click)
-        # Track moves/selection/scrolling
-        try:
-            edit.cursorPositionChanged.connect(self._update)
-        except Exception:
-            pass
-        try:
-            self._vp.installEventFilter(self)
-        except Exception:
-            pass
-        self._last_info = None
-
-    def eventFilter(self, obj, event):
-        if obj is self._vp and event.type() in (
-            QEvent.Resize,
-            QEvent.Paint,
-            QEvent.Wheel,
-            QEvent.Scroll,
-            QEvent.LayoutRequest,
-        ):
-            self._update()
-        return super().eventFilter(obj, event)
-
-    def _detect(self):
-        edit = self._edit
-        info = _image_info_at_cursor(edit)
-        if info is None:
-            cur = edit.textCursor()
-            info = _image_info_near_doc_pos(edit, cur.position())
-        if info is None:
-            info = _image_info_in_block(
-                edit, edit.textCursor().block(), prefer_pos=edit.textCursor().position()
-            )
-        return info
-
-    def _update(self):
-        try:
-            info = self._detect()
-            self._last_info = info
-            if info is None:
-                self._btn.setVisible(False)
-                return
-            # Place button near the caret rect (top-right)
-            r = self._edit.cursorRect(self._edit.textCursor())
-            pt = QPoint(min(self._vp.width() - 40, r.right() + 6), max(0, r.top() - 2))
-            self._btn.move(pt)
-            self._btn.setVisible(True)
-        except Exception:
-            try:
-                self._btn.setVisible(False)
-            except Exception:
-                pass
-
-    def _on_click(self):
-        info = self._last_info or self._detect()
-        if info:
-            _image_properties_dialog_apply(self._edit, info)
-
-
-def _install_image_hud(text_edit: QtWidgets.QTextEdit):
-    try:
-        hud = _ImageHud(text_edit)
-        if not hasattr(text_edit, "_imageHud"):
-            text_edit._imageHud = []
-        text_edit._imageHud.append(hud)
-    except Exception:
-        pass
 
 
 def _install_image_context_menu(text_edit: QtWidgets.QTextEdit):
@@ -4599,6 +4068,15 @@ class _TableContextMenu(QObject):
         self._viewport = None
 
     def eventFilter(self, obj, event):
+        try:
+            return self._filter_event(obj, event)
+        except Exception:
+            # Report the error but consume the event. Otherwise it falls through to
+            # _ImageContextMenuHandler.on_custom_menu, whose older menu can crash natively.
+            sys.excepthook(*sys.exc_info())
+            return event.type() == QEvent.ContextMenu
+
+    def _filter_event(self, obj, event):
         if self._edit is None:
             return False
         if (
@@ -4622,66 +4100,14 @@ class _TableContextMenu(QObject):
                     return False
             orig_cur = self._edit.textCursor()
 
-            # First priority: if click is on/near an image, show image menu and consume
+            # First priority: if the click is on an image, show the image menu and consume
             try:
-                # Try detection chain (prioritize clicked position to avoid disturbing selection)
-                info = _image_info_at_position(self._edit, widget_pos)
-                if info is None:
-                    # Fallbacks that don't require changing the current selection
-                    try:
-                        c_try = self._edit.cursorForPosition(widget_pos)
-                        info = _image_info_near_doc_pos(self._edit, c_try.position())
-                    except Exception:
-                        pass
-                if info is None:
-                    try:
-                        info = _image_info_in_block(
-                            self._edit,
-                            self._edit.textCursor().block(),
-                            prefer_pos=self._edit.textCursor().position(),
-                        )
-                    except Exception:
-                        pass
-                if info is not None:
-                    menu = QtWidgets.QMenu(self._edit)
-                    cursor_pos = int(info.get("cursor_pos", 0))
-                    name = info.get("name", "")
-                    cur_w = float(info.get("w") or 0.0)
-                    cur_h = float(info.get("h") or 0.0)
-                    act_resize = menu.addAction("Image Properties…")
-                    menu.addSeparator()
-                    act_fit = menu.addAction("Fit to editor width")
-                    act_reset = menu.addAction("Reset to original size")
-                    chosen = menu.exec_(global_pos)
-                    if chosen is not None:
-                        if chosen == act_resize:
-                            iw, ih = (None, None)
-                            try:
-                                iw, ih = _ImageContextMenuHandler(self._edit)._intrinsic_size(name)
-                            except Exception:
-                                pass
-                            info_d = {
-                                "cursor_pos": cursor_pos,
-                                "name": name,
-                                "w": cur_w,
-                                "h": cur_h,
-                                "iw": iw,
-                                "ih": ih,
-                            }
-                            _image_properties_dialog_apply(self._edit, info_d)
-                        elif chosen == act_fit:
-                            try:
-                                _ImageContextMenuHandler(self._edit)._fit_to_width(cursor_pos, name)
-                            except Exception:
-                                pass
-                        elif chosen == act_reset:
-                            try:
-                                _ImageContextMenuHandler(self._edit)._reset_size(cursor_pos, name)
-                            except Exception:
-                                pass
-                    return True
+                info = _image_info_under_point(self._edit, widget_pos)
             except Exception:
-                pass
+                info = None
+            if info is not None:
+                _show_image_menu(self._edit, info, global_pos)
+                return True
             # Also capture clicked cell context
             try:
                 clicked_cur = self._edit.cursorForPosition(widget_pos)
