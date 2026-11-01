@@ -450,8 +450,7 @@ def restore_last_position(window):
                 _select_tree_section(window, int(section_id))
             except Exception:
                 pass
-        # Restore page selection in left tree, but DON'T load it automatically
-        # User must click a page to see content
+        # Restore page selection in left tree
         try:
             if page_id is not None and section_id is not None:
                 if not hasattr(window, "_current_page_by_section"):
@@ -460,7 +459,7 @@ def restore_last_position(window):
                     window._current_page_by_section[int(section_id)] = int(page_id)
                 except Exception:
                     window._current_page_by_section[section_id] = page_id
-                # Select the page in the tree, but leave editor empty
+                # Select the page in the tree
                 try:
                     from left_tree import (
                         select_left_tree_page as _select_left_tree_page,
@@ -471,13 +470,27 @@ def restore_last_position(window):
                     pass
         except Exception:
             pass
-        # Clear editor and set read-only until user clicks a page
+        # Reopen the last page. If it can't be reopened, load_page(None) clears the editor,
+        # disables the title and sets read-only until the user clicks a page.
         try:
-            load_page(window, None)  # Clears editor, disables title, sets read-only
+            load_page(window, page_id if _can_reopen_page(window, section_id, page_id) else None)
         except Exception:
             pass
     except Exception:
         pass
+
+
+def _can_reopen_page(window, section_id, page_id) -> bool:
+    """True if the remembered page still exists in that section and isn't deleted."""
+    if section_id is None or page_id is None:
+        return False
+    try:
+        from db_pages import get_page_by_id
+
+        row = get_page_by_id(int(page_id), window._db_path)
+        return bool(row) and int(row[1]) == int(section_id) and row[8] is None
+    except Exception:
+        return False
 
 
 def ensure_left_tree_sections(

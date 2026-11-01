@@ -1795,6 +1795,14 @@ def main():
                     ensure_left_tree_sections(window, tid_int)
     except Exception:
         pass
+    # Rebuilding the binders above drops the tree selection, so select the open page again
+    try:
+        sid = getattr(window, "_current_section_id", None)
+        pid = getattr(window, "_current_page_by_section", {}).get(int(sid)) if sid else None
+        if pid is not None:
+            select_left_tree_page(window, int(sid), int(pid))
+    except Exception:
+        pass
 
     # Ensure planning register watcher is active on the editor to support
     # formatting and totals for existing content as well.
