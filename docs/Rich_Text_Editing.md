@@ -62,6 +62,30 @@ To insert an image into a page:
 
 Images are stored inside the database (or in a companion `.media` folder alongside it), so they move with your database file automatically.
 
+## Links
+
+To turn text into a link:
+
+1. Select the text.
+2. Right-click the selection and choose **Add Link…**.
+3. Type or paste the link, then click **OK**. **OK** stays unavailable until the entry can be used as a link.
+
+You can enter a web address (`example.com` becomes `https://example.com`), an email address, or a file path. To change a link, select its text and add the new link over it. Click a link to open it.
+
+### Linking to a file
+
+The easiest way to get a file's full address is **Copy as path** in File Explorer:
+
+1. In File Explorer, right-click the file and choose **Copy as path**. On Windows 10, hold **Shift** while you right-click. You can also select the file and press **Ctrl+Shift+C** on Windows 11.
+2. In NoteBook, select the text for the link, right-click it and choose **Add Link…**.
+3. Press **Ctrl+V** to paste the address, then click **OK**.
+
+The link points to the file where it is now and doesn't copy it into your notebook, so the link stops working if the file is moved or renamed. To keep a copy of the file with your notes, use **Notebook → Insert Attachment** instead.
+
+### Linking to an email address
+
+Clicking an email link opens whichever program Windows uses for email links. To change it, go to **Settings → Apps → Default apps** in Windows and set a default for the link type `MAILTO`.
+
 ## Undo and Redo
 
 - **Ctrl+Z** — Undo the last edit

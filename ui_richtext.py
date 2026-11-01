@@ -4135,12 +4135,16 @@ class _TableContextMenu(QObject):
                         )
                 except Exception:
                     pass
+                act_add_link = menu.addAction("Add Link…") if _can_add_link(self._edit) else None
                 sub_ins = menu.addMenu("Insert")
                 act_ins_table = sub_ins.addAction("Table…")
                 # Insert Planning Register (dialog) under Insert submenu
                 act_ins_pr_dialog = sub_ins.addAction("Planning Register…")
                 chosen = menu.exec_(global_pos)
                 if chosen is None:
+                    return True
+                if chosen == act_add_link:
+                    _add_link_to_selection(self._edit)
                     return True
                 if chosen == act_ins_table:
                     _table_insert_dialog(self._edit)
@@ -4171,6 +4175,7 @@ class _TableContextMenu(QObject):
                 pass
             # Precompute selection rectangle early (for multi-column operations)
             sel_rect = _table_selection_rect(self._edit, tbl)
+            act_add_link = menu.addAction("Add Link…") if _can_add_link(self._edit) else None
             # Insert submenu with Table and Planning Register
             sub_ins = menu.addMenu("Insert")
             act_ins = sub_ins.addAction("Table…")
@@ -4219,7 +4224,9 @@ class _TableContextMenu(QObject):
             chosen = menu.exec_(global_pos)
             if chosen is None:
                 return True
-            if chosen == act_ins:
+            if chosen == act_add_link:
+                _add_link_to_selection(self._edit)
+            elif chosen == act_ins:
                 _table_insert_dialog(self._edit)
             elif chosen == act_ins_pr_dialog:
                 try:
@@ -6067,6 +6074,77 @@ def _normalize_url_scheme(text: str) -> str:
     return t
 
 
+def _link_href_from_input(text: str) -> str:
+    """Turn what the user typed into a link target, or return "" if it can't be one."""
+    t = (text or "").strip()
+    # Windows' Copy as path adds quotes, and mail programs copy "Name <address>"
+    m = re.match(r"""^(["'])(.*)\1$""", t) or re.search(r"(<)([^<>]+)>$", t)
+    if m:
+        t = m.group(2).strip()
+    if re.match(r"^file://", t, re.I):
+        return t  # file paths can contain spaces
+    if re.match(r"^[a-zA-Z][a-zA-Z0-9+.-]*://\S+$", t) or re.match(r"^(mailto|tel):\S+$", t, re.I):
+        return t
+    if re.match(r"^[a-zA-Z]:[\\/]", t) or t.startswith("\\\\"):
+        return QUrl.fromLocalFile(t).toString()
+    if re.match(r"^[^\s@/]+@[^\s@/]+\.[^\s@/]+$", t):
+        return "mailto:" + t
+    if re.match(r"^[^\s@/\\]+\.[^\s@/\\]{2,}(/\S*)?$", t):
+        return "https://" + t
+    return ""
+
+
+def _can_add_link(text_edit: QtWidgets.QTextEdit) -> bool:
+    """True when the selection is text a link can go on, not a block of table cells."""
+    cur = text_edit.textCursor()
+    return not text_edit.isReadOnly() and cur.hasSelection() and not cur.hasComplexSelection()
+
+
+def _add_link_to_selection(text_edit: QtWidgets.QTextEdit):
+    """Ask for a link target and apply it to the selected text."""
+    from ui_loader import load_dialog
+
+    cur = text_edit.textCursor()
+    dlg = load_dialog("add_link.ui", parent=text_edit)
+    edit = dlg.lineEditLink
+    ok_btn = dlg.buttonBox.button(_qdbb_standard_button("Ok"))
+    ok_btn.setEnabled(False)
+    edit.textChanged.connect(lambda t: ok_btn.setEnabled(bool(_link_href_from_input(t))))
+    dlg.buttonBox.accepted.connect(dlg.accept)
+    dlg.buttonBox.rejected.connect(dlg.reject)
+    edit.setFocus()
+    if dlg.exec_() != QtWidgets.QDialog.Accepted:
+        return
+    fmt = QTextCharFormat()
+    fmt.setAnchor(True)
+    fmt.setAnchorHref(_link_href_from_input(edit.text()))
+    fmt.setForeground(text_edit.palette().link())
+    fmt.setFontUnderline(True)
+    cur.mergeCharFormat(fmt)
+    # Drop the selection so the new link can be seen, leaving the caret at its end
+    cur.setPosition(cur.selectionEnd())
+    text_edit.setTextCursor(cur)
+
+
+def _end_link_format_at_caret(text_edit: QtWidgets.QTextEdit):
+    """If the caret is at the end of a link, make the next typed text plain."""
+    cur = text_edit.textCursor()
+    fmt = cur.charFormat()
+    if cur.hasSelection() or not fmt.isAnchor():
+        return
+    if not cur.atBlockEnd():
+        following = QTextCursor(cur)
+        following.movePosition(QTextCursor.Right)
+        next_fmt = following.charFormat()
+        if next_fmt.isAnchor() and next_fmt.anchorHref() == fmt.anchorHref():
+            return  # inside the link, so editing it should stay part of it
+    fmt.setAnchor(False)
+    fmt.setAnchorHref("")
+    fmt.clearForeground()
+    fmt.setFontUnderline(False)
+    text_edit.setCurrentCharFormat(fmt)
+
+
 class _LinkClickHandler(QObject):
     def __init__(self, edit: QtWidgets.QTextEdit):
         super().__init__(edit)
@@ -6090,7 +6168,12 @@ class _LinkClickHandler(QObject):
         self._pressed_anchor = None
 
     def eventFilter(self, obj, event):
-        # We install this on the viewport so positions are in viewport coords
+        if self._edit is not None and obj is self._edit and event.type() == QEvent.KeyPress:
+            text = event.text()
+            if (text and text.isprintable()) or event.key() in (Qt.Key_Return, Qt.Key_Enter):
+                _end_link_format_at_caret(self._edit)
+            return False
+        # Mouse events go to the viewport, so positions are in viewport coords
         if self._viewport is not None and obj is self._viewport:
             if event.type() == QEvent.MouseMove:
                 try:
@@ -6146,6 +6229,7 @@ def _install_link_click_handler(text_edit: QtWidgets.QTextEdit):
         vp = text_edit.viewport() if text_edit is not None else None
         if vp is not None:
             vp.installEventFilter(handler)
+        text_edit.installEventFilter(handler)
         # Keep strong reference on the text_edit object
         if not hasattr(text_edit, "_linkHandler"):
             text_edit._linkHandler = []
