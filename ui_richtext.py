@@ -2026,9 +2026,137 @@ def _strip_match_style_html(html: str) -> str:
     return s
 
 
+_STORAGE_BLOCK_TAGS = frozenset({"p", "div", "li", "h1", "h2", "h3", "h4", "h5", "h6"})
+_STORAGE_CELL_TAGS = frozenset({"td", "th", "tr", "hr"})
+_STORAGE_STYLE_TAGS = (
+    _STORAGE_BLOCK_TAGS
+    | _STORAGE_CELL_TAGS
+    | frozenset({"ol", "ul", "table", "span", "a", "em", "strong", "b", "i", "u", "s"})
+)
+_STORAGE_BLOCK_STYLES = frozenset(
+    {
+        "margin-top",
+        "margin-bottom",
+        "margin-left",
+        "margin-right",
+        "text-align",
+        "text-indent",
+        "-qt-block-indent",
+    }
+)
+_STORAGE_CELL_STYLES = frozenset(
+    {
+        "background",
+        "background-color",
+        "text-align",
+        "border",
+        "border-top",
+        "border-right",
+        "border-bottom",
+        "border-left",
+        "border-top-color",
+        "border-right-color",
+        "border-bottom-color",
+        "border-left-color",
+        "border-top-style",
+        "border-right-style",
+        "border-bottom-style",
+        "border-left-style",
+        "border-top-width",
+        "border-right-width",
+        "border-bottom-width",
+        "border-left-width",
+        "padding",
+        "padding-top",
+        "padding-right",
+        "padding-bottom",
+        "padding-left",
+        "height",
+    }
+)
+# Character formatting, so user-applied styles persist on any tag that allows a style
+_STORAGE_CHAR_STYLES = frozenset(
+    {
+        "font-weight",
+        "font-style",
+        "text-decoration",
+        "color",
+        "background",
+        "background-color",
+        "font-family",
+        "font-size",
+        "vertical-align",
+    }
+)
+_STORAGE_TABLE_ATTRS = frozenset({"width", "height", "cellpadding", "cellspacing", "border"})
+
+
+def _clean_storage_style(tag: str, value) -> str:
+    """Return the style declarations on tag that are safe to store, or an empty string."""
+    if tag not in _STORAGE_STYLE_TAGS:
+        return ""
+    kept = []
+    for decl in str(value).split(";"):
+        decl = decl.strip()
+        if ":" not in decl:
+            continue
+        key = decl.split(":", 1)[0].strip().lower()
+        if (
+            key.startswith("-qt-list-")
+            or key == "-qt-paragraph-type"
+            or (tag in _STORAGE_BLOCK_TAGS and key in _STORAGE_BLOCK_STYLES)
+            or (tag in _STORAGE_CELL_TAGS and key in _STORAGE_CELL_STYLES)
+            or (tag == "table" and key == "border-collapse")  # used by HR styling
+            or key in _STORAGE_CHAR_STYLES
+        ):
+            kept.append(decl)
+    return "; ".join(kept)
+
+
+def _storage_attr_allowed(tag: str, name: str) -> bool:
+    if tag == "meta":
+        # qrichtext tells Qt's parser to treat whitespace the way toHtml() wrote it
+        return name in ("name", "content")
+    if name == "bgcolor":
+        return tag in ("td", "th", "tr")  # retains table shading
+    if name == "align":
+        return tag in _STORAGE_BLOCK_TAGS or tag in ("table", "td", "th")
+    if tag in ("table", "td", "th", "tr") and name in _STORAGE_TABLE_ATTRS:
+        return True
+    return (
+        (tag in ("ol", "ul") and name in ("type", "start"))
+        or (tag == "li" and name == "value")
+        or (tag == "a" and name in ("href", "title"))
+        or (tag == "img" and name in ("src", "alt", "title", "width", "height"))
+        or (tag in ("td", "th") and name in ("colspan", "rowspan", "valign"))
+    )
+
+
+def _clean_storage_tag(tag: str, attrs) -> tuple:
+    """Return (tag, attribute text) for a tag being stored, dropping everything else."""
+    tag = tag.lower()
+    if tag == "font":
+        tag = "span"  # deprecated
+    parts = []
+    styles = []
+    for name, value in attrs:
+        lname = name.lower()
+        if lname == "style":
+            # toHtml() writes two style attributes on list items, so merge rather than replace
+            style = _clean_storage_style(tag, value)
+            if style:
+                styles.append(style)
+        elif _storage_attr_allowed(tag, lname):
+            parts.append(f' {name}="{_html_escape("" if value is None else str(value))}"')
+    if styles:
+        parts.append(f' style="{_html_escape("; ".join(styles))}"')
+    return tag, "".join(parts)
+
+
 def sanitize_html_for_storage(raw_html: str) -> str:
-    """Strip inline font/background styles and classes before saving to avoid size/background regressions on reload.
-    Keeps structure (p, br, lists, basic formatting), links and images.
+    """Strip classes and unsupported styles before saving, keeping everything that affects reload.
+
+    Keeps structure (p, br, lists, tables, basic formatting), paragraph spacing, links and images.
     """
     if not isinstance(raw_html, str) or not raw_html:
         return raw_html
@@ -2038,280 +2166,37 @@ def sanitize_html_for_storage(raw_html: str) -> str:
         def __init__(self):
             super().__init__()
             self.out = []
-            self._skip_style = False
+            self._in_style = False
 
         def handle_starttag(self, tag, attrs):
-            tag_l = tag.lower()
-            if tag_l == "style":
-                # Skip entire style blocks
-                self._skip_style = True
+            if tag.lower() == "style":
+                self._in_style = True
                 return
-            # Convert deprecated <font> to span
-            if tag_l == "font":
-                tag_l = "span"
-            allowed = []
-            buffered_style = None
-            for k, v in attrs:
-                lk = k.lower()
-                if lk in ("class", "color", "face", "size"):
-                    continue
-                if lk == "bgcolor":
-                    # Preserve bgcolor on table elements to retain shading
-                    if tag_l in ("td", "th", "tr"):
-                        allowed.append((k, v))
-                    continue
-                if lk == "style":
-                    # Keep safe styles, including inline character formatting so user-applied
-                    # bold/italic/underline/strike, colors, and custom font family/size persist.
-                    #
-                    # We preserve:
-                    # - list-related (-qt-list-*, -qt-paragraph-type)
-                    # - paragraph/div margin-left and text-align
-                    # - table cell/row background-color and text-align
-                    # - character styles: font-weight, font-style, text-decoration, color,
-                    #   background/background-color, font-family, font-size
-                    if tag_l in (
-                        "ol",
-                        "ul",
-                        "li",
-                        "p",
-                        "div",
-                        "td",
-                        "th",
-                        "tr",
-                        "table",
-                        "span",
-                        "a",
-                        "em",
-                        "strong",
-                        "b",
-                        "i",
-                        "u",
-                        "s",
-                        "hr",
-                    ):
-                        try:
-                            decls = [d.strip() for d in str(v).split(";") if d.strip()]
-                            kept = []
-                            for d in decls:
-                                parts = d.split(":", 1)
-                                key = parts[0].strip().lower() if len(parts) == 2 else ""
-                                if key.startswith("-qt-list-") or key == "-qt-paragraph-type":
-                                    kept.append(d)
-                                elif tag_l in ("p", "div") and key in ("margin-left", "text-align"):
-                                    kept.append(d)
-                                elif tag_l in ("td", "th", "tr", "hr") and key in (
-                                    "background",
-                                    "background-color",
-                                    "text-align",
-                                    "border",
-                                    "border-top",
-                                    "border-right",
-                                    "border-bottom",
-                                    "border-left",
-                                    "border-top-color",
-                                    "border-right-color",
-                                    "border-bottom-color",
-                                    "border-left-color",
-                                    "border-top-style",
-                                    "border-right-style",
-                                    "border-bottom-style",
-                                    "border-left-style",
-                                    "border-top-width",
-                                    "border-right-width",
-                                    "border-bottom-width",
-                                    "border-left-width",
-                                    "padding",
-                                    "padding-top",
-                                    "padding-right",
-                                    "padding-bottom",
-                                    "padding-left",
-                                    "height",
-                                ):
-                                    kept.append(d)
-                                # Preserve border-collapse on tables for HR styling
-                                elif tag_l == "table" and key == "border-collapse":
-                                    kept.append(d)
-                                # Allow inline char formatting on common tags
-                                elif key in (
-                                    "font-weight",
-                                    "font-style",
-                                    "text-decoration",
-                                    "color",
-                                    "background",
-                                    "background-color",
-                                    "font-family",
-                                    "font-size",
-                                ):
-                                    kept.append(d)
-                            if kept:
-                                buffered_style = "; ".join(kept)
-                        except Exception:
-                            pass
-                    continue
-                # Preserve explicit HTML alignment on paragraphs/divs
-                if tag_l in ("p", "div") and lk == "align":
-                    allowed.append((k, v))
-                # Preserve list semantics
-                if tag_l in ("ol", "ul") and lk in (
-                    "type",
-                    "start",
-                ):  # type may be set by Qt for list appearance
-                    allowed.append((k, v))
-                elif tag_l == "li" and lk in ("value",):  # value allows continuing numbering
-                    allowed.append((k, v))
-                elif tag_l == "a" and lk in ("href", "title"):
-                    allowed.append((k, v))
-                elif tag_l == "img" and lk in ("src", "alt", "title", "width", "height"):
-                    allowed.append((k, v))
-                elif lk.startswith("data-"):
-                    # Previously preserved formula-related attributes; now dropped after rollback.
-                    continue
-                if tag_l == "div" and lk == "id" and str(v) == "NB_DATA_FORMULAS":
-                    # Sidecar div no longer used; skip.
-                    continue
-                elif lk in (
-                    "width",
-                    "height",
-                    "cellpadding",
-                    "cellspacing",
-                    "border",
-                ) and tag_l in ("table", "td", "th", "tr"):
-                    allowed.append((k, v))
-                elif tag_l in ("td", "th") and lk in ("colspan", "rowspan", "align", "valign"):
-                    allowed.append((k, v))
-                # drop everything else
-            if buffered_style:
-                allowed.append(("style", buffered_style))
-            attrs_txt = "".join(f' {k}="{v}"' for k, v in allowed)
-            self.out.append(f"<{tag_l}{attrs_txt}>")
+            name, attrs_txt = _clean_storage_tag(tag, attrs)
+            self.out.append(f"<{name}{attrs_txt}>")
 
         def handle_endtag(self, tag):
-            tag_l = tag.lower()
-            if tag_l == "style":
-                self._skip_style = False
+            if tag.lower() == "style":
+                self._in_style = False
                 return
-            if tag_l == "font":
-                tag_l = "span"
-            self.out.append(f"</{tag_l}>")
+            name, _attrs_txt = _clean_storage_tag(tag, [])
+            self.out.append(f"</{name}>")
 
         def handle_startendtag(self, tag, attrs):
-            tag_l = tag.lower()
-            if tag_l == "style":
+            if tag.lower() == "style":
                 return
-            allowed = []
-            buffered_style = None
-            for k, v in attrs:
-                lk = k.lower()
-                if lk in ("class", "color", "face", "size"):
-                    continue
-                if lk == "bgcolor":
-                    if tag_l in ("td", "th", "tr"):
-                        allowed.append((k, v))
-                    continue
-                if lk == "style":
-                    if tag_l in (
-                        "ol",
-                        "ul",
-                        "li",
-                        "p",
-                        "div",
-                        "td",
-                        "th",
-                        "tr",
-                        "table",
-                        "span",
-                        "a",
-                        "em",
-                        "strong",
-                        "b",
-                        "i",
-                        "u",
-                        "s",
-                        "hr",
-                    ):
-                        try:
-                            decls = [d.strip() for d in str(v).split(";") if d.strip()]
-                            kept = []
-                            for d in decls:
-                                parts = d.split(":", 1)
-                                key = parts[0].strip().lower() if len(parts) == 2 else ""
-                                if key.startswith("-qt-list-") or key == "-qt-paragraph-type":
-                                    kept.append(d)
-                                elif tag_l in ("p", "div") and key in ("margin-left", "text-align"):
-                                    kept.append(d)
-                                elif tag_l in ("td", "th", "tr", "hr") and key in (
-                                    "background",
-                                    "background-color",
-                                    "text-align",
-                                    "border",
-                                    "border-top",
-                                    "border-right",
-                                    "border-bottom",
-                                    "border-left",
-                                    "border-top-color",
-                                    "border-right-color",
-                                    "border-bottom-color",
-                                    "border-left-color",
-                                    "border-top-style",
-                                    "border-right-style",
-                                    "border-bottom-style",
-                                    "border-left-style",
-                                    "border-top-width",
-                                    "border-right-width",
-                                    "border-bottom-width",
-                                    "border-left-width",
-                                    "padding",
-                                    "padding-top",
-                                    "padding-right",
-                                    "padding-bottom",
-                                    "padding-left",
-                                    "height",
-                                ):
-                                    kept.append(d)
-                                # Preserve border-collapse on tables for HR styling
-                                elif tag_l == "table" and key == "border-collapse":
-                                    kept.append(d)
-                                elif key in (
-                                    "font-weight",
-                                    "font-style",
-                                    "text-decoration",
-                                    "color",
-                                    "background",
-                                    "background-color",
-                                    "font-family",
-                                    "font-size",
-                                ):
-                                    kept.append(d)
-                            if kept:
-                                buffered_style = "; ".join(kept)
-                        except Exception:
-                            pass
-                    continue
-                if tag_l in ("p", "div") and lk == "align":
-                    allowed.append((k, v))
-                if tag_l == "div" and lk == "id" and str(v) == "NB_DATA_FORMULAS":
-                    # Skip legacy sidecar id.
-                    continue
-                if lk.startswith("data-"):
-                    # Drop legacy formula attributes.
-                    continue
-                if tag_l == "img" and lk in ("src", "alt", "title", "width", "height"):
-                    allowed.append((k, v))
-                elif tag_l in ("td", "th") and lk in ("colspan", "rowspan", "align", "valign"):
-                    allowed.append((k, v))
-            if buffered_style:
-                allowed.append(("style", buffered_style))
-            attrs_txt = "".join(f' {k}="{v}"' for k, v in allowed)
-            self.out.append(f"<{tag_l}{attrs_txt}/>")
+            name, attrs_txt = _clean_storage_tag(tag, attrs)
+            self.out.append(f"<{name}{attrs_txt}/>")
 
         def handle_data(self, data):
-            if not self._skip_style:
-                self.out.append(data)
+            if not self._in_style:
+                # The parser has already unescaped this text, so it must be escaped again
+                self.out.append(_html_escape(data))
 
     try:
         cl = _StoreCleaner()
         cl.feed(raw_html)
+        cl.close()
         return "".join(cl.out)
     except Exception:
         return raw_html
