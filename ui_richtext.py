@@ -298,7 +298,23 @@ def _reapply_base_url(text_edit: QtWidgets.QTextEdit):
         pass
 
 
+def _require_editable_page(text_edit: QtWidgets.QTextEdit, title: str) -> bool:
+    """Say so and return False when the editor can't take new content.
+
+    The editor is read-only when no page is open or the page is deleted, and code can still
+    insert into it, so whatever went in would look fine but never be saved.
+    """
+    if not text_edit.isReadOnly():
+        return True
+    QtWidgets.QMessageBox.information(
+        text_edit, title, "Please open or create an editable page first."
+    )
+    return False
+
+
 def _open_html_source_dialog(text_edit: QtWidgets.QTextEdit):
+    if not _require_editable_page(text_edit, "HTML Source"):
+        return
     from ui_loader import load_dialog
 
     dlg = load_dialog("html_source_editor.ui", parent=text_edit)
@@ -1048,6 +1064,8 @@ def add_rich_text_toolbar(
     _tb_btn("color", "Clear formatting", lambda: text_edit.setCurrentCharFormat(QTextCharFormat()))
 
     def _insert_horizontal_rule():
+        if not _require_editable_page(text_edit, "Insert Horizontal Rule"):
+            return
         cur = text_edit.textCursor()
         cur.beginEditBlock()
         try:
@@ -1087,6 +1105,8 @@ def add_rich_text_toolbar(
 
     def _choose_custom_and_insert():
         try:
+            if not _require_editable_page(text_edit, "Insert Image"):
+                return
             w, ok = QtWidgets.QInputDialog.getInt(
                 toolbar, "Insert Image", "Width (px):", int(DEFAULT_IMAGE_LONG_SIDE), 50, 8000, 10
             )
@@ -1129,6 +1149,8 @@ def add_rich_text_toolbar(
 
     def _choose_custom_video_time():
         try:
+            if not _require_editable_page(text_edit, "Insert Video"):
+                return
             secs, ok = QtWidgets.QInputDialog.getDouble(
                 toolbar, "Insert Video", "Capture time (seconds):", 1.0, 0.0, 36000.0, 1
             )
@@ -1419,6 +1441,8 @@ def _effective_default_font(text_edit: QtWidgets.QTextEdit) -> QFont:
 
 def paste_text_only(text_edit: QtWidgets.QTextEdit):
     """Paste clipboard contents as plain text and normalize formatting to defaults (no bold/size/bg)."""
+    if not _require_editable_page(text_edit, "Paste"):
+        return
     cb = QtWidgets.QApplication.clipboard()
     md = cb.mimeData()
     if md is None:
@@ -1479,6 +1503,8 @@ def paste_text_only(text_edit: QtWidgets.QTextEdit):
 
 def paste_match_style(text_edit: QtWidgets.QTextEdit):
     """Paste as rich text but normalize to current char format (font family/size/color)."""
+    if not _require_editable_page(text_edit, "Paste"):
+        return
     cb = QtWidgets.QApplication.clipboard()
     md = cb.mimeData()
     if md is None:
@@ -2310,6 +2336,8 @@ def _insert_image_via_dialog(
     mode in {"default", "fit-width", "original", "custom"}
     custom_width: used when mode == "custom" (pixels)
     """
+    if not _require_editable_page(text_edit, "Insert Image"):
+        return
     path, _ = QtWidgets.QFileDialog.getOpenFileName(
         text_edit, "Insert Image", "", "Images (*.png *.jpg *.jpeg *.gif *.bmp);;All Files (*)"
     )
@@ -2430,6 +2458,8 @@ def _insert_video_via_dialog(
     size_mode: str = "default",
     custom_width: float = None,
 ):
+    if not _require_editable_page(text_edit, "Insert Video"):
+        return
     path, _ = QtWidgets.QFileDialog.getOpenFileName(
         text_edit,
         "Insert Video",
@@ -3941,6 +3971,8 @@ def insert_table_from_preset(
     """
     if text_edit is None or not isinstance(preset_name, str) or not preset_name.strip():
         return
+    if not _require_editable_page(text_edit, "Insert Preset"):
+        return
     try:
         from settings_manager import get_table_presets
 
@@ -3994,6 +4026,8 @@ def insert_table_from_preset(
 def choose_and_insert_preset(text_edit: QtWidgets.QTextEdit, fit_width_100: bool = True):
     """Prompt for a preset name and insert it into the editor at the cursor."""
     if text_edit is None:
+        return
+    if not _require_editable_page(text_edit, "Insert Preset"):
         return
     try:
         from settings_manager import list_table_preset_names
@@ -4131,6 +4165,8 @@ def save_current_table_as_preset(text_edit: QtWidgets.QTextEdit):
 
 
 def _table_insert_or_edit(text_edit: QtWidgets.QTextEdit):
+    if not _require_editable_page(text_edit, "Insert/Edit Table"):
+        return
     tbl = _current_table(text_edit)
     if tbl is None:
         _table_insert_dialog(text_edit)
@@ -4283,6 +4319,8 @@ def _find_inserted_table(text_edit: QtWidgets.QTextEdit, start_pos: int, end_pos
 
 
 def _table_insert_dialog(text_edit: QtWidgets.QTextEdit):
+    if not _require_editable_page(text_edit, "Insert Table"):
+        return
     dlg = QtWidgets.QDialog(text_edit)
     dlg.setWindowTitle("Insert Table")
     form = QtWidgets.QFormLayout(dlg)
@@ -6483,6 +6521,8 @@ def paste_clean_formatting(text_edit: QtWidgets.QTextEdit):
     """Paste rich text but drop most inline styles/classes and normalize to current font family/size.
     Keeps structure like paragraphs, links, images, and lists.
     """
+    if not _require_editable_page(text_edit, "Paste"):
+        return
     cb = QtWidgets.QApplication.clipboard()
     md = cb.mimeData()
     if md is None:

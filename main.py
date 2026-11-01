@@ -769,6 +769,12 @@ def _current_page_context(window):
     return section_id, page_id
 
 
+def _page_edit_is_writable(window) -> bool:
+    """False when the page editor is read-only, as it is for a deleted page."""
+    te = window.findChild(QtWidgets.QTextEdit, "pageEdit")
+    return te is not None and not te.isReadOnly()
+
+
 def insert_attachment(window):
     """Prompt for a file and attach it to the current page via media store.
 
@@ -776,7 +782,7 @@ def insert_attachment(window):
     Non-image files are just attached (reference saved) without inline HTML.
     """
     section_id, page_id = _current_page_context(window)
-    if page_id is None:
+    if page_id is None or not _page_edit_is_writable(window):
         QtWidgets.QMessageBox.information(
             window, "Insert Attachment", "Please open or create a page first."
         )
@@ -875,7 +881,7 @@ def insert_attachment(window):
 def insert_new_spreadsheet(window):
     """Create a starter spreadsheet file for the current page and insert a link to it."""
     section_id, page_id = _current_page_context(window)
-    if page_id is None:
+    if page_id is None or not _page_edit_is_writable(window):
         QtWidgets.QMessageBox.information(
             window, "Insert New Spreadsheet", "Please open or create a page first."
         )
@@ -913,7 +919,7 @@ def insert_new_spreadsheet(window):
 def insert_spreadsheet_from_template(window):
     """Create a spreadsheet for the current page by copying a saved template file."""
     section_id, page_id = _current_page_context(window)
-    if page_id is None:
+    if page_id is None or not _page_edit_is_writable(window):
         QtWidgets.QMessageBox.information(
             window,
             "Insert From Spreadsheet Template",
@@ -988,7 +994,7 @@ def insert_spreadsheet_from_template(window):
 def insert_existing_spreadsheet(window):
     """Copy an existing spreadsheet file into the notebook store and link it to the page."""
     section_id, page_id = _current_page_context(window)
-    if page_id is None:
+    if page_id is None or not _page_edit_is_writable(window):
         QtWidgets.QMessageBox.information(
             window,
             "Insert Existing Spreadsheet",

@@ -762,7 +762,7 @@ def insert_planning_register(window: QtWidgets.QMainWindow):
     If no page is open/editable, show a friendly message.
     """
     te: QtWidgets.QTextEdit = window.findChild(QtWidgets.QTextEdit, "pageEdit")
-    if te is None or not te.isEnabled():
+    if te is None or not te.isEnabled() or te.isReadOnly():
         QtWidgets.QMessageBox.information(
             window,
             "Planning Register",
