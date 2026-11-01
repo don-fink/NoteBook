@@ -5239,7 +5239,7 @@ def main():
                 """Show About dialog with version and credits."""
                 try:
                     msg = """<h2>NoteBook</h2>
-<p><b>Version:</b> 1.5.0</p>
+<p><b>Version:</b> 1.6.0</p>
 <p>A rich-text note-taking application with binders, sections, and pages.</p>
 <p><b>Features:</b></p>
 <ul>

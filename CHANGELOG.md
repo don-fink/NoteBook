@@ -1,4 +1,26 @@
 
+## 1.6.0 - 2026-11-01
+### Added
+- Spreadsheets: add one to a page as a new file, from a saved template, or by copying an existing file, and edit it in a built-in editor (CSV and XLSX).
+- Add Link: select text, right-click and choose Add Link… to link to a web address, email address or file path.
+
+### Changed
+- The last page you had open reopens at startup, instead of leaving the editor empty until you click a page.
+- Images are resized from the right-click menu (Image Properties, Fit to editor width, Reset to original size). The small image button that appeared near the caret is gone.
+- Insert and paste commands now show a message when no editable page is open, instead of adding content that would never be saved.
+
+### Fixed
+- Saving could lose formatting or trailing text, and text such as "<" could be read as markup on the next load.
+- Table widths set by hand were reset to defaults when a page loaded, and borderless tables gained borders.
+- Column widths no longer drift when a column is added or removed. Planning Registers no longer change width with the window.
+- Currency and Planning Register tables lost their formatting and totals after a restart until a column was re-marked.
+- A spreadsheet link cleanup could delete a table placed soon after the link, along with the text before it.
+- Settings and pointer files starting with a byte-order mark could not be read, and the next save could overwrite existing settings.
+- The table right-click menu now acts on the clicked cell. Remove Selected Row could crash when the caret was outside the table.
+- Image Properties now keeps alt text and title, and Fit to editor width stays inside a table cell.
+- Text typed at the end of a link no longer extends the link.
+
+
 ## 1.5.0 - 2026-05-25
 ### Changed
 - Planning Register presets now save and restore composite table layouts more faithfully, including nested companion cost tables.

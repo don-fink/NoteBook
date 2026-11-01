@@ -64,7 +64,7 @@ $readme = @'
 
 1. Double-click NoteBook.exe to launch
 2. No Python installation required!
-3. On first run, create a new database or open existing
+3. On first run, NoteBook creates a starting database, notes.db
 
 ## Optional: Add to Start Menu
 
@@ -86,9 +86,9 @@ This makes it searchable and easier to launch, while keeping the app portable.
 
 ## First Run
 
-1. Choose "New Database" to start
-2. Pick storage location (Documents recommended)
-3. Start creating content!
+NoteBook creates notes.db in the folder it was started from, without asking.
+To keep your notes somewhere else, use the File menu to create or open a
+database in a local folder that isn't synced to the cloud.
 
 ## Uninstall
 

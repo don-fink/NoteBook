@@ -5,7 +5,7 @@
 The zip file contains a self-contained folder with everything NoteBook needs to run. There is no installer — just copy the folder to wherever you want it and run `NoteBook.exe`.
 
 ```
-NoteBook-v1.5.0.zip
+NoteBook-v1.6.0.zip
 └── NoteBook_Release\
     ├── NoteBook.exe              ← the application
     ├── add_to_start_menu.cmd     ← optional: adds a Start Menu shortcut
@@ -18,7 +18,7 @@ NoteBook-v1.5.0.zip
 
 ## Step 1 — Extract the zip
 
-Right-click `NoteBook-v1.5.0.zip` and choose **Extract All**, then choose a destination folder.
+Right-click `NoteBook-v1.6.0.zip` and choose **Extract All**, then choose a destination folder.
 
 **Recommended location:**
 
@@ -28,7 +28,7 @@ C:\Users\{username}\AppData\Local\NoteBook\
 
 You can open this path quickly by typing `%LOCALAPPDATA%` in the Windows Explorer address bar.
 
-However, you can place the folder **anywhere on your computer** — a desktop folder, a `C:\Apps\` directory, a USB drive, etc. NoteBook is fully portable and does not write anything inside its own folder after installation.
+However, you can place the folder **anywhere on your computer** — a desktop folder, a `C:\Apps\` directory, a USB drive, etc. NoteBook is fully portable. Apart from the starting database described in Step 2, it does not write anything inside its own folder.
 
 ---
 
@@ -36,7 +36,7 @@ However, you can place the folder **anywhere on your computer** — a desktop fo
 
 Double-click `NoteBook.exe` inside the extracted folder. No further setup is required.
 
-On first launch, NoteBook will ask you to create or open a database file. See the **Choosing Storage Locations** section in the in-app Help menu for advice on where to keep your database and backups.
+On first launch, NoteBook creates a starting database called `notes.db` in the folder it was started from, without asking. To keep your notes somewhere else, use the **File** menu to create or open a database in another location. See the **Choosing Storage Locations** section in the in-app Help menu for advice on where to keep your database and backups.
 
 ---
 
