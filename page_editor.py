@@ -28,13 +28,6 @@ from two_pane_core import load_page as _ui_load_page_two_column  # noqa: F401
 from two_pane_core import save_current_page as _save_current_page_generic
 from two_pane_core import save_current_title as save_title_two_column  # noqa: F401
 
-try:
-    from ui_planning_register import refresh_planning_register_styles
-except Exception:  # pragma: no cover - optional import guard
-
-    def refresh_planning_register_styles(_te):
-        return
-
 
 def save_current_page(window) -> None:
     """Public save that respects current UI mode (two‑pane vs legacy).
@@ -48,7 +41,7 @@ def save_current_page(window) -> None:
 def load_page(window, page_id: Optional[int] = None, html: Optional[str] = None) -> None:
     """Load a page into the editor in two‑pane mode. If page_id is None, clears the editor.
 
-    After loading, re-apply Planning Register styles (header/totals shading, numeric alignment).
+    Table styling is applied by the core loader.
     """
     # Ensure relative media paths will resolve during the ensuing HTML load
     try:
@@ -73,19 +66,12 @@ def load_page(window, page_id: Optional[int] = None, html: Optional[str] = None)
                     te.document().setBaseUrl(QUrl.fromLocalFile(base))
                 except Exception:
                     pass
-            refresh_planning_register_styles(te)
-            try:
-                from ui_richtext import _enforce_uniform_table_borders
-
-                _enforce_uniform_table_borders(te)
-            except Exception:
-                pass
     except Exception:
         pass
 
 
 def set_page_edit_html(window, html: Optional[str]) -> None:
-    """Set the editor HTML and apply Planning Register styles immediately after.
+    """Set the editor HTML; table styling is applied by the core loader.
 
     This function replaces direct calls into ui_tabs to avoid modifying ui_tabs further.
     """
@@ -107,19 +93,12 @@ def set_page_edit_html(window, html: Optional[str]) -> None:
             if isinstance(media_root, str) and media_root:
                 base = media_root if media_root.endswith(os.sep) else media_root + os.sep
                 te.document().setBaseUrl(QUrl.fromLocalFile(base))
-            refresh_planning_register_styles(te)
-            try:
-                from ui_richtext import _enforce_uniform_table_borders
-
-                _enforce_uniform_table_borders(te)
-            except Exception:
-                pass
     except Exception:
         pass
 
 
 def load_first_page_two_column(window) -> None:
-    """Load the first page for the current section in two‑pane mode and restyle PR tables."""
+    """Load the first page for the current section in two‑pane mode."""
     # Ensure base is ready before first page load
     try:
         te = window.findChild(QtWidgets.QTextEdit, "pageEdit")
@@ -141,12 +120,5 @@ def load_first_page_two_column(window) -> None:
                     te.document().setBaseUrl(QUrl.fromLocalFile(base))
                 except Exception:
                     pass
-            refresh_planning_register_styles(te)
-            try:
-                from ui_richtext import _enforce_uniform_table_borders
-
-                _enforce_uniform_table_borders(te)
-            except Exception:
-                pass
     except Exception:
         pass

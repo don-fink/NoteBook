@@ -775,7 +775,16 @@ def insert_planning_register(window: QtWidgets.QMainWindow):
     if not cursor.atBlockStart():
         cursor.insertBlock()
 
-    # Outer table: 1 row x 2 columns; force full-width (100%) container
+    # Measure before inserting, since the cursor may be inside another table's cell
+    width_px = 0.0
+    try:
+        from ui_richtext import _table_available_insert_width_px
+
+        width_px = float(_table_available_insert_width_px(te, cursor))
+    except Exception:
+        pass
+
+    # Outer table: 1 row x 2 columns, full width until fixed below
     outer_fmt = QTextTableFormat()
     outer_fmt.setCellPadding(4)
     outer_fmt.setCellSpacing(0)
@@ -814,6 +823,15 @@ def insert_planning_register(window: QtWidgets.QMainWindow):
     except Exception:
         pass
 
+    # Fix the container's width so the register does not change with the window
+    try:
+        from ui_richtext import _table_apply_viewport_widths
+
+        if width_px > 1.0:
+            _table_apply_viewport_widths(te, outer, table_width_px=width_px)
+    except Exception:
+        pass
+
     # Enforce uniform borders (1px black) across all tables in the editor
     try:
         from ui_richtext import _enforce_uniform_table_borders
@@ -832,6 +850,38 @@ def insert_planning_register(window: QtWidgets.QMainWindow):
     # Install a single watcher per editor to keep totals dynamic on cell exit
     if not hasattr(te, "_planning_register_watcher"):
         te._planning_register_watcher = _PlanningRegisterWatcher(te)
+
+
+def _fill_missing_widths(table, col_pcts):
+    """Give a table default percentage widths only where it has none, keeping any set widths."""
+    try:
+        fmt = table.format()
+        variable = _qtextlength_type("VariableLength")
+        if fmt.width().type() == variable:
+            fmt.setWidth(QTextLength(_PERCENTAGE_LENGTH, 100.0))
+        columns_unset = all(c.type() == variable for c in fmt.columnWidthConstraints())
+        if columns_unset and table.columns() == len(col_pcts):
+            fmt.setColumnWidthConstraints([QTextLength(_PERCENTAGE_LENGTH, p) for p in col_pcts])
+        table.setFormat(fmt)
+    except Exception:
+        pass
+
+
+def _fill_container_widths(doc, table):
+    """Apply _fill_missing_widths to the 1x2 container around a Planning Register table."""
+    try:
+        probe = QTextCursor(doc)
+        probe.setPosition(max(0, table.firstPosition() - 1))
+        parent = probe.currentTable()
+        if (
+            parent is not None
+            and parent.firstPosition() < table.firstPosition()
+            and parent.rows() == 1
+            and parent.columns() == 2
+        ):
+            _fill_missing_widths(parent, [50.0, 50.0])
+    except Exception:
+        pass
 
 
 def refresh_planning_register_styles(text_edit: QtWidgets.QTextEdit):
@@ -861,40 +911,13 @@ def refresh_planning_register_styles(text_edit: QtWidgets.QTextEdit):
             key = (tbl.firstPosition(), tbl.lastPosition())
             if key not in seen:
                 seen.add(key)
-                # If this is an outer 1x2 container, enforce 100% width with 50/50 split as well
-                try:
-                    if tbl.rows() == 1 and tbl.columns() == 2:
-                        fmt_o = tbl.format()
-                        fmt_o.setWidth(QTextLength(_PERCENTAGE_LENGTH, 100.0))
-                        fmt_o.setColumnWidthConstraints(
-                            [
-                                QTextLength(_PERCENTAGE_LENGTH, 50.0),
-                                QTextLength(_PERCENTAGE_LENGTH, 50.0),
-                            ]
-                        )
-                        tbl.setFormat(fmt_o)
-                except Exception:
-                    pass
                 if _is_planning_register_table(text_edit, tbl):
                     try:
                         rows, cols = tbl.rows(), tbl.columns()
                     except Exception:
                         rows, cols = 0, 0
-                    # Ensure table fills its container and column widths are 50/25/25
-                    try:
-                        fmt = tbl.format()
-                        fmt.setWidth(QTextLength(_PERCENTAGE_LENGTH, 100.0))
-                        if cols >= 3:
-                            fmt.setColumnWidthConstraints(
-                                [
-                                    QTextLength(_PERCENTAGE_LENGTH, 50.0),
-                                    QTextLength(_PERCENTAGE_LENGTH, 25.0),
-                                    QTextLength(_PERCENTAGE_LENGTH, 25.0),
-                                ]
-                            )
-                        tbl.setFormat(fmt)
-                    except Exception:
-                        pass
+                    _fill_missing_widths(tbl, [50.0, 25.0, 25.0])
+                    _fill_container_widths(doc, tbl)
                     # Header row background and bold stays as-is; set background if missing
                     if rows >= 1 and cols >= 1 and bg is not None:
                         for c in range(cols):
@@ -922,21 +945,8 @@ def refresh_planning_register_styles(text_edit: QtWidgets.QTextEdit):
                     except Exception:
                         pass
                 elif _is_cost_list_table(text_edit, tbl):
-                    # For the right-side cost list tables, ensure width 100% and columns 70/30
-                    try:
-                        rows, cols = tbl.rows(), tbl.columns()
-                        fmt = tbl.format()
-                        fmt.setWidth(QTextLength(_PERCENTAGE_LENGTH, 100.0))
-                        if cols >= 2:
-                            fmt.setColumnWidthConstraints(
-                                [
-                                    QTextLength(_PERCENTAGE_LENGTH, 70.0),
-                                    QTextLength(_PERCENTAGE_LENGTH, 30.0),
-                                ]
-                            )
-                        tbl.setFormat(fmt)
-                    except Exception:
-                        pass
+                    _fill_missing_widths(tbl, [70.0, 30.0])
+                    _fill_container_widths(doc, tbl)
                     # Ensure header background and right alignment on the numeric column
                     try:
                         if bg is not None and tbl.rows() >= 1:

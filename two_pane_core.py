@@ -32,6 +32,23 @@ def _ensure_state(window):
         window._current_page_by_section = {}
 
 
+def _apply_loaded_table_styles(te):
+    """Style tables in freshly loaded content so every way of opening a page looks the same.
+
+    Call with the editor's signals blocked: styling is not a user edit, so it must not trigger
+    autosave or be undoable.
+    """
+    try:
+        from ui_planning_register import refresh_planning_register_styles
+        from ui_richtext import _enforce_uniform_table_borders
+
+        refresh_planning_register_styles(te)
+        _enforce_uniform_table_borders(te)
+    except Exception:
+        pass
+    te.document().clearUndoRedoStacks()
+
+
 def _set_page_edit_html(window, html: str):
     te = window.findChild(QtWidgets.QTextEdit, "pageEdit")
     if te is None:
@@ -59,6 +76,7 @@ def _set_page_edit_html(window, html: str):
             except Exception:
                 pass
             te.setHtml(html)
+            _apply_loaded_table_styles(te)
     finally:
         te.blockSignals(False)
     # Trigger spell check after loading (since blockSignals prevented textChanged)

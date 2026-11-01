@@ -3731,14 +3731,10 @@ def _enforce_uniform_table_borders(text_edit: QtWidgets.QTextEdit):
                     skip = bool(prop)
 
                     # Do not overwrite borders if the table is NOT a Planning Register
-                    # and already has a custom border setting (avoids "brittle" UI)
+                    # and already has a custom border setting, including no border
                     from ui_planning_register import PLANNING_REG_PROPERTY
 
-                    if (
-                        not fmt.property(PLANNING_REG_PROPERTY)
-                        and fmt.border() != 1.0
-                        and fmt.border() > 0
-                    ):
+                    if not fmt.property(PLANNING_REG_PROPERTY) and fmt.border() != 1.0:
                         skip = True
 
                     # Additionally detect 1x1 top-border-only tables (HTML reload path)
@@ -4508,6 +4504,39 @@ def _table_refresh_currency_alignment_after_col_change(text_edit: QtWidgets.QTex
         pass
 
 
+def _table_rescale_columns_to_width(table):
+    """Scale column widths in proportion so they still add up to the table's width.
+
+    Inserting or removing a column changes the total, since Qt copies or drops one width.
+    """
+    try:
+        fmt = table.format()
+        constraints = list(fmt.columnWidthConstraints())
+        if len(constraints) != table.columns():
+            return
+        fixed = _qtextlength_type("FixedLength")
+        percentage = _qtextlength_type("PercentageLength")
+        length_type = constraints[0].type()
+        if any(c.type() != length_type for c in constraints):
+            return
+        if length_type == percentage:
+            target = 100.0
+        elif length_type == fixed and fmt.width().type() == fixed:
+            target = float(fmt.width().rawValue())
+        else:
+            return
+        total = sum(float(c.rawValue()) for c in constraints)
+        if total <= 0.0 or target <= 0.0:
+            return
+        fmt.setColumnWidthConstraints(
+            [QTextLength(length_type, float(c.rawValue()) * target / total) for c in constraints]
+        )
+        table.setFormat(fmt)
+    except Exception:
+        # Removing the last column deletes the table
+        pass
+
+
 def _table_add_remove(text_edit: QtWidgets.QTextEdit, action: str):
     cur = text_edit.textCursor()
     tbl = cur.currentTable()
@@ -4528,14 +4557,17 @@ def _table_add_remove(text_edit: QtWidgets.QTextEdit, action: str):
         _table_copy_inserted_row_cell_formats(tbl, row + 1, 1, rows_before)
     elif action == "col_left":
         tbl.insertColumns(col, 1)
+        _table_rescale_columns_to_width(tbl)
         _table_refresh_currency_alignment_after_col_change(text_edit, tbl)
     elif action == "col_right":
         tbl.insertColumns(col + 1, 1)
+        _table_rescale_columns_to_width(tbl)
         _table_refresh_currency_alignment_after_col_change(text_edit, tbl)
     elif action == "remove_row":
         tbl.removeRows(row, 1)
     elif action == "remove_col":
         tbl.removeColumns(col, 1)
+        _table_rescale_columns_to_width(tbl)
         _table_refresh_currency_alignment_after_col_change(text_edit, tbl)
     try:
         _enforce_uniform_table_borders(text_edit)
