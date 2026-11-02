@@ -327,6 +327,47 @@ def choose_startup_database(window):
         return path
 
 
+def _leave_current_page(window):
+    """Save and close the open page before switching databases.
+
+    Call while window._db_path still names the old database, so pending edits are saved there
+    and nothing from the old page is shown or saved in the new one."""
+    try:
+        from two_pane_core import load_page, save_current_page, save_current_title
+
+        save_current_page(window)
+        save_current_title(window)
+        timer = getattr(window, "_title_save_timer", None)
+        if timer is not None:
+            timer.stop()
+        window._current_notebook_id = None
+        window._current_section_id = None
+        window._current_page_by_section = {}
+        load_page(window, None)
+    except Exception:
+        pass
+
+
+def _use_media_root(window, db_path: str):
+    """Point images and other media at the folder that belongs to db_path."""
+    try:
+        from media_store import ensure_dir, media_root_for_db
+
+        window._media_root = media_root_for_db(db_path)
+        ensure_dir(window._media_root)
+    except Exception:
+        window._media_root = None
+    try:
+        te = window.findChild(QtWidgets.QTextEdit, "pageEdit")
+        media_root = window._media_root
+        if te is not None and media_root:
+            if not media_root.endswith(os.sep) and not media_root.endswith("/"):
+                media_root = media_root + os.sep
+            te.document().setBaseUrl(QUrl.fromLocalFile(media_root))
+    except Exception:
+        pass
+
+
 def open_database(window):
     """Prompt user to open an existing database file and switch context."""
     dlg_path, _ = QtWidgets.QFileDialog.getOpenFileName(
@@ -345,12 +386,14 @@ def open_database(window):
     except Exception as e:
         QtWidgets.QMessageBox.critical(window, "Open Database", f"Failed to open DB: {e}")
         return
+    _leave_current_page(window)
     try:
         set_last_db(dlg_path)
         clear_last_state()
     except Exception:
         pass
     window._db_path = dlg_path
+    _use_media_root(window, dlg_path)
     populate_notebook_names(window, dlg_path)
     setup_two_pane(window)
     restore_last_position(window)
@@ -449,12 +492,14 @@ def create_new_database(window):
         return
     try:
         create_new_database_file(dlg_path)
+        _leave_current_page(window)
         set_last_db(dlg_path)
         clear_last_state()
         window._db_path = dlg_path
     except Exception as e:
         QtWidgets.QMessageBox.warning(window, "New Database", f"Failed: {e}")
         return
+    _use_media_root(window, dlg_path)
     populate_notebook_names(window, dlg_path)
     try:
         window.setWindowTitle(f"NoteBook — {dlg_path}")
