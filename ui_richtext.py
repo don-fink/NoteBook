@@ -4644,8 +4644,41 @@ def _table_schedule_width_apply(
 
 
 def _table_fit_width(text_edit: QtWidgets.QTextEdit, table):
-    _table_apply_viewport_widths(text_edit, table, table_pct=100.0)
-    _table_schedule_width_apply(text_edit, table, table_pct=100.0)
+    """Fit a table to the space it sits in: the page, or the cell holding it.
+
+    Inside a Planning Register the whole register is fitted, and its tables are set to
+    fill their cells so they follow the register's new width."""
+    register = None
+    try:
+        from ui_presets import register_root
+
+        register = register_root(text_edit, table)
+    except Exception:
+        pass
+    target = register if register is not None else table
+    try:
+        probe = QTextCursor(text_edit.document())
+        probe.setPosition(max(0, target.firstPosition() - 1))
+        width_px = float(_table_available_insert_width_px(text_edit, probe))
+    except Exception:
+        width_px = _table_usable_viewport_width(text_edit)
+    if register is not None:
+        try:
+            from ui_presets import tables_in
+
+            percentage = _qtextlength_type("PercentageLength")
+            for inner in tables_in(text_edit.document(), register):
+                if inner.firstPosition() == register.firstPosition():
+                    continue
+                pcts = _table_constraint_percentages(inner)
+                fmt = inner.format()
+                fmt.setWidth(QTextLength(percentage, 100.0))
+                fmt.setColumnWidthConstraints([QTextLength(percentage, p) for p in pcts])
+                inner.setFormat(fmt)
+        except Exception:
+            pass
+    _table_apply_viewport_widths(text_edit, target, table_width_px=width_px)
+    _table_schedule_width_apply(text_edit, target, table_width_px=width_px)
 
 
 def _table_distribute_columns(text_edit: QtWidgets.QTextEdit, table):

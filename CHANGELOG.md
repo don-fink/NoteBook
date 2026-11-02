@@ -12,6 +12,7 @@
 - The Enter key diagnostic log (`richtext_key_debug.log`) is off unless `NOTEBOOK_RICHTEXT_KEY_DEBUG=1` is set.
 
 ### Fixed
+- Fit Table to Width did nothing visible inside a Planning Register. It now fits the whole register to the page, and its tables follow. A table nested in another table's cell now fits that cell instead of the whole page.
 - A Planning Register whose cost columns were marked as currency ("Estimated Cost ($)") stopped being treated as a register after its page was reopened or it was inserted from a preset, losing its own totals, cost formatting and number alignment.
 
 
