@@ -305,12 +305,21 @@ def _is_planning_register_table(text_edit: QtWidgets.QTextEdit, table) -> bool:
             return True
     except Exception:
         pass
+
+    def _header(col):
+        # Marking a column as currency adds a suffix such as " ($)" to its header
+        text = _cell_plain_text(text_edit, table, 0, col).strip().lower()
+        for suffix in ("($)", "(currency)"):
+            if text.endswith(suffix):
+                text = text[: -len(suffix)].strip()
+        return text
+
     try:
         if table is None or table.columns() < 3 or table.rows() < 2:
             return False
-        h0 = _cell_plain_text(text_edit, table, 0, 0).strip().lower()
-        h1 = _cell_plain_text(text_edit, table, 0, 1).strip().lower()
-        h2 = _cell_plain_text(text_edit, table, 0, 2).strip().lower()
+        h0 = _header(0)
+        h1 = _header(1)
+        h2 = _header(2)
         last0 = _cell_plain_text(text_edit, table, table.rows() - 1, 0).strip().lower()
         return (
             h0 == "description"

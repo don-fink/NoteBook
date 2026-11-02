@@ -11,6 +11,9 @@
 - On first launch, NoteBook asks you to create a new database or open an existing one, and where to keep it, instead of creating `notes.db` in the folder it was started from. It also asks if the database it used last time can't be found, instead of creating an empty one in its place.
 - The Enter key diagnostic log (`richtext_key_debug.log`) is off unless `NOTEBOOK_RICHTEXT_KEY_DEBUG=1` is set.
 
+### Fixed
+- A Planning Register whose cost columns were marked as currency ("Estimated Cost ($)") stopped being treated as a register after its page was reopened or it was inserted from a preset, losing its own totals, cost formatting and number alignment.
+
 
 ## 1.6.0 - 2026-11-01
 ### Added
