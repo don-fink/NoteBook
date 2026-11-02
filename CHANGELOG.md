@@ -1,5 +1,5 @@
 
-## Unreleased
+## 1.7.0 - 2026-11-02
 ### Added
 - Table and Planning Register presets can be inserted again: Insert → Insert Table from Preset… and Insert Planning Register from Preset…, also under Insert on the right-click menu. Presets come back exactly as saved, text and amounts included.
 - Insert → Insert Table…, Manage Table Presets… and Manage Planning Register Presets… (rename and delete).
