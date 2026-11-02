@@ -14,7 +14,7 @@ For Mac and Linux, see the CROSS_PLATFORM.md file in Docs.
 - **Images** — Embed images with resize handles
 - **Auto-save** — Changes saved automatically as you type
 - **Portable** — No installer required; settings stored in `%LOCALAPPDATA%\NoteBook\`
-- **Themes** — Default and high-contrast themes included
+- **Themes** — Default and high-contrast themes included; add your own `.qss` files
 
 ### Keyboard Shortcuts
 

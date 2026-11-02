@@ -11,3 +11,12 @@ QTabBar::tab:selected { background: #ffffff; color: #000; }
 QTabBar::tab:!selected { background: #000000; color: #ffffff; }
 QTabBar::tab:hover:!selected { background: #d9d9d9; }
 QTreeWidget, QTreeView { alternate-background-color: #f2f2f2; }
+
+/* Menus */
+QMenuBar { background: #f2f2f2; }
+QMenuBar::item:selected { background: #000000; color: #ffffff; }
+QMenu { background: #ffffff; color: #000000; border: 2px solid #000000; border-radius: 6px; padding: 4px; }
+QMenu::item { padding: 5px 28px 5px 24px; border-radius: 4px; }
+QMenu::item:selected { background: #000000; color: #ffffff; }
+QMenu::item:disabled { color: #767676; }
+QMenu::separator { height: 1px; background: #000000; margin: 4px 8px; }

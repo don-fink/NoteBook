@@ -11,7 +11,15 @@ QLineEdit, QPlainTextEdit, QTextEdit { background: #ffffff; color: #1a1a1a; }
 QTreeWidget, QTreeView, QListView, QTableView { background: #ffffff; color: #1a1a1a; }
 QToolBar { background: #f7f7f7; border: none; }
 QMenuBar { background: #f7f7f7; }
-QMenu { background: #ffffff; }
+QMenuBar::item { padding: 4px 8px; border-radius: 4px; }
+QMenuBar::item:selected { background: #dde7f3; }
+
+/* Drop-down and right-click menus: a border-radius here gives them rounded corners */
+QMenu { background: #ffffff; color: #1a1a1a; border: 1px solid #8f99a6; border-radius: 6px; padding: 4px; }
+QMenu::item { padding: 5px 28px 5px 24px; border-radius: 4px; }
+QMenu::item:selected { background: #cfe0f5; color: #000000; }
+QMenu::item:disabled { color: #9a9a9a; }
+QMenu::separator { height: 1px; background: #d4d8de; margin: 4px 8px; }
 
 /* Buttons */
 QPushButton { background: #f4f4f4; border: 1px solid #d0d0d0; padding: 4px 8px; }

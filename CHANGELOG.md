@@ -6,6 +6,8 @@
 - Tools → Import Preset Tables and Registers…: choose presets from another database to copy into the open one. Name clashes can be replaced, renamed or skipped, one at a time or all at once.
 
 ### Changed
+- Menus have a border, rounded corners and a stronger highlight in both themes.
+- Themes are read from the themes folder instead of a fixed list, so adding a `.qss` file adds a theme. Themes can also be added in a `themes` folder next to `settings.json`, without rebuilding; one with the same name replaces the shipped theme.
 - Presets are stored in the database, in separate lists for tables and Planning Registers, so they're included in backups. Presets saved in settings by earlier versions are copied into each database the first time its presets are used.
 - Saving a preset under a name already in use asks before replacing it. Renaming does the same.
 - Save Table as Preset inside a Planning Register saves just that table; Save Planning Register as Preset saves the whole register, from anywhere inside it. Both are on the right-click menu.

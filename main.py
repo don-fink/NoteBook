@@ -1746,22 +1746,12 @@ def main():
         window.setWindowIcon(app.windowIcon())
     except Exception:
         pass
-    # Apply saved theme QSS early
+    # Apply saved theme early
     try:
         from settings_manager import get_theme_name
+        from theme_manager import apply_theme
 
-        theme = get_theme_name()
-        themes_dir = os.path.join(os.path.dirname(__file__), "themes")
-        name_to_file = {
-            "Default": "default.qss",
-            "High Contrast": "high-contrast.qss",
-        }
-        qss_file = name_to_file.get(theme)
-        if qss_file:
-            path = os.path.join(themes_dir, qss_file)
-            if os.path.isfile(path):
-                with open(path, "r", encoding="utf-8") as f:
-                    app.setStyleSheet(f.read())
+        apply_theme(get_theme_name())
     except Exception:
         pass
     # Restore window geometry and maximized state
@@ -4277,12 +4267,22 @@ def main():
                             pass
                         # Theme name
                         try:
+                            from theme_manager import list_themes, user_themes_dir
+
                             theme_combo = dlg.findChild(QtWidgets.QComboBox, "comboTheme")
                             if theme_combo is not None:
-                                name = get_theme_name()
-                                idx = theme_combo.findText(name)
+                                theme_combo.clear()
+                                theme_combo.addItems(list(list_themes()))
+                                idx = theme_combo.findText(get_theme_name())
                                 if idx >= 0:
                                     theme_combo.setCurrentIndex(idx)
+                            theme_note = dlg.findChild(QtWidgets.QLabel, "labelThemeNote")
+                            if theme_note is not None:
+                                theme_note.setWordWrap(True)
+                                theme_note.setText(
+                                    "To add a look, put a .qss file in "
+                                    f"{user_themes_dir()} and reopen Settings."
+                                )
                         except Exception:
                             pass
                         # Settings file path & open folder
@@ -4583,21 +4583,10 @@ def main():
                         if theme_combo is not None:
                             name = theme_combo.currentText()
                             set_theme_name(name)
-                            # Apply selected theme immediately
                             try:
-                                themes_dir = os.path.join(os.path.dirname(__file__), "themes")
-                                name_to_file = {
-                                    "Default": "default.qss",
-                                    "High Contrast": "high-contrast.qss",
-                                }
-                                qss_file = name_to_file.get(name)
-                                if qss_file:
-                                    path = os.path.join(themes_dir, qss_file)
-                                    if os.path.isfile(path):
-                                        with open(path, "r", encoding="utf-8") as f:
-                                            QtWidgets.QApplication.instance().setStyleSheet(
-                                                f.read()
-                                            )
+                                from theme_manager import apply_theme
+
+                                apply_theme(name)
                             except Exception:
                                 pass
                         # Tables tab: persist and apply immediately
