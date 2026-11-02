@@ -6349,7 +6349,7 @@ def _install_richtext_key_debugger(text_edit: QtWidgets.QTextEdit):
     try:
         if text_edit is None:
             return
-        enabled = os.environ.get("NOTEBOOK_RICHTEXT_KEY_DEBUG", "1").strip().lower() in {
+        enabled = os.environ.get("NOTEBOOK_RICHTEXT_KEY_DEBUG", "0").strip().lower() in {
             "1",
             "true",
             "yes",

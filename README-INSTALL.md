@@ -28,7 +28,7 @@ C:\Users\{username}\AppData\Local\NoteBook\
 
 You can open this path quickly by typing `%LOCALAPPDATA%` in the Windows Explorer address bar.
 
-However, you can place the folder **anywhere on your computer** — a desktop folder, a `C:\Apps\` directory, a USB drive, etc. NoteBook is fully portable. Apart from the starting database described in Step 2, it does not write anything inside its own folder.
+However, you can place the folder **anywhere on your computer** — a desktop folder, a `C:\Apps\` directory, a USB drive, etc. NoteBook is fully portable, and it keeps your notes outside its own folder, wherever you choose in Step 2.
 
 ---
 
@@ -36,7 +36,7 @@ However, you can place the folder **anywhere on your computer** — a desktop fo
 
 Double-click `NoteBook.exe` inside the extracted folder. No further setup is required.
 
-On first launch, NoteBook creates a starting database called `notes.db` in the folder it was started from, without asking. To keep your notes somewhere else, use the **File** menu to create or open a database in another location. See the **Choosing Storage Locations** section in the in-app Help menu for advice on where to keep your database and backups.
+On first launch, NoteBook asks whether to create a new database or open one you already have, and where to keep it. A new database is suggested as `Notes.db` in your Documents folder. If NoteBook later can't find its database (for example, after you move it), it asks again. See the **Choosing Storage Locations** section in the in-app Help menu for advice on where to keep your database and backups.
 
 ---
 

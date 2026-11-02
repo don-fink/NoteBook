@@ -11,7 +11,7 @@ The window is divided into two panels:
 
 ## Opening a Database
 
-Your notes are stored in a single database file (`.db`). When NoteBook starts for the first time, it creates a default database automatically.
+Your notes are stored in a single database file (`.db`). When NoteBook starts for the first time, it asks whether to create a new database or open an existing one, and where to keep it. It asks again if it can't find the database it used last time.
 
 To open a different database:
 

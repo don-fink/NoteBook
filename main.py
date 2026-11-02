@@ -268,6 +268,65 @@ def migrate_database_if_needed(db_path: str, parent_window=None) -> bool:
         conn.close()
 
 
+def choose_startup_database(window):
+    """Return the database to open at startup, asking the user when there isn't one.
+
+    Uses the last database if its file exists. Otherwise (first launch, or the file was
+    moved or deleted) asks the user to create a new database or open an existing one.
+    Returns None if the user chooses to exit."""
+    last = get_last_db()
+    if last and os.path.isfile(last):
+        return last
+    docs = QtCore.QStandardPaths.writableLocation(
+        QtCore.QStandardPaths.StandardLocation.DocumentsLocation
+    )
+    while True:
+        msg_box = QtWidgets.QMessageBox(window)
+        msg_box.setIcon(QtWidgets.QMessageBox.Question)
+        if last:
+            msg_box.setWindowTitle("Database Not Found")
+            msg_box.setText(
+                f"NoteBook couldn't find the database it used last time:\n\n{last}\n\n"
+                "It may have been moved, renamed or deleted. "
+                "You can open it from its new location or create a new database."
+            )
+        else:
+            msg_box.setWindowTitle("Welcome to NoteBook")
+            msg_box.setText(
+                "NoteBook keeps your notes in a database file.\n\n"
+                "Create a new database, or open one you already have."
+            )
+        create_btn = msg_box.addButton("Create New Database…", QtWidgets.QMessageBox.AcceptRole)
+        open_btn = msg_box.addButton("Open Existing Database…", QtWidgets.QMessageBox.ActionRole)
+        msg_box.addButton("Exit", QtWidgets.QMessageBox.RejectRole)
+        msg_box.exec_()
+        clicked = msg_box.clickedButton()
+        if clicked == create_btn:
+            path, _ = QtWidgets.QFileDialog.getSaveFileName(
+                window,
+                "Create New Database",
+                os.path.join(docs, "Notes.db"),
+                "SQLite DB (*.db);;All Files (*)",
+            )
+        elif clicked == open_btn:
+            path, _ = QtWidgets.QFileDialog.getOpenFileName(
+                window,
+                "Open Existing Database",
+                os.path.dirname(last) if last else docs,
+                "SQLite DB (*.db);;All Files (*)",
+            )
+        else:
+            return None
+        if not path:
+            continue  # File dialog cancelled: ask again
+        try:
+            set_last_db(path)
+            clear_last_state()
+        except Exception:
+            pass
+        return path
+
+
 def open_database(window):
     """Prompt user to open an existing database file and switch context."""
     dlg_path, _ = QtWidgets.QFileDialog.getOpenFileName(
@@ -1666,7 +1725,9 @@ def main():
         window.setGeometry(int(geom["x"]), int(geom["y"]), int(geom["w"]), int(geom["h"]))
     if get_window_maximized():
         window.showMaximized()
-    db_path = get_last_db() or "notes.db"
+    db_path = choose_startup_database(window)
+    if not db_path:
+        return
     # Ensure database exists and is initialized before any queries
     try:
         ensure_database_initialized(db_path)
