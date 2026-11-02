@@ -5,6 +5,7 @@ and are included in backups. A preset is the saved HTML of a table or register, 
 it was when saved, including any text and amounts in it.
 """
 
+import pathlib
 import sqlite3
 
 KIND_TABLE = "table"
@@ -141,3 +142,30 @@ def delete_preset(db_path: str, kind: str, name: str):
         con.commit()
     finally:
         con.close()
+
+
+def read_presets(db_path: str) -> list:
+    """Return another database's presets as (kind, name, html) tuples, without changing it.
+
+    The database is opened read-only. A database that has never stored presets has none."""
+    uri = pathlib.Path(db_path).resolve().as_uri() + "?mode=ro"
+    con = sqlite3.connect(uri, uri=True)
+    try:
+        cur = con.cursor()
+        cur.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='table_presets'")
+        if cur.fetchone() is None:
+            return []
+        cur.execute("SELECT kind, name, html FROM table_presets ORDER BY kind, name COLLATE NOCASE")
+        return [row for row in cur.fetchall() if row[0] in (KIND_TABLE, KIND_REGISTER)]
+    finally:
+        con.close()
+
+
+def unique_preset_name(name: str, taken) -> str:
+    """Return name, or "name (2)", "name (3)" and so on, whichever isn't in taken."""
+    if name not in taken:
+        return name
+    n = 2
+    while f"{name} ({n})" in taken:
+        n += 1
+    return f"{name} ({n})"

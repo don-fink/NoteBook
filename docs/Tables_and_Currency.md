@@ -22,6 +22,21 @@ All preset commands are on the **Insert** menu, and the same commands are under 
 
 Saving a table that sits inside a Planning Register saves just that table. To save the whole register, use **Save Planning Register as Preset…** from anywhere inside it.
 
+### Importing presets from another database
+
+1. Choose **Tools → Import Preset Tables and Registers…**.
+2. Pick the database that has the presets you want. It's only read, never changed.
+3. Select the presets to import. Click one, Shift+click to select a range, Ctrl+click to add or remove one, or click **Select All**. Then click **Import**.
+
+If the open database already has a preset of the same kind with the same name, NoteBook asks what to do, as Windows does when copying a file that already exists:
+
+- **Replace** — the imported preset takes the place of the existing one.
+- **Rename…** — import it under a new name. A name such as "My Table (2)" is suggested, and you can change it.
+- **Skip** — leave the existing preset and don't import this one.
+- **Cancel** — stop, and import nothing.
+
+When several names clash, tick **Do this for the next … name conflicts** to give the same answer to all of them. With Rename, the suggested names are used without asking.
+
 ## Navigating a Table
 
 | Action | Key |

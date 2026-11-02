@@ -233,6 +233,7 @@
     <addaction name="actionSettings"/>
     <addaction name="actionOpen_Databases_Folder"/>
     <addaction name="actionMigrate_Current_DB_to_Root"/>
+    <addaction name="actionImport_Presets"/>
     <addaction name="actionClean_Unused_Media"/>
    </widget>
    <addaction name="menuFile"/>
@@ -386,6 +387,11 @@
   <action name="actionMigrate_Current_DB_to_Root">
    <property name="text">
     <string>Migrate Current DB into Databases Root…</string>
+   </property>
+  </action>
+  <action name="actionImport_Presets">
+   <property name="text">
+    <string>Import Preset Tables and Registers…</string>
    </property>
   </action>
   <action name="actionCollapse_All_Binders">

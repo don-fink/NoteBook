@@ -1,8 +1,11 @@
 """
 ui_presets.py
 Insert, save and manage table and Planning Register presets, from the Insert menu and the
-page's right-click menu. Presets are stored in the database (see db_presets.py).
+page's right-click menu, and import them from another database (Tools menu). Presets are
+stored in the database (see db_presets.py).
 """
+
+import os
 
 from db_presets import (
     KIND_REGISTER,
@@ -11,8 +14,10 @@ from db_presets import (
     get_preset_html,
     list_preset_names,
     preset_exists,
+    read_presets,
     rename_preset,
     save_preset,
+    unique_preset_name,
 )
 from qt_compat import QtCore, QtGui, QtWidgets
 
@@ -334,3 +339,191 @@ def manage_presets(parent, kind: str):
     delete_btn.clicked.connect(_delete)
     dlg.list.itemDoubleClicked.connect(lambda _item: _rename())
     dlg.exec_()
+
+
+# --- Importing from another database ---
+
+
+class _ImportPresetsDialog(QtWidgets.QDialog):
+    """Lists another database's presets for the user to choose from.
+
+    Click, Shift+click, Ctrl+click and Ctrl+A select, as in Windows."""
+
+    def __init__(self, parent, source_path: str, presets: list):
+        super().__init__(parent)
+        self.setWindowTitle("Import Preset Tables and Registers")
+        self.setMinimumSize(460, 360)
+        layout = QtWidgets.QVBoxLayout(self)
+        layout.addWidget(
+            QtWidgets.QLabel(
+                f"Presets in {os.path.basename(source_path)}.\n"
+                "Select the ones to import (Shift+click or Ctrl+click to select several).",
+                self,
+            )
+        )
+        self.tree = QtWidgets.QTreeWidget(self)
+        self.tree.setColumnCount(2)
+        self.tree.setHeaderLabels(["Name", "Type"])
+        self.tree.setRootIsDecorated(False)
+        self.tree.setSelectionMode(QtWidgets.QAbstractItemView.SelectionMode.ExtendedSelection)
+        for kind, name, html in presets:
+            item = QtWidgets.QTreeWidgetItem([name, _LABELS[kind][0]])
+            item.setData(0, Qt.ItemDataRole.UserRole, (kind, name, html))
+            self.tree.addTopLevelItem(item)
+        self.tree.resizeColumnToContents(0)
+        layout.addWidget(self.tree)
+        self.buttons = QtWidgets.QDialogButtonBox(self)
+        select_all = self.buttons.addButton(
+            "Select All", QtWidgets.QDialogButtonBox.ButtonRole.ActionRole
+        )
+        self.import_btn = self.buttons.addButton(
+            "Import", QtWidgets.QDialogButtonBox.ButtonRole.AcceptRole
+        )
+        self.buttons.addButton(QtWidgets.QDialogButtonBox.StandardButton.Cancel)
+        self.import_btn.setDefault(True)
+        self.import_btn.setEnabled(False)
+        select_all.clicked.connect(self.tree.selectAll)
+        self.tree.itemSelectionChanged.connect(
+            lambda: self.import_btn.setEnabled(bool(self.tree.selectedItems()))
+        )
+        self.buttons.accepted.connect(self.accept)
+        self.buttons.rejected.connect(self.reject)
+        layout.addWidget(self.buttons)
+
+    def selected_presets(self) -> list:
+        items = sorted(self.tree.selectedItems(), key=self.tree.indexOfTopLevelItem)
+        return [item.data(0, Qt.ItemDataRole.UserRole) for item in items]
+
+
+def _ask_clash(parent, kind: str, name: str, remaining: int):
+    """Ask what to do about an incoming preset whose name is already used.
+
+    Returns ("replace" | "rename" | "skip" | "cancel", apply_to_remaining)."""
+    _label, noun = _LABELS[kind]
+    box = QtWidgets.QMessageBox(parent)
+    box.setWindowTitle("Preset Already Exists")
+    box.setIcon(QtWidgets.QMessageBox.Question)
+    box.setText(f"This database already has a {noun} preset named '{name}'.")
+    box.setInformativeText("Replace it with the imported one, or import this one under a new name?")
+    replace_btn = box.addButton("Replace", QtWidgets.QMessageBox.ButtonRole.AcceptRole)
+    rename_btn = box.addButton("Rename…", QtWidgets.QMessageBox.ButtonRole.ActionRole)
+    skip_btn = box.addButton("Skip", QtWidgets.QMessageBox.ButtonRole.ActionRole)
+    box.addButton(QtWidgets.QMessageBox.StandardButton.Cancel)
+    box.setDefaultButton(rename_btn)
+    check = None
+    if remaining > 0:
+        check = QtWidgets.QCheckBox(f"Do this for the next {remaining} name conflicts", box)
+        box.setCheckBox(check)
+    box.exec_()
+    clicked = box.clickedButton()
+    choice = {replace_btn: "replace", rename_btn: "rename", skip_btn: "skip"}.get(clicked, "cancel")
+    return choice, bool(check is not None and check.isChecked())
+
+
+def _ask_new_name(parent, kind: str, suggested: str, taken: set):
+    """Ask for a name not already taken. Returns None if the user cancels."""
+    _label, noun = _LABELS[kind]
+    name = suggested
+    while True:
+        name, ok = QtWidgets.QInputDialog.getText(
+            parent, "Rename Imported Preset", f"Import the {noun} preset as:", text=name
+        )
+        name = (name or "").strip()
+        if not ok or not name:
+            return None
+        if name not in taken:
+            return name
+        QtWidgets.QMessageBox.information(
+            parent, "Rename Imported Preset", f"The name '{name}' is already used."
+        )
+
+
+def import_presets(window):
+    """Copy chosen presets from another database into the current one."""
+    title = "Import Preset Tables and Registers"
+    db_path = _require_db(window, title)
+    if not db_path:
+        return
+    try:
+        from settings_manager import get_databases_root
+
+        start_dir = get_databases_root()
+    except Exception:
+        start_dir = ""
+    if not start_dir or not os.path.isdir(start_dir):
+        start_dir = os.path.dirname(db_path)
+    source, _ = QtWidgets.QFileDialog.getOpenFileName(
+        window, "Import Presets From Database", start_dir, "SQLite DB (*.db);;All Files (*)"
+    )
+    if not source:
+        return
+    if os.path.normcase(os.path.abspath(source)) == os.path.normcase(os.path.abspath(db_path)):
+        QtWidgets.QMessageBox.information(
+            window, title, "That's the database you have open. Choose a different one."
+        )
+        return
+    try:
+        presets = read_presets(source)
+    except Exception as e:
+        QtWidgets.QMessageBox.warning(window, title, f"Couldn't read presets from that file:\n{e}")
+        return
+    if not presets:
+        QtWidgets.QMessageBox.information(
+            window, title, f"{os.path.basename(source)} has no saved presets."
+        )
+        return
+    dlg = _ImportPresetsDialog(window, source, presets)
+    if dlg.exec_() != QtWidgets.QDialog.Accepted:
+        return
+    chosen = dlg.selected_presets()
+
+    # Decide every name first, so Cancel leaves the database unchanged
+    taken = {kind: set(list_preset_names(db_path, kind)) for kind in (KIND_TABLE, KIND_REGISTER)}
+    remaining = sum(1 for kind, name, _html in chosen if name in taken[kind])
+    plan = []  # (kind, name to save under, html, outcome)
+    standing = None  # A choice the user applied to all remaining conflicts
+    for kind, name, html in chosen:
+        if name not in taken[kind]:
+            plan.append((kind, name, html, "added"))
+            taken[kind].add(name)
+            continue
+        remaining -= 1
+        choice = standing
+        while True:
+            if choice is None:
+                choice, for_all = _ask_clash(window, kind, name, remaining)
+                if for_all:
+                    standing = choice
+            if choice == "cancel":
+                return
+            if choice == "skip":
+                break
+            if choice == "replace":
+                plan.append((kind, name, html, "replaced"))
+                break
+            suggested = unique_preset_name(name, taken[kind])
+            if standing == "rename":
+                new_name = suggested
+            else:
+                new_name = _ask_new_name(window, kind, suggested, taken[kind])
+            if new_name is None:
+                choice = None  # Ask again about this preset
+                continue
+            plan.append((kind, new_name, html, "renamed"))
+            taken[kind].add(new_name)
+            break
+
+    for kind, name, html, _outcome in plan:
+        save_preset(db_path, kind, name, html)
+    counts = {}
+    for *_rest, outcome in plan:
+        counts[outcome] = counts.get(outcome, 0) + 1
+    parts = [f"{counts[k]} {k}" for k in ("added", "replaced", "renamed") if counts.get(k)]
+    skipped = len(chosen) - len(plan)
+    if skipped:
+        parts.append(f"{skipped} skipped")
+    total = len(plan)
+    summary = f"Imported {total} preset{'s' if total != 1 else ''}"
+    QtWidgets.QMessageBox.information(
+        window, title, summary + (f" ({', '.join(parts)})." if parts else ".")
+    )

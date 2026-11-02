@@ -3309,7 +3309,7 @@ def main():
                 pass
 
         act_plan_reg.triggered.connect(_insert_planning_register_via_dialog)
-    # Tables and presets (Insert menu)
+    # Tables and presets (Insert menu; preset import on the Tools menu)
     try:
         import ui_presets
         from ui_richtext import _table_insert_dialog
@@ -3345,6 +3345,7 @@ def main():
                 "actionManage_Planning_Register_Presets",
                 lambda: ui_presets.manage_presets(window, ui_presets.KIND_REGISTER),
             ),
+            ("actionImport_Presets", lambda: ui_presets.import_presets(window)),
         ):
             act = window.findChild(QtWidgets.QAction, name)
             if act is not None:
