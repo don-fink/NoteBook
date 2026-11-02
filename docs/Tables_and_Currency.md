@@ -5,8 +5,22 @@ NoteBook supports rich tables with automatic currency formatting and column tota
 ## Inserting a Table
 
 1. Place your cursor in the page where you want the table.
-2. Right-click and choose **Insert Table** from the context menu.
+2. Choose **Insert → Insert Table…**, or right-click and choose **Insert → Table…**.
 3. Enter the number of rows and columns you want.
+
+## Presets
+
+A preset is a saved copy of a table or Planning Register that you can insert again on any page. It comes back exactly as you saved it, including any text and amounts in it, so you can keep pre-filled tables as well as empty layouts.
+
+Tables and Planning Registers have separate preset lists. Presets are stored in the database, so they're included in your database backups. Each database has its own presets.
+
+All preset commands are on the **Insert** menu, and the same commands are under **Insert** when you right-click a page:
+
+- **Insert Table from Preset…** / **Insert Planning Register from Preset…** — pick a preset from the list and insert it at the cursor.
+- **Save Table as Preset…** / **Save Planning Register as Preset…** — place the cursor in the table or register, choose the command and give the preset a name. If the name is already used, NoteBook asks before replacing that preset. When you right-click inside a table, the Save commands are on the menu too.
+- **Manage Table Presets…** / **Manage Planning Register Presets…** — rename or delete saved presets.
+
+Saving a table that sits inside a Planning Register saves just that table. To save the whole register, use **Save Planning Register as Preset…** from anywhere inside it.
 
 ## Navigating a Table
 
@@ -49,7 +63,8 @@ Right-clicking anywhere inside a table gives you a context menu with options to:
 
 - Insert or delete rows and columns
 - Mark or unmark columns as currency
-- Insert a table (if cursor is outside a table)
+- Save the table, or the Planning Register it's in, as a preset
+- Insert a table, Planning Register or preset (under **Insert**)
 
 ## Tips
 

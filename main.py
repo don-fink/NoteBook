@@ -52,7 +52,7 @@ from two_pane_core import restore_last_position, setup_two_pane
 from ui_loader import load_main_window
 from ui_logic import populate_notebook_names
 from ui_planning_register import ensure_planning_register_watcher
-from ui_richtext import insert_table_from_preset, install_image_support
+from ui_richtext import install_image_support
 
 
 def _install_global_excepthook():
@@ -3309,133 +3309,46 @@ def main():
                 pass
 
         act_plan_reg.triggered.connect(_insert_planning_register_via_dialog)
-    # Save Planning Register as Preset (Insert menu)
+    # Tables and presets (Insert menu)
     try:
-        act_save_reg_preset = window.findChild(
-            QtWidgets.QAction, "actionSave_Planning_Register_as_Preset"
-        )
-        act_rename_reg_preset = window.findChild(
-            QtWidgets.QAction, "actionRename_Planning_Register_Preset"
-        )
-        act_delete_reg_preset = window.findChild(
-            QtWidgets.QAction, "actionDelete_Planning_Register_Preset"
-        )
-        if act_save_reg_preset is not None:
+        import ui_presets
+        from ui_richtext import _table_insert_dialog
 
-            def _save_planning_register_as_preset():
-                te = window.findChild(QtWidgets.QTextEdit, "pageEdit")
-                if te is None:
-                    return
-                cur = te.textCursor()
-                tbl = cur.currentTable()
-                if tbl is None:
-                    QtWidgets.QMessageBox.information(
-                        window,
-                        "Save Planning Register as Preset",
-                        "Place the caret inside the left Planning Register table.",
-                    )
-                    return
-                # If the caret is on the outer container, try to descend into the left cell's inner table
-                try:
-                    if tbl.rows() == 1 and tbl.columns() == 2:
-                        left_cell = tbl.cellAt(0, 0)
-                        s_pos = left_cell.firstCursorPosition().position()
-                        e_pos = left_cell.lastCursorPosition().position()
-                        scan = QtGui.QTextCursor(te.document())
-                        scan.setPosition(s_pos)
-                        inner = None
-                        iters = 0
-                        while scan.position() < e_pos and iters < 20000:
-                            t = scan.currentTable()
-                            if t is not None:
-                                inner = t
-                                break
-                            scan.movePosition(QtGui.QTextCursor.NextCharacter)
-                            iters += 1
-                        if inner is not None:
-                            te.setTextCursor(inner.firstCursorPosition())
-                            tbl = inner
-                except Exception:
-                    pass
-                # Verify this looks like a Planning Register table (left table)
-                try:
-                    from ui_planning_register import _is_planning_register_table
+        def _page_edit():
+            return window.findChild(QtWidgets.QTextEdit, "pageEdit")
 
-                    if not _is_planning_register_table(te, tbl):
-                        QtWidgets.QMessageBox.information(
-                            window,
-                            "Save Planning Register as Preset",
-                            "Please place the caret inside the left Planning Register table.",
-                        )
-                        return
-                except Exception:
-                    pass
-                # Use the centralized HTML preset saver
-                from ui_richtext import save_current_table_as_preset
+        def _insert_table():
+            te = _page_edit()
+            if te is not None:
+                _table_insert_dialog(te)
 
-                save_current_table_as_preset(te)
-
-            act_save_reg_preset.triggered.connect(_save_planning_register_as_preset)
-
-        # Helper to choose a preset name
-        def _choose_preset_name(parent, title: str) -> str:
-            try:
-                from settings_manager import list_table_preset_names
-
-                names = list_table_preset_names()
-            except Exception:
-                names = []
-            if not names:
-                QtWidgets.QMessageBox.information(parent, title, "No presets saved yet.")
-                return None
-            item, ok = QtWidgets.QInputDialog.getItem(parent, title, "Preset:", names, 0, False)
-            return item if ok and item else None
-
-        if act_rename_reg_preset is not None:
-
-            def _rename_planning_register_preset():
-                name = _choose_preset_name(window, "Rename Planning Register Preset")
-                if not name:
-                    return
-                new_name, ok = QtWidgets.QInputDialog.getText(
-                    window, "Rename Preset", "New name:", text=name
-                )
-                if not ok or not new_name or new_name == name:
-                    return
-                try:
-                    from settings_manager import rename_table_preset
-
-                    rename_table_preset(name, new_name)
-                except Exception:
-                    pass
-
-            act_rename_reg_preset.triggered.connect(_rename_planning_register_preset)
-
-        if act_delete_reg_preset is not None:
-
-            def _delete_planning_register_preset():
-                name = _choose_preset_name(window, "Delete Planning Register Preset")
-                if not name:
-                    return
-                if (
-                    QtWidgets.QMessageBox.question(
-                        window,
-                        "Delete Preset",
-                        f"Delete preset '{name}'?",
-                        QtWidgets.QMessageBox.Yes | QtWidgets.QMessageBox.No,
-                    )
-                    != QtWidgets.QMessageBox.Yes
-                ):
-                    return
-                try:
-                    from settings_manager import delete_table_preset
-
-                    delete_table_preset(name)
-                except Exception:
-                    pass
-
-            act_delete_reg_preset.triggered.connect(_delete_planning_register_preset)
-
+        for name, handler in (
+            ("actionInsert_Table", _insert_table),
+            (
+                "actionInsert_Table_From_Preset",
+                lambda: ui_presets.insert_from_preset(_page_edit(), ui_presets.KIND_TABLE),
+            ),
+            ("actionSave_Table_as_Preset", lambda: ui_presets.save_table_preset(_page_edit())),
+            (
+                "actionManage_Table_Presets",
+                lambda: ui_presets.manage_presets(window, ui_presets.KIND_TABLE),
+            ),
+            (
+                "actionInsert_Planning_Register_From_Preset",
+                lambda: ui_presets.insert_from_preset(_page_edit(), ui_presets.KIND_REGISTER),
+            ),
+            (
+                "actionSave_Planning_Register_as_Preset",
+                lambda: ui_presets.save_register_preset(_page_edit()),
+            ),
+            (
+                "actionManage_Planning_Register_Presets",
+                lambda: ui_presets.manage_presets(window, ui_presets.KIND_REGISTER),
+            ),
+        ):
+            act = window.findChild(QtWidgets.QAction, name)
+            if act is not None:
+                act.triggered.connect(lambda _checked=False, h=handler: h())
     except Exception:
         pass
 
@@ -3554,254 +3467,6 @@ def main():
     action_exit = window.findChild(QtWidgets.QAction, "actionExit")
     if action_exit:
         action_exit.triggered.connect(window.close)
-
-    # Build/augment a 'Table Presets' submenu under Insert (or reuse one from the .ui to avoid duplicates)
-    try:
-        menubar = window.menuBar() if hasattr(window, "menuBar") else None
-        target_menu = None
-
-        def _find_or_create_table_presets_menu(win) -> QtWidgets.QMenu:
-            mb = win.menuBar() if hasattr(win, "menuBar") else None
-            if mb is None:
-                return None
-            # Try TOP-LEVEL first (unlikely for this app but supported)
-            for act in mb.actions():
-                m = act.menu()
-                if m and act.text().replace("&", "").strip().lower() == "table presets":
-                    return m
-            # Find the Insert menu
-            insert_m = None
-            for act in mb.actions():
-                m = act.menu()
-                if m and act.text().replace("&", "").strip().lower() == "insert":
-                    insert_m = m
-                    break
-            if insert_m is None:
-                return None
-            # If a 'Table Presets' submenu already exists in Insert (defined in .ui), reuse it
-            for act in insert_m.actions():
-                m = act.menu()
-                if m and act.text().replace("&", "").strip().lower() == "table presets":
-                    return m
-            # Otherwise create it under Insert
-            return insert_m.addMenu("Table Presets")
-
-        # If the UI provides explicit actions for presets, wire those and skip creating a separate submenu
-        act_insert_preset = window.findChild(QtWidgets.QAction, "actionInsert_Table_Preset")
-        act_save_preset = window.findChild(QtWidgets.QAction, "actionSave_Table_as_Preset")
-        if act_insert_preset:
-            from ui_richtext import choose_and_insert_preset
-
-            act_insert_preset.triggered.connect(
-                lambda: choose_and_insert_preset(
-                    window.findChild(QtWidgets.QTextEdit, "pageEdit"), fit_width_100=True
-                )
-            )
-        if act_save_preset:
-            from ui_richtext import save_current_table_as_preset
-
-            act_save_preset.triggered.connect(
-                lambda: save_current_table_as_preset(
-                    window.findChild(QtWidgets.QTextEdit, "pageEdit")
-                )
-            )
-
-        # Only create a Table Presets submenu if we don't have explicit actions in the UI
-        target_menu = (
-            None
-            if (act_insert_preset or act_save_preset)
-            else _find_or_create_table_presets_menu(window)
-        )
-        if target_menu is not None:
-            target_menu.clear()
-            # Insert submenu
-            sub_insert = target_menu.addMenu("Insert Preset")
-            try:
-                from settings_manager import list_table_preset_names
-
-                names = list_table_preset_names()
-            except Exception:
-                names = []
-            if names:
-                for nm in names:
-                    act = sub_insert.addAction(nm)
-                    act.triggered.connect(
-                        lambda chk=False, name=nm: _insert_preset_into_editor(window, name)
-                    )
-            else:
-                sub_insert.setEnabled(False)
-            target_menu.addSeparator()
-            act_ren = target_menu.addAction("Rename Preset…")
-            act_del = target_menu.addAction("Delete Preset…")
-
-            def _choose_preset_name(parent, title: str) -> str:
-                try:
-                    from settings_manager import list_table_preset_names
-
-                    names = list_table_preset_names()
-                except Exception:
-                    names = []
-                if not names:
-                    QtWidgets.QMessageBox.information(parent, title, "No presets saved yet.")
-                    return None
-                item, ok = QtWidgets.QInputDialog.getItem(parent, title, "Preset:", names, 0, False)
-                return item if ok and item else None
-
-            def _rename_preset():
-                name = _choose_preset_name(window, "Rename Preset")
-                if not name:
-                    return
-                new_name, ok = QtWidgets.QInputDialog.getText(
-                    window, "Rename Preset", "New name:", text=name
-                )
-                if not ok or not new_name or new_name == name:
-                    return
-                try:
-                    from settings_manager import rename_table_preset
-
-                    rename_table_preset(name, new_name)
-                except Exception:
-                    pass
-                # Rebuild the menu to reflect the change
-                QTimer.singleShot(0, lambda: _rebuild_table_presets_menu(window))
-
-            def _delete_preset():
-                name = _choose_preset_name(window, "Delete Preset")
-                if not name:
-                    return
-                if (
-                    QtWidgets.QMessageBox.question(
-                        window,
-                        "Delete Preset",
-                        f"Delete preset '{name}'?",
-                        QtWidgets.QMessageBox.Yes | QtWidgets.QMessageBox.No,
-                    )
-                    != QtWidgets.QMessageBox.Yes
-                ):
-                    return
-                try:
-                    from settings_manager import delete_table_preset
-
-                    delete_table_preset(name)
-                except Exception:
-                    pass
-                QTimer.singleShot(0, lambda: _rebuild_table_presets_menu(window))
-
-            act_ren.triggered.connect(_rename_preset)
-            act_del.triggered.connect(_delete_preset)
-    except Exception:
-        pass
-
-    # Helper to rebuild the Table Presets menu dynamically
-    def _rebuild_table_presets_menu(win):
-        try:
-            # Re-enter main() portion just to rebuild this menu block
-            menubar = win.menuBar() if hasattr(win, "menuBar") else None
-            if menubar is None:
-                return
-            # If UI provides actions, nothing to rebuild here
-            if win.findChild(QtWidgets.QAction, "actionInsert_Table_Preset") or win.findChild(
-                QtWidgets.QAction, "actionSave_Table_as_Preset"
-            ):
-                return
-            # Find the Table Presets menu either as a top-level entry or under Insert
-            target_menu = None
-            # Top-level
-            for a in menubar.actions():
-                if a.menu() and a.text().replace("&", "").strip().lower() == "table presets":
-                    target_menu = a.menu()
-                    break
-            if target_menu is None:
-                # Under Insert
-                insert_menu = None
-                for a in menubar.actions():
-                    if a.menu() and a.text().replace("&", "").strip().lower() == "insert":
-                        insert_menu = a.menu()
-                        break
-                if insert_menu is not None:
-                    for act in insert_menu.actions():
-                        m = act.menu()
-                        if m and act.text().replace("&", "").strip().lower() == "table presets":
-                            target_menu = m
-                            break
-            if target_menu is None:
-                return
-            # Rebuild contents
-            target_menu.clear()
-            sub_insert = target_menu.addMenu("Insert Preset")
-            try:
-                from settings_manager import list_table_preset_names
-
-                names = list_table_preset_names()
-            except Exception:
-                names = []
-            if names:
-                for nm in names:
-                    act = sub_insert.addAction(nm)
-                    act.triggered.connect(
-                        lambda chk=False, name=nm: _insert_preset_into_editor(win, name)
-                    )
-            else:
-                sub_insert.setEnabled(False)
-            target_menu.addSeparator()
-            act_ren = target_menu.addAction("Rename Preset…")
-            act_del = target_menu.addAction("Delete Preset…")
-
-            def _rename_preset_local():
-                from settings_manager import (
-                    list_table_preset_names,
-                    rename_table_preset,
-                )
-
-                name, ok = QtWidgets.QInputDialog.getItem(
-                    win, "Rename Preset", "Preset:", list_table_preset_names(), 0, False
-                )
-                if not ok or not name:
-                    return
-                new_name, ok2 = QtWidgets.QInputDialog.getText(
-                    win, "Rename Preset", "New name:", text=name
-                )
-                if not ok2 or not new_name or new_name == name:
-                    return
-                rename_table_preset(name, new_name)
-                QTimer.singleShot(0, lambda: _rebuild_table_presets_menu(win))
-
-            def _delete_preset_local():
-                from settings_manager import (
-                    delete_table_preset,
-                    list_table_preset_names,
-                )
-
-                name, ok = QtWidgets.QInputDialog.getItem(
-                    win, "Delete Preset", "Preset:", list_table_preset_names(), 0, False
-                )
-                if not ok or not name:
-                    return
-                if (
-                    QtWidgets.QMessageBox.question(
-                        win,
-                        "Delete Preset",
-                        f"Delete preset '{name}'?",
-                        QtWidgets.QMessageBox.Yes | QtWidgets.QMessageBox.No,
-                    )
-                    != QtWidgets.QMessageBox.Yes
-                ):
-                    return
-                delete_table_preset(name)
-                QTimer.singleShot(0, lambda: _rebuild_table_presets_menu(win))
-
-            act_ren.triggered.connect(_rename_preset_local)
-            act_del.triggered.connect(_delete_preset_local)
-        except Exception:
-            pass
-
-    def _insert_preset_into_editor(win, name: str):
-        try:
-            te = win.findChild(QtWidgets.QTextEdit, "pageEdit")
-            if te is not None:
-                insert_table_from_preset(te, name, fit_width_100=True)
-        except Exception:
-            pass
 
     # Keyboard: Ctrl+Up / Ctrl+Down to reorder binders (top-level notebooks)
     try:

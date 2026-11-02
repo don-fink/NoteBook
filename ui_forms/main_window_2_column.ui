@@ -150,11 +150,15 @@
     <addaction name="actionInsert_Existing_Spreadsheet"/>
     <addaction name="actionManage_Page_Spreadsheets"/>
     <addaction name="separator"/>
-    <addaction name="actionPlanning_Register"/>
-    <addaction name="actionSave_Planning_Register_as_Preset"/>
-    <addaction name="actionRename_Planning_Register_Preset"/>
-    <addaction name="actionDelete_Planning_Register_Preset"/>
+    <addaction name="actionInsert_Table"/>
+    <addaction name="actionInsert_Table_From_Preset"/>
+    <addaction name="actionSave_Table_as_Preset"/>
+    <addaction name="actionManage_Table_Presets"/>
     <addaction name="separator"/>
+    <addaction name="actionPlanning_Register"/>
+    <addaction name="actionInsert_Planning_Register_From_Preset"/>
+    <addaction name="actionSave_Planning_Register_as_Preset"/>
+    <addaction name="actionManage_Planning_Register_Presets"/>
    </widget>
    <widget class="QMenu" name="menuHelp">
     <property name="title">
@@ -344,14 +348,24 @@
     <string>Manage Page Spreadsheets…</string>
    </property>
   </action>
-  <action name="actionInsert_Table_Preset">
+  <action name="actionInsert_Table">
    <property name="text">
-    <string>Insert Preset Register…</string>
+    <string>Insert Table…</string>
+   </property>
+  </action>
+  <action name="actionInsert_Table_From_Preset">
+   <property name="text">
+    <string>Insert Table from Preset…</string>
    </property>
   </action>
   <action name="actionSave_Table_as_Preset">
    <property name="text">
-    <string>Save Register as Preset…</string>
+    <string>Save Table as Preset…</string>
+   </property>
+  </action>
+  <action name="actionManage_Table_Presets">
+   <property name="text">
+    <string>Manage Table Presets…</string>
    </property>
   </action>
   <action name="actionClean_Unused_Media">
@@ -468,14 +482,14 @@
     <string>Save Planning Register as Preset…</string>
    </property>
   </action>
-  <action name="actionRename_Planning_Register_Preset">
+  <action name="actionInsert_Planning_Register_From_Preset">
    <property name="text">
-    <string>Rename Planning Register Preset…</string>
+    <string>Insert Planning Register from Preset…</string>
    </property>
   </action>
-  <action name="actionDelete_Planning_Register_Preset">
+  <action name="actionManage_Planning_Register_Presets">
    <property name="text">
-    <string>Delete Planning Register Preset…</string>
+    <string>Manage Planning Register Presets…</string>
    </property>
   </action>
   <action name="actionBackup_Database">

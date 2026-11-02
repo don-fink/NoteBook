@@ -1,6 +1,13 @@
 
 ## Unreleased
+### Added
+- Table and Planning Register presets can be inserted again: Insert → Insert Table from Preset… and Insert Planning Register from Preset…, also under Insert on the right-click menu. Presets come back exactly as saved, text and amounts included.
+- Insert → Insert Table…, Manage Table Presets… and Manage Planning Register Presets… (rename and delete).
+
 ### Changed
+- Presets are stored in the database, in separate lists for tables and Planning Registers, so they're included in backups. Presets saved in settings by earlier versions are copied into each database the first time its presets are used.
+- Saving a preset under a name already in use asks before replacing it. Renaming does the same.
+- Save Table as Preset inside a Planning Register saves just that table; Save Planning Register as Preset saves the whole register, from anywhere inside it. Both are on the right-click menu.
 - On first launch, NoteBook asks you to create a new database or open an existing one, and where to keep it, instead of creating `notes.db` in the folder it was started from. It also asks if the database it used last time can't be found, instead of creating an empty one in its place.
 - The Enter key diagnostic log (`richtext_key_debug.log`) is off unless `NOTEBOOK_RICHTEXT_KEY_DEBUG=1` is set.
 

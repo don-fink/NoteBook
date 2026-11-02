@@ -3422,100 +3422,29 @@ def _table_apply_padding_and_spacing(table, cell_padding: float = None, cell_spa
                 pass
 
 
-def insert_table_from_preset(
-    text_edit: QtWidgets.QTextEdit, preset_name: str, fit_width_100: bool = True
-):
-    """Insert a table defined by a saved preset at the current cursor position.
-
-    Supports two schemas:
-    - v2 (preferred): {"version": 2, "html": "<table>...</table>"}
-      Reinserts the saved HTML exactly as captured, including nested-table layouts.
-    - legacy: structural fields (rows/columns/width/etc.). Inserts a single table as before.
-
-    fit_width_100: For legacy presets only, force table width to 100%% regardless of saved width.
-    """
-    if text_edit is None or not isinstance(preset_name, str) or not preset_name.strip():
-        return
-    if not _require_editable_page(text_edit, "Insert Preset"):
-        return
+def insert_preset_html(text_edit: QtWidgets.QTextEdit, html: str):
+    """Insert a saved table or Planning Register preset at the caret, exactly as saved."""
+    if text_edit is None or not isinstance(html, str) or not html.strip():
+        return None
     try:
-        from settings_manager import get_table_presets
-
-        presets = get_table_presets()
-        data = presets.get(preset_name)
-    except Exception:
-        data = None
-    if not isinstance(data, dict):
-        try:
-            QtWidgets.QMessageBox.information(
-                text_edit, "Insert Preset", f"Preset '{preset_name}' not found."
-            )
-        except Exception:
-            pass
-        return
-
-    html = data.get("html") if isinstance(data, dict) else None
-    if isinstance(html, str) and html.strip():
-        try:
-            cur = text_edit.textCursor()
-            cur.insertHtml(html)
-        except Exception:
-            pass
-        try:
-            from ui_planning_register import (
-                ensure_planning_register_watcher,
-                refresh_planning_register_styles,
-            )
-
-            ensure_planning_register_watcher(text_edit)
-            refresh_planning_register_styles(text_edit)
-        except Exception:
-            pass
-        try:
-            _enforce_uniform_table_borders(text_edit)
-        except Exception:
-            pass
-        return text_edit.textCursor().currentTable()
-
-    try:
-        QtWidgets.QMessageBox.information(
-            text_edit,
-            "Insert Preset",
-            "This preset is from an older version and doesn't include table HTML. Please re-save it.",
-        )
+        text_edit.textCursor().insertHtml(html)
     except Exception:
         pass
-    return None
-
-
-def choose_and_insert_preset(text_edit: QtWidgets.QTextEdit, fit_width_100: bool = True):
-    """Prompt for a preset name and insert it into the editor at the cursor."""
-    if text_edit is None:
-        return
-    if not _require_editable_page(text_edit, "Insert Preset"):
-        return
     try:
-        from settings_manager import list_table_preset_names
-
-        names = list_table_preset_names()
-    except Exception:
-        names = []
-    if not names:
-        try:
-            QtWidgets.QMessageBox.information(text_edit, "Insert Preset", "No presets saved yet.")
-        except Exception:
-            pass
-        return
-    try:
-        name, ok = QtWidgets.QInputDialog.getItem(
-            text_edit, "Insert Preset", "Preset:", names, 0, False
+        from ui_planning_register import (
+            ensure_planning_register_watcher,
+            refresh_planning_register_styles,
         )
+
+        ensure_planning_register_watcher(text_edit)
+        refresh_planning_register_styles(text_edit)
     except Exception:
-        ok = False
-        name = None
-    if not (ok and name and name.strip()):
-        return
-    insert_table_from_preset(text_edit, name.strip(), fit_width_100=fit_width_100)
+        pass
+    try:
+        _enforce_uniform_table_borders(text_edit)
+    except Exception:
+        pass
+    return text_edit.textCursor().currentTable()
 
 
 def insert_planning_register_via_dialog(window: QtWidgets.QMainWindow):
@@ -3528,105 +3457,42 @@ def insert_planning_register_via_dialog(window: QtWidgets.QMainWindow):
         pass
 
 
-def save_current_table_as_preset(text_edit: QtWidgets.QTextEdit):
-    """Save the table under the caret as a reusable preset (HTML-based).
+def _add_insert_submenu(menu: QtWidgets.QMenu, text_edit: QtWidgets.QTextEdit) -> dict:
+    """Add the page right-click menu's Insert submenu, matching the main Insert menu.
 
-    If the caret is inside a nested table, capture the outermost containing table so
-    composite layouts reproduce exactly as saved.
-    """
-    if text_edit is None:
-        return
-    tbl = _current_table(text_edit)
-    if tbl is None:
-        try:
-            QtWidgets.QMessageBox.information(
-                text_edit, "Save Table as Preset", "Place the caret inside a table to save it."
-            )
-        except Exception:
-            pass
-        return
-    try:
-        name, ok = QtWidgets.QInputDialog.getText(
-            text_edit, "Save Table Preset", "Preset name:", text="My Table"
-        )
-    except Exception:
-        ok = False
-        name = None
-    if not (ok and name and name.strip()):
-        return
+    Returns a dict mapping each added action to the function it runs."""
+    import ui_presets
 
-    def _outermost_table(current_tbl):
-        try:
-            doc = text_edit.document()
-            outer = current_tbl
-            seen = set()
-            while outer is not None:
-                key = (outer.firstPosition(), outer.lastPosition())
-                if key in seen:
-                    break
-                seen.add(key)
-                probe_pos = max(0, outer.firstPosition() - 1)
-                probe = QTextCursor(doc)
-                probe.setPosition(probe_pos)
-                candidate = probe.currentTable()
-                if candidate is None:
-                    break
-                if (
-                    candidate.firstPosition() < outer.firstPosition()
-                    and candidate.lastPosition() >= outer.lastPosition()
-                ):
-                    outer = candidate
-                    continue
-                break
-            return outer or current_tbl
-        except Exception:
-            return current_tbl
-
-    tbl = _outermost_table(tbl)
-
-    def _extract_table_fragment(html_text: str) -> str:
-        try:
-            low = html_text.lower()
-            start = low.find("<table")
-            if start < 0:
-                return html_text.strip()
-            end = low.rfind("</table>")
-            if end >= 0:
-                end += len("</table>")
-            else:
-                end = len(html_text)
-            return html_text[start:end].strip()
-        except Exception:
-            return html_text
-
-    try:
-        doc = text_edit.document()
-        cur = QTextCursor(doc)
-        cur.setPosition(tbl.firstPosition())
-        cur.setPosition(tbl.lastPosition(), QTextCursor.KeepAnchor)
-        raw_html = cur.selection().toHtml()
-        table_html = _extract_table_fragment(raw_html)
-    except Exception:
-        table_html = ""
-    if not table_html:
-        try:
-            QtWidgets.QMessageBox.information(
-                text_edit, "Save Table as Preset", "Couldn't capture table HTML."
-            )
-        except Exception:
-            pass
-        return
-
-    preset = {"version": 2, "html": table_html}
-    try:
-        from settings_manager import save_table_preset
-
-        save_table_preset(name.strip(), preset)
-        QtWidgets.QToolTip.showText(
-            text_edit.mapToGlobal(text_edit.rect().center()), f"Saved preset '{name.strip()}'"
-        )
-    except Exception:
-        pass
+    sub = menu.addMenu("Insert")
+    items = [
+        ("Table…", lambda: _table_insert_dialog(text_edit)),
+        (
+            "Table from Preset…",
+            lambda: ui_presets.insert_from_preset(text_edit, ui_presets.KIND_TABLE),
+        ),
+        (
+            "Manage Table Presets…",
+            lambda: ui_presets.manage_presets(text_edit, ui_presets.KIND_TABLE),
+        ),
+        None,
+        ("Planning Register", lambda: insert_planning_register_via_dialog(text_edit.window())),
+        (
+            "Planning Register from Preset…",
+            lambda: ui_presets.insert_from_preset(text_edit, ui_presets.KIND_REGISTER),
+        ),
+        (
+            "Manage Planning Register Presets…",
+            lambda: ui_presets.manage_presets(text_edit, ui_presets.KIND_REGISTER),
+        ),
+    ]
+    handlers = {}
+    for item in items:
+        if item is None:
+            sub.addSeparator()
+            continue
+        text, handler = item
+        handlers[sub.addAction(text)] = handler
+    return handlers
 
 
 def _table_insert_or_edit(text_edit: QtWidgets.QTextEdit):
@@ -4136,29 +4002,15 @@ class _TableContextMenu(QObject):
                 except Exception:
                     pass
                 act_add_link = menu.addAction("Add Link…") if _can_add_link(self._edit) else None
-                sub_ins = menu.addMenu("Insert")
-                act_ins_table = sub_ins.addAction("Table…")
-                # Insert Planning Register (dialog) under Insert submenu
-                act_ins_pr_dialog = sub_ins.addAction("Planning Register…")
+                insert_handlers = _add_insert_submenu(menu, self._edit)
                 chosen = menu.exec_(global_pos)
                 if chosen is None:
                     return True
                 if chosen == act_add_link:
                     _add_link_to_selection(self._edit)
                     return True
-                if chosen == act_ins_table:
-                    _table_insert_dialog(self._edit)
-                    return True
-                if chosen == act_ins_pr_dialog:
-                    try:
-                        from ui_richtext import insert_planning_register_via_dialog
-
-                        # window is parent of the editor; walk up to QMainWindow
-                        w = self._edit.window()
-                        insert_planning_register_via_dialog(w)
-                    except Exception:
-                        pass
-                    return True
+                if chosen in insert_handlers:
+                    insert_handlers[chosen]()
                 return True
             # Otherwise, build the full table menu
             menu = QtWidgets.QMenu(self._edit)
@@ -4176,17 +4028,21 @@ class _TableContextMenu(QObject):
             # Precompute selection rectangle early (for multi-column operations)
             sel_rect = _table_selection_rect(self._edit, tbl)
             act_add_link = menu.addAction("Add Link…") if _can_add_link(self._edit) else None
-            # Insert submenu with Table and Planning Register
-            sub_ins = menu.addMenu("Insert")
-            act_ins = sub_ins.addAction("Table…")
+            insert_handlers = _add_insert_submenu(menu, self._edit)
             act_prop = menu.addAction("Table Properties…")
             act_fit = menu.addAction("Fit Table to Width")
             act_dist = menu.addAction("Distribute Columns Evenly")
             act_set_col = menu.addAction("Set Current Column Width…")
             menu.addSeparator()
             act_save_preset = menu.addAction("Save Table as Preset…")
-            # Insert Planning Register (dialog) under Insert submenu
-            act_ins_pr_dialog = sub_ins.addAction("Planning Register…")
+            act_save_reg_preset = None
+            try:
+                from ui_presets import is_in_planning_register
+
+                if is_in_planning_register(self._edit, tbl):
+                    act_save_reg_preset = menu.addAction("Save Planning Register as Preset…")
+            except Exception:
+                pass
             menu.addSeparator()
             # Currency column helper
             act_mark_currency = menu.addAction("Mark Column(s) as Currency + Total")
@@ -4226,16 +4082,8 @@ class _TableContextMenu(QObject):
                 return True
             if chosen == act_add_link:
                 _add_link_to_selection(self._edit)
-            elif chosen == act_ins:
-                _table_insert_dialog(self._edit)
-            elif chosen == act_ins_pr_dialog:
-                try:
-                    from ui_richtext import insert_planning_register_via_dialog
-
-                    w = self._edit.window()
-                    insert_planning_register_via_dialog(w)
-                except Exception:
-                    pass
+            elif chosen in insert_handlers:
+                insert_handlers[chosen]()
             elif chosen == act_mark_currency and has_tbl:
                 # Get clicked cell column explicitly to avoid stale rect issues
                 clicked_col = None
@@ -4263,11 +4111,13 @@ class _TableContextMenu(QObject):
                     pass
                 _table_set_current_column_width(self._edit, tbl)
             elif chosen == act_save_preset and has_tbl:
-                # Use the centralized HTML-based saver so data and styles are preserved
-                try:
-                    save_current_table_as_preset(self._edit)
-                except Exception:
-                    pass
+                from ui_presets import save_table_preset
+
+                save_table_preset(self._edit)
+            elif act_save_reg_preset is not None and chosen == act_save_reg_preset:
+                from ui_presets import save_register_preset
+
+                save_register_preset(self._edit)
             elif has_tbl:
                 if chosen == act_row_above:
                     _table_insert_rows_from_selection(self._edit, tbl, sel_rect, above=True)

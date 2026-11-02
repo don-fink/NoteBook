@@ -618,57 +618,16 @@ def set_theme_name(name: str):
     save_settings(s)
 
 
-# --- Table presets (store table formats for reuse) ---
+# --- Table presets (kept by earlier versions; now stored in the database) ---
 def get_table_presets() -> dict:
-    """Return a dict mapping preset name -> preset data dict.
+    """Return presets saved in settings by earlier versions, as name -> {"version": 2, "html": ...}.
 
-    Supported schema: {"version": 2, "html": "<table>...</table>"}
-    """
+    Read only when a database's presets table is first created (see db_presets.py)."""
     s = load_settings()
     presets = s.get("table_presets")
     if isinstance(presets, dict):
         return presets
     return {}
-
-
-def save_table_preset(name: str, data: dict):
-    if not isinstance(name, str) or not name.strip() or not isinstance(data, dict):
-        return
-    s = load_settings()
-    presets = s.get("table_presets")
-    if not isinstance(presets, dict):
-        presets = {}
-    presets[name.strip()] = data
-    s["table_presets"] = presets
-    save_settings(s)
-
-
-def delete_table_preset(name: str):
-    if not isinstance(name, str) or not name:
-        return
-    s = load_settings()
-    presets = s.get("table_presets")
-    if isinstance(presets, dict) and name in presets:
-        del presets[name]
-        s["table_presets"] = presets
-        save_settings(s)
-
-
-def rename_table_preset(old_name: str, new_name: str):
-    if not old_name or not new_name or old_name == new_name:
-        return
-    s = load_settings()
-    presets = s.get("table_presets")
-    if not isinstance(presets, dict):
-        return
-    if old_name in presets:
-        presets[new_name] = presets.pop(old_name)
-        s["table_presets"] = presets
-        save_settings(s)
-
-
-def list_table_preset_names() -> list:
-    return list(get_table_presets().keys())
 
 
 # --- Default inserted image long side (px) ---
