@@ -1,5 +1,5 @@
 
-## Unreleased
+## 1.8.0 - 2026-11-03
 ### Added
 - Dark theme: a dark frame around a dimmed paper page, so existing pages and tables stay readable. Choose it under Tools → Settings → Themes.
 - Message windows have a new look that comes from the theme: a colored bar down the left edge for each kind of message (information, question, warning, error), matching icons, and a highlighted main button. Prompts, notices, the tree's drag line and the image resize handles follow the theme too. `docs/Themes.md` lists what a theme can style.
