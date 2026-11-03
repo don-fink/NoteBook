@@ -43,7 +43,7 @@ Access application settings from **Tools → Settings**. From there you can conf
 
 ## Switching Themes
 
-Go to **Tools → Settings → Themes** and choose a theme. NoteBook comes with **Default** and **High Contrast**. The change takes effect immediately without restarting.
+Go to **Tools → Settings → Themes** and choose a theme. NoteBook comes with **Default**, **Dark** and **High Contrast**. Dark gives the window a dark frame and keeps the page a dimmed paper color, so text and tables in your pages stay readable whatever colors they were written in. The change takes effect immediately without restarting.
 
 A theme is a Qt stylesheet (`.qss`) file. To add your own, put a `.qss` file in a `themes` folder next to your `settings.json` (the Themes tab shows the exact folder), then reopen Settings. The file name becomes the theme's name: `dark-slate.qss` appears as **Dark Slate**. A file named like a theme that comes with NoteBook, such as `default.qss`, replaces that theme. Copying one of the files from NoteBook's own `themes` folder is the easiest way to start.
 

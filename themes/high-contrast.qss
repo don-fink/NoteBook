@@ -45,3 +45,10 @@ QLabel#nbToast { background-color: #000000; color: #ffffff; border: 2px solid #f
 QTreeView::drop-indicator { border: 3px solid #000000; }
 QFrame#leftTreeDropIndicator { background: #000000; }
 QWidget#nbResizeHandles { qproperty-accentColor: #000000; }
+
+/* Formatting toolbar above the page */
+QWidget#richTextToolbar { background: #f2f2f2; border-bottom: 1px solid #000000; }
+QWidget#richTextToolbar QToolButton { padding: 1px 3px; border: none; background: transparent; color: #000000; }
+QWidget#richTextToolbar QToolButton:checked { background: #ffffff; border: 1px solid #000000; border-radius: 3px; }
+QWidget#richTextToolbar QToolButton:hover { background: #d9d9d9; border-radius: 3px; }
+QWidget#richTextToolbar QToolButton::menu-indicator { image: none; }

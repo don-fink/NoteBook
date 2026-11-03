@@ -71,3 +71,10 @@ QLabel#nbToast { background-color: rgba(29, 39, 51, 225); color: #ffffff; border
 QTreeView::drop-indicator { border: 2px solid #2f6fb5; background: rgba(47, 111, 181, 0.25); }
 QFrame#leftTreeDropIndicator { background: #2f6fb5; }
 QWidget#nbResizeHandles { qproperty-accentColor: #2f6fb5; }
+
+/* Formatting toolbar above the page */
+QWidget#richTextToolbar { background: #f6f6f6; border-bottom: 1px solid #d0d0d0; }
+QWidget#richTextToolbar QToolButton { padding: 1px 3px; border: none; background: transparent; color: #303030; }
+QWidget#richTextToolbar QToolButton:checked { background: #e9f3ff; border: 1px solid #8ab9ff; border-radius: 3px; }
+QWidget#richTextToolbar QToolButton:hover { background: #e0e0e0; border-radius: 3px; }
+QWidget#richTextToolbar QToolButton::menu-indicator { image: none; }

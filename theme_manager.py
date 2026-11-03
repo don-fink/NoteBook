@@ -75,6 +75,14 @@ def _resolve_urls(qss: str, base_dir: str) -> str:
     return _URL_RE.sub(_fix, qss)
 
 
+_listeners = []
+
+
+def on_theme_applied(callback):
+    """Call callback() after each theme change, for things drawn in code from theme colors."""
+    _listeners.append(callback)
+
+
 def apply_theme(name: str = None) -> str:
     """Apply a theme to the whole program. Returns the name of the theme applied.
 
@@ -93,6 +101,11 @@ def apply_theme(name: str = None) -> str:
         except Exception:
             qss = ""
     app.setStyleSheet(qss)
+    for callback in list(_listeners):
+        try:
+            callback()
+        except Exception:
+            pass
     return name or ""
 
 

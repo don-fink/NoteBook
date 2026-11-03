@@ -550,6 +550,21 @@ _ORDERED_SCHEME = "classic"  # 'classic' or 'decimal'
 _UNORDERED_SCHEME = "disc-circle-square"  # 'disc-circle-square' or 'disc-only'
 
 
+def _refresh_toolbar_icons(toolbar):
+    """Redraw the toolbar's icons in its buttons' text color, e.g. after a theme change."""
+    try:
+        if not _is_alive(toolbar):
+            return
+        for btn in toolbar.findChildren(QtWidgets.QToolButton):
+            kind = btn.property("nbIcon")
+            if kind:
+                btn.ensurePolished()
+                fg = btn.palette().color(QPalette.ColorRole.ButtonText)
+                btn.setIcon(_make_icon(str(kind), fg=fg))
+    except Exception:
+        pass
+
+
 def _make_icon(kind: str, size: QSize = QSize(24, 24), fg: QColor = QColor("#303030")) -> QIcon:
     pm = QPixmap(size)
     pm.fill(Qt.transparent)
@@ -684,7 +699,7 @@ def _make_icon(kind: str, size: QSize = QSize(24, 24), fg: QColor = QColor("#303
                 QPoint(px - size // 3, py + size // 2),
                 QPoint(px + size // 2, py),
             ]
-            p.setBrush(QBrush(QColor(60, 60, 60)))
+            p.setBrush(QBrush(fg))
             p.setPen(Qt.NoPen)
             p.drawPolygon(*pts)
         elif kind == "code":
@@ -731,29 +746,41 @@ def add_rich_text_toolbar(
     toolbar = QtWidgets.QWidget(parent_tab)
     toolbar.setObjectName("richTextToolbar")
     toolbar.setSizePolicy(QtWidgets.QSizePolicy.Expanding, QtWidgets.QSizePolicy.Fixed)
-    toolbar.setStyleSheet(
+    # Themes style it as QWidget#richTextToolbar; without that, this light ribbon
+    try:
+        from theme_manager import on_theme_applied, theme_styles
+
+        themed = theme_styles("richTextToolbar")
+    except Exception:
+        on_theme_applied, themed = None, False
+    if not themed:
+        toolbar.setStyleSheet(
+            """
+            QWidget#richTextToolbar {
+                background: #f6f6f6;
+                border-bottom: 1px solid #d0d0d0;
+            }
+            QToolButton {
+                padding: 1px 3px;
+                border: none;
+                background: transparent;
+            }
+            QToolButton:checked {
+                background: #e9f3ff;
+                border: 1px solid #8ab9ff;
+                border-radius: 3px;
+            }
+            QToolButton:hover {
+                background: #e0e0e0;
+                border-radius: 3px;
+            }
+            QToolButton::menu-indicator { image: none; }
         """
-        QWidget#richTextToolbar {
-            background: #f6f6f6;
-            border-bottom: 1px solid #d0d0d0;
-        }
-        QToolButton {
-            padding: 1px 3px;
-            border: none;
-            background: transparent;
-        }
-        QToolButton:checked {
-            background: #e9f3ff;
-            border: 1px solid #8ab9ff;
-            border-radius: 3px;
-        }
-        QToolButton:hover {
-            background: #e0e0e0;
-            border-radius: 3px;
-        }
-        QToolButton::menu-indicator { image: none; }
-    """
-    )
+        )
+    # Icons are drawn in the buttons' text color, so they follow the theme
+    QTimer.singleShot(0, lambda: _refresh_toolbar_icons(toolbar))
+    if on_theme_applied is not None:
+        on_theme_applied(lambda: _refresh_toolbar_icons(toolbar))
     _tb = QtWidgets.QHBoxLayout(toolbar)
     _tb.setContentsMargins(4, 2, 4, 2)
     _tb.setSpacing(2)
@@ -762,6 +789,7 @@ def add_rich_text_toolbar(
     def _tb_btn(icon_name, tooltip="", callback=None, checkable=False):
         btn = QtWidgets.QToolButton(toolbar)
         btn.setIcon(_make_icon(icon_name))
+        btn.setProperty("nbIcon", icon_name)
         btn.setIconSize(_icon_sz)
         btn.setToolTip(tooltip)
         btn.setCheckable(checkable)
@@ -1006,6 +1034,7 @@ def add_rich_text_toolbar(
     # Image insert: split-button with dropdown for sizing modes
     btn_img = QtWidgets.QToolButton(toolbar)
     btn_img.setIcon(_make_icon("image"))
+    btn_img.setProperty("nbIcon", "image")
     btn_img.setToolTip("Insert image from file")
     # Open the menu on any click (no direct action)
     btn_img.setPopupMode(QtWidgets.QToolButton.InstantPopup)
@@ -1040,6 +1069,7 @@ def add_rich_text_toolbar(
     # Video insert: split-button with options
     btn_vid = QtWidgets.QToolButton(toolbar)
     btn_vid.setIcon(_make_icon("video"))
+    btn_vid.setProperty("nbIcon", "video")
     btn_vid.setToolTip("Insert video from file")
     btn_vid.setPopupMode(QtWidgets.QToolButton.InstantPopup)
     vid_menu = QtWidgets.QMenu(btn_vid)

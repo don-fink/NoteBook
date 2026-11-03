@@ -1,6 +1,7 @@
 
 ## Unreleased
 ### Added
+- Dark theme: a dark frame around a dimmed paper page, so existing pages and tables stay readable. Choose it under Tools → Settings → Themes.
 - Message windows have a new look that comes from the theme: a colored bar down the left edge for each kind of message (information, question, warning, error), matching icons, and a highlighted main button. Prompts, notices, the tree's drag line and the image resize handles follow the theme too. `docs/Themes.md` lists what a theme can style.
 - Resize images and video thumbnails by dragging a corner handle, which appears when the mouse is over the image. The image always keeps its shape, can't be dragged wider than the page or its table cell, and changes size on release as one undo step. Alt text, title and video links are kept.
 
@@ -9,9 +10,9 @@
 - Confirmations name the action on their buttons (**Delete**, **Replace**, **Move**) instead of Yes and No. For deleting or overwriting, Enter chooses Cancel.
 - Fit to editor width leaves room for the scrollbar, so a fitted image no longer ends up slightly wider than the page.
 
-
 ### Fixed
 - Print and Print Preview failed with "type object 'QPrinter' has no attribute 'HighResolution'", left over from the move to PyQt6. Images on printed pages also printed as blank placeholders; they now print.
+
 
 ## 1.7.0 - 2026-11-02
 ### Added

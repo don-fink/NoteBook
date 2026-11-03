@@ -261,6 +261,9 @@ class LeftTreeDnDFilter(QObject):
             self._highlight_item = item
             self._highlight_kind = "child"
             item.setBackground(0, QBrush(QColor(255, 233, 179)))  # soft amber
+            # Dark text on the amber, whatever the theme's text color; restored afterwards
+            self._highlight_fg = item.foreground(0)
+            item.setForeground(0, QBrush(QColor(29, 29, 29)))
         except Exception:
             pass
 
@@ -268,6 +271,9 @@ class LeftTreeDnDFilter(QObject):
         try:
             if self._highlight_item is not None:
                 self._highlight_item.setBackground(0, QBrush())
+                self._highlight_item.setForeground(
+                    0, getattr(self, "_highlight_fg", None) or QBrush()
+                )
             self._highlight_item = None
             self._highlight_kind = None
         except Exception:

@@ -24,5 +24,10 @@ Besides ordinary Qt widgets (`QMenu`, `QPushButton`, `QTreeView` and so on), Not
 | Notices | `QLabel#nbToast` | The short notices near the bottom of the window. |
 | Tree drag line | `QFrame#leftTreeDropIndicator` and `QTreeView::drop-indicator` | Shown while dragging binders and pages. |
 | Image resize handles | `QWidget#nbResizeHandles { qproperty-accentColor: #2f6fb5; }` | The outline and corner handles on images. |
+| Formatting toolbar | `QWidget#richTextToolbar` and `QWidget#richTextToolbar QToolButton` | The bar above the page. Its icons are drawn in the buttons' `color`. |
 
-If a theme doesn't style the notices or the tree drag line, NoteBook uses its own built-in look for them.
+If a theme doesn't style the notices, the tree drag line or the formatting toolbar, NoteBook uses its own built-in look for them.
+
+## Dark themes
+
+Page content keeps the colors it was written with, and most text in pages is stored as black or near-black. A dark theme should therefore keep `QTextEdit` (the page) a light color, as the Dark theme does with its dimmed paper color. The same goes for `QTextBrowser` (help), `QPlainTextEdit` (HTML source) and `QTableView` (spreadsheets).
