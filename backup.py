@@ -19,6 +19,7 @@ import time
 import zipfile
 from typing import Optional
 
+import ui_messages
 from qt_compat import QtCore, QtWidgets
 
 Qt = QtCore.Qt
@@ -318,24 +319,31 @@ def show_rename_database_dialog(window):
     def _apply(new_text: str):
         norm = _sanitize_db_filename(new_text or "")
         if not norm:
-            QtWidgets.QMessageBox.information(
-                window, "Rename Database", "Please enter a valid filename (e.g., MyNotes.db)."
+            ui_messages.info(
+                window,
+                "Rename Database",
+                "Enter a file name for the database.",
+                "For example: MyNotes.db",
             )
             return
         # Compose new path in same directory
         new_path = os.path.join(os.path.dirname(db_path), norm)
         if os.path.exists(new_path) and os.path.normcase(new_path) != os.path.normcase(db_path):
-            QtWidgets.QMessageBox.warning(
+            ui_messages.warning(
                 window,
                 "Rename Database",
-                f"A file with that name already exists:\n{new_path}",
+                "A file with that name already exists.",
+                f"{new_path}\n\nChoose a different name.",
             )
             return
         # Try rename
         result = _rename_database_and_media(db_path, norm)
         if not result:
-            QtWidgets.QMessageBox.warning(
-                window, "Rename Database", "Could not rename the database."
+            ui_messages.error(
+                window,
+                "Rename Database",
+                "Couldn't rename the database.",
+                "It may be open in another program.",
             )
             return
         # Update app state: settings, window title, media root, editor baseUrl
@@ -373,7 +381,7 @@ def show_rename_database_dialog(window):
                 dlg.accept()
         except Exception:
             pass
-        QtWidgets.QMessageBox.information(window, "Rename Database", f"Renamed to:\n{result}")
+        ui_messages.info(window, "Rename Database", "Database renamed.", str(result))
 
     if dlg is not None:
         try:
@@ -399,7 +407,7 @@ def show_rename_database_dialog(window):
             pass
 
     # Fallback simple input dialog
-    new_name, ok = QtWidgets.QInputDialog.getText(
+    new_name, ok = ui_messages.get_text(
         window, "Rename Database", "New filename:", text=current_name
     )
     if not ok:
@@ -658,15 +666,13 @@ def export_binder(window):
         db_path = getattr(window, "_db_path", None) or "notes.db"
     nb_id = _current_notebook_id_from_ui(window)
     if nb_id is None:
-        QtWidgets.QMessageBox.information(
-            window, "Export Binder", "Please select a binder to export."
-        )
+        ui_messages.info(window, "Export Binder", "Select a binder to export.")
         return
 
     # Fetch payload and determine default filename
     payload = _fetch_binder_payload(db_path, int(nb_id))
     if not payload:
-        QtWidgets.QMessageBox.warning(window, "Export Binder", "Could not read binder data.")
+        ui_messages.error(window, "Export Binder", "Couldn't read the binder.")
         return
     binder_title = payload["notebook"]["title"] or "Binder"
     # Sanitize title for filename
@@ -747,7 +753,7 @@ def export_binder(window):
             QtWidgets.QApplication.restoreOverrideCursor()
         except Exception:
             pass
-        QtWidgets.QMessageBox.warning(window, "Export Binder", f"Failed to export binder:\n{e}")
+        ui_messages.error(window, "Export Binder", "Couldn't export the binder.", details=str(e))
         return
     finally:
         try:
@@ -755,7 +761,7 @@ def export_binder(window):
         except Exception:
             pass
 
-    QtWidgets.QMessageBox.information(window, "Export Binder", f"Binder exported to:\n{out_path}")
+    ui_messages.info(window, "Export Binder", "Binder exported.", str(out_path))
 
 
 # -------------------- Import Binder --------------------
@@ -817,17 +823,26 @@ def import_binder(window):
             try:
                 data = zf.read("binder.json")
             except KeyError:
-                QtWidgets.QMessageBox.warning(
-                    window, "Import Binder", "Invalid binder: missing binder.json"
+                ui_messages.error(
+                    window,
+                    "Import Binder",
+                    "That isn't a NoteBook binder file.",
+                    details="Missing binder.json",
                 )
                 return
             try:
                 manifest = json.loads(data.decode("utf-8"))
             except Exception as e:
-                QtWidgets.QMessageBox.warning(window, "Import Binder", f"Invalid binder.json: {e}")
+                ui_messages.error(
+                    window, "Import Binder", "That isn't a NoteBook binder file.", details=str(e)
+                )
                 return
             if not isinstance(manifest, dict) or manifest.get("format") != "notebook-binder-v1":
-                QtWidgets.QMessageBox.warning(window, "Import Binder", "Unsupported binder format.")
+                ui_messages.error(
+                    window,
+                    "Import Binder",
+                    "This binder was made by a version of NoteBook that this one can't read.",
+                )
                 return
 
             # Prepare DB inserts (single connection, with a small busy timeout)
@@ -1159,11 +1174,9 @@ def import_binder(window):
                 QtWidgets.QApplication.restoreOverrideCursor()
             except Exception:
                 pass
-            QtWidgets.QMessageBox.information(
-                window, "Import Binder", f"Binder imported as: {title}"
-            )
+            ui_messages.info(window, "Import Binder", f'Binder imported as "{title}".')
     except zipfile.BadZipFile as e:
-        QtWidgets.QMessageBox.warning(window, "Import Binder", f"Invalid binder file: {e}")
+        ui_messages.error(window, "Import Binder", "Couldn't import the binder.", details=str(e))
         return
     finally:
         # Ensure cursor is restored if any path above early-returns without clearing

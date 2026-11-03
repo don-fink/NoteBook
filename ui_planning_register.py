@@ -9,6 +9,7 @@ Layout requested:
     - Left column width = 50% of inner table; remaining 50% split across the other two columns
 """
 
+import ui_messages
 from qt_compat import QtCore, QtGui, QtWidgets
 
 QBrush = QtGui.QBrush
@@ -772,11 +773,7 @@ def insert_planning_register(window: QtWidgets.QMainWindow):
     """
     te: QtWidgets.QTextEdit = window.findChild(QtWidgets.QTextEdit, "pageEdit")
     if te is None or not te.isEnabled() or te.isReadOnly():
-        QtWidgets.QMessageBox.information(
-            window,
-            "Planning Register",
-            "Please open or create a page first.",
-        )
+        ui_messages.no_page(window, "Planning Register")
         return
 
     cursor = te.textCursor()

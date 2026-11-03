@@ -15,6 +15,7 @@ Qt = QtCore.Qt
 QTimer = QtCore.QTimer
 QUrl = QtCore.QUrl
 
+import ui_messages
 from db_access import create_notebook as db_create_notebook
 from db_access import delete_notebook as db_delete_notebook
 from db_access import rename_notebook as db_rename_notebook
@@ -77,7 +78,13 @@ def _install_global_excepthook():
             pass
         try:
             if QtWidgets.QApplication.instance() is not None:
-                QtWidgets.QMessageBox.critical(None, "Unexpected Error", msg)
+                ui_messages.error(
+                    None,
+                    "Unexpected Error",
+                    "NoteBook ran into an unexpected problem.",
+                    "The details were saved to crash.log. If anything looks wrong, save your work and restart NoteBook.",
+                    details=msg,
+                )
         except Exception:
             pass
         try:
@@ -199,23 +206,19 @@ def migrate_database_if_needed(db_path: str, parent_window=None) -> bool:
         if needs_soft_delete or needs_spreadsheets:
             # Prompt user before upgrading
             if parent_window is not None:
-                msg_box = QtWidgets.QMessageBox(parent_window)
-                msg_box.setWindowTitle("Database Upgrade Required")
-                msg_box.setIcon(QtWidgets.QMessageBox.Question)
-                msg_box.setText(
-                    f"The database '{os.path.basename(db_path)}' uses an older schema.\n\n"
-                    "This version of NoteBook requires a schema upgrade to support "
-                    "current recovery and spreadsheet features.\n\n"
-                    "It's recommended to back up your database before proceeding.\n\n"
-                    "Would you like to upgrade now?"
+                msg_box = ui_messages.make_box(
+                    parent_window,
+                    "question",
+                    "Database Upgrade Required",
+                    f"Upgrade {os.path.basename(db_path)}?",
+                    "It uses an older format. This version of NoteBook needs to upgrade it for "
+                    "its recovery and spreadsheet features. Back up the database first if you "
+                    "haven't already.",
                 )
-                msg_box.addButton("Upgrade", QtWidgets.QMessageBox.AcceptRole)
-                different_btn = msg_box.addButton(
-                    "Open Different Database", QtWidgets.QMessageBox.RejectRole
-                )
-                cancel_btn = msg_box.addButton(QtWidgets.QMessageBox.Cancel)
-                msg_box.exec_()
-                clicked = msg_box.clickedButton()
+                upgrade_btn = ui_messages.add_button(msg_box, "Upgrade", "primary")
+                different_btn = ui_messages.add_button(msg_box, "Open Different Database")
+                cancel_btn = ui_messages.add_button(msg_box, "Cancel", cancel=True)
+                clicked = ui_messages.run(msg_box, upgrade_btn)
 
                 if clicked == cancel_btn or clicked == different_btn:
                     conn.close()
@@ -248,10 +251,11 @@ def migrate_database_if_needed(db_path: str, parent_window=None) -> bool:
                 conn.commit()
             except Exception as e:
                 if parent_window is not None:
-                    QtWidgets.QMessageBox.critical(
+                    ui_messages.error(
                         parent_window,
-                        "Migration Failed",
-                        f"Failed to upgrade database schema:\n{e}",
+                        "Database Upgrade",
+                        "Couldn't upgrade the database.",
+                        details=str(e),
                     )
                 conn.close()
                 return False
@@ -281,26 +285,28 @@ def choose_startup_database(window):
         QtCore.QStandardPaths.StandardLocation.DocumentsLocation
     )
     while True:
-        msg_box = QtWidgets.QMessageBox(window)
-        msg_box.setIcon(QtWidgets.QMessageBox.Question)
         if last:
-            msg_box.setWindowTitle("Database Not Found")
-            msg_box.setText(
-                f"NoteBook couldn't find the database it used last time:\n\n{last}\n\n"
-                "It may have been moved, renamed or deleted. "
-                "You can open it from its new location or create a new database."
+            msg_box = ui_messages.make_box(
+                window,
+                "question",
+                "Database Not Found",
+                "NoteBook couldn't find the database it used last time.",
+                f"{last}\n\nIt may have been moved, renamed or deleted. Open it from its new "
+                "location, or create a new database.",
             )
         else:
-            msg_box.setWindowTitle("Welcome to NoteBook")
-            msg_box.setText(
-                "NoteBook keeps your notes in a database file.\n\n"
-                "Create a new database, or open one you already have."
+            msg_box = ui_messages.make_box(
+                window,
+                "question",
+                "Welcome to NoteBook",
+                "Where should NoteBook keep your notes?",
+                "NoteBook keeps your notes in a database file. Create a new one, or open one "
+                "you already have.",
             )
-        create_btn = msg_box.addButton("Create New Database…", QtWidgets.QMessageBox.AcceptRole)
-        open_btn = msg_box.addButton("Open Existing Database…", QtWidgets.QMessageBox.ActionRole)
-        msg_box.addButton("Exit", QtWidgets.QMessageBox.RejectRole)
-        msg_box.exec_()
-        clicked = msg_box.clickedButton()
+        create_btn = ui_messages.add_button(msg_box, "Create New Database…", "primary")
+        open_btn = ui_messages.add_button(msg_box, "Open Existing Database…")
+        ui_messages.add_button(msg_box, "Exit", cancel=True)
+        clicked = ui_messages.run(msg_box, create_btn)
         if clicked == create_btn:
             path, _ = QtWidgets.QFileDialog.getSaveFileName(
                 window,
@@ -384,7 +390,13 @@ def open_database(window):
             # User cancelled upgrade or chose to open different database
             return
     except Exception as e:
-        QtWidgets.QMessageBox.critical(window, "Open Database", f"Failed to open DB: {e}")
+        ui_messages.error(
+            window,
+            "Open Database",
+            "Couldn't open the database.",
+            "It may be damaged, or not a NoteBook database.",
+            details=str(e),
+        )
         return
     _leave_current_page(window)
     try:
@@ -464,16 +476,14 @@ def _select_left_tree_notebook(window, notebook_id: int):
 def add_binder(window):
     """Create a new notebook (binder) and refresh the left tree."""
     db_path = getattr(window, "_db_path", None) or get_last_db() or "notes.db"
-    title, ok = QtWidgets.QInputDialog.getText(
-        window, "Add Binder", "Title:", text="Untitled Binder"
-    )
+    title, ok = ui_messages.get_text(window, "Add Binder", "Title:", text="Untitled Binder")
     if not ok:
         return
     title = (title or "Untitled Binder").strip() or "Untitled Binder"
     try:
         nid = db_create_notebook(title, db_path)
     except Exception as e:
-        QtWidgets.QMessageBox.warning(window, "Add Binder", f"Failed: {e}")
+        ui_messages.error(window, "Add Binder", "Couldn't add the binder.", details=str(e))
         return
     populate_notebook_names(window, db_path)
     _select_left_tree_notebook(window, nid)
@@ -497,7 +507,13 @@ def create_new_database(window):
         clear_last_state()
         window._db_path = dlg_path
     except Exception as e:
-        QtWidgets.QMessageBox.warning(window, "New Database", f"Failed: {e}")
+        ui_messages.error(
+            window,
+            "New Database",
+            "Couldn't create the database.",
+            "Check that you can save files in that folder.",
+            details=str(e),
+        )
         return
     _use_media_root(window, dlg_path)
     populate_notebook_names(window, dlg_path)
@@ -519,13 +535,11 @@ def rename_binder(window):
         # If a section is selected, rename its parent binder
         item = item.parent()
     if item is None:
-        QtWidgets.QMessageBox.information(window, "Rename Binder", "No binder selected.")
+        ui_messages.info(window, "Rename Binder", "Select a binder first.")
         return
     nid = item.data(0, 1000)
     current = item.text(0) or ""
-    new_title, ok = QtWidgets.QInputDialog.getText(
-        window, "Rename Binder", "New title:", text=current
-    )
+    new_title, ok = ui_messages.get_text(window, "Rename Binder", "New title:", text=current)
     if not ok or not new_title.strip():
         return
     # Capture and persist expanded state before renaming
@@ -581,7 +595,7 @@ def delete_binder(window):
         # If a section is selected, delete its parent binder
         item = item.parent()
     if item is None:
-        QtWidgets.QMessageBox.information(window, "Delete Binder", "No binder selected.")
+        ui_messages.info(window, "Delete Binder", "Select a binder first.")
         return
     # Capture index of the binder being deleted to select an adjacent one afterwards
     try:
@@ -592,13 +606,14 @@ def delete_binder(window):
         deleted_index = 0
     nid = int(item.data(0, 1000))
     title_text = item.text(0) or "(untitled)"
-    confirm = QtWidgets.QMessageBox.question(
+    if not ui_messages.confirm(
         window,
         "Delete Binder",
-        f'Are you sure you want to delete the binder "{title_text}" and all its sections and pages?',
-        QtWidgets.QMessageBox.Yes | QtWidgets.QMessageBox.No,
-    )
-    if confirm != QtWidgets.QMessageBox.Yes:
+        f'Delete the binder "{title_text}"?',
+        "Its sections and pages are deleted with it. To get it back, turn on File → Show Deleted Items and choose Restore.",
+        action="Delete",
+        destructive=True,
+    ):
         return
     # Capture current expanded state of top-level binders to restore after refresh and persist across restarts
     expanded_ids = set()
@@ -698,7 +713,9 @@ def add_section(window):
     # Determine target notebook: current selection in left tree
     tree_widget = window.findChild(QtWidgets.QTreeWidget, "notebookName")
     if not tree_widget or tree_widget.topLevelItemCount() == 0:
-        QtWidgets.QMessageBox.information(window, "Add Section", "Please add a binder first.")
+        ui_messages.info(
+            window, "Add Section", "Add a binder first.", "Sections go inside binders."
+        )
         return
     item = tree_widget.currentItem() or tree_widget.topLevelItem(0)
     # If a section is selected, use its parent notebook
@@ -706,9 +723,9 @@ def add_section(window):
         item = item.parent()
     nb_id = item.data(0, 1000) if item else None
     if nb_id is None:
-        QtWidgets.QMessageBox.information(window, "Add Section", "Please select a binder.")
+        ui_messages.info(window, "Add Section", "Select a binder first.")
         return
-    title, ok = QtWidgets.QInputDialog.getText(
+    title, ok = ui_messages.get_text(
         window, "Add Section", "Section title:", text="Untitled Section"
     )
     if not ok:
@@ -777,13 +794,11 @@ def add_page(window):
     except Exception:
         section_id = None
     if section_id is None:
-        QtWidgets.QMessageBox.information(window, "Add Page", "Please select a Section first.")
+        ui_messages.info(window, "Add Page", "Select a section first.")
         return
     try:
         db_path = getattr(window, "_db_path", None) or get_last_db() or "notes.db"
-        title, ok = QtWidgets.QInputDialog.getText(
-            window, "Add Page", "Page title:", text="Untitled Page"
-        )
+        title, ok = ui_messages.get_text(window, "Add Page", "Page title:", text="Untitled Page")
         if not ok:
             return
         title = (title or "").strip() or "Untitled Page"
@@ -887,9 +902,7 @@ def insert_attachment(window):
     """
     section_id, page_id = _current_page_context(window)
     if page_id is None or not _page_edit_is_writable(window):
-        QtWidgets.QMessageBox.information(
-            window, "Insert Attachment", "Please open or create a page first."
-        )
+        ui_messages.no_page(window, "Insert Attachment")
         return
     db_path = getattr(window, "_db_path", None) or get_last_db() or "notes.db"
     options = QtWidgets.QFileDialog.Options()
@@ -979,19 +992,19 @@ def insert_attachment(window):
         else:
             show_toast(window, f"Attached: {rel_path}", 2500)
     except Exception as e:
-        QtWidgets.QMessageBox.warning(window, "Insert Attachment", f"Failed to attach file: {e}")
+        ui_messages.error(
+            window, "Insert Attachment", "Couldn't attach the file.", None, details=str(e)
+        )
 
 
 def insert_new_spreadsheet(window):
     """Create a starter spreadsheet file for the current page and insert a link to it."""
     section_id, page_id = _current_page_context(window)
     if page_id is None or not _page_edit_is_writable(window):
-        QtWidgets.QMessageBox.information(
-            window, "Insert New Spreadsheet", "Please open or create a page first."
-        )
+        ui_messages.no_page(window, "Insert New Spreadsheet")
         return
 
-    title, ok = QtWidgets.QInputDialog.getText(
+    title, ok = ui_messages.get_text(
         window,
         "Insert New Spreadsheet",
         "Spreadsheet name:",
@@ -1013,10 +1026,12 @@ def insert_new_spreadsheet(window):
 
         show_toast(window, f"Spreadsheet created: {os.path.basename(abs_path)}", 2500)
     except Exception as e:
-        QtWidgets.QMessageBox.warning(
+        ui_messages.error(
             window,
             "Insert New Spreadsheet",
-            f"Failed to create spreadsheet: {e}",
+            "Couldn't create the spreadsheet.",
+            None,
+            details=str(e),
         )
 
 
@@ -1024,11 +1039,7 @@ def insert_spreadsheet_from_template(window):
     """Create a spreadsheet for the current page by copying a saved template file."""
     section_id, page_id = _current_page_context(window)
     if page_id is None or not _page_edit_is_writable(window):
-        QtWidgets.QMessageBox.information(
-            window,
-            "Insert From Spreadsheet Template",
-            "Please open or create a page first.",
-        )
+        ui_messages.no_page(window, "Insert From Spreadsheet Template")
         return
 
     db_path = getattr(window, "_db_path", None) or get_last_db() or "notes.db"
@@ -1044,21 +1055,20 @@ def insert_spreadsheet_from_template(window):
         template_root = spreadsheet_templates_root_for_db(db_path)
         template_names = list_spreadsheet_templates(db_path)
         if not template_names:
-            msg_box = QtWidgets.QMessageBox(window)
-            msg_box.setWindowTitle("Insert From Spreadsheet Template")
-            msg_box.setIcon(QtWidgets.QMessageBox.Information)
-            msg_box.setText(
-                "No spreadsheet templates are available yet.\n\n"
-                f"Add template files to:\n{template_root}"
+            msg_box = ui_messages.make_box(
+                window,
+                "info",
+                "Insert From Spreadsheet Template",
+                "There are no spreadsheet templates yet.",
+                f"Add template files to:\n{template_root}",
             )
-            open_btn = msg_box.addButton("Open Template Folder", QtWidgets.QMessageBox.ActionRole)
-            msg_box.addButton(QtWidgets.QMessageBox.Ok)
-            msg_box.exec_()
-            if msg_box.clickedButton() == open_btn:
+            open_btn = ui_messages.add_button(msg_box, "Open Template Folder")
+            ok_btn = ui_messages.add_button(msg_box, "OK", "primary", cancel=True)
+            if ui_messages.run(msg_box, ok_btn) == open_btn:
                 QtGui.QDesktopServices.openUrl(QUrl.fromLocalFile(template_root))
             return
 
-        template_name, ok = QtWidgets.QInputDialog.getItem(
+        template_name, ok = ui_messages.get_item(
             window,
             "Insert From Spreadsheet Template",
             "Template:",
@@ -1070,7 +1080,7 @@ def insert_spreadsheet_from_template(window):
             return
 
         default_title = os.path.splitext(str(template_name))[0] or "Spreadsheet"
-        title, ok = QtWidgets.QInputDialog.getText(
+        title, ok = ui_messages.get_text(
             window,
             "Insert From Spreadsheet Template",
             "Spreadsheet name:",
@@ -1088,10 +1098,12 @@ def insert_spreadsheet_from_template(window):
 
         show_toast(window, f"Spreadsheet created from template: {os.path.basename(abs_path)}", 2500)
     except Exception as e:
-        QtWidgets.QMessageBox.warning(
+        ui_messages.error(
             window,
             "Insert From Spreadsheet Template",
-            f"Failed to create spreadsheet from template: {e}",
+            "Couldn't create the spreadsheet from the template.",
+            None,
+            details=str(e),
         )
 
 
@@ -1099,11 +1111,7 @@ def insert_existing_spreadsheet(window):
     """Copy an existing spreadsheet file into the notebook store and link it to the page."""
     section_id, page_id = _current_page_context(window)
     if page_id is None or not _page_edit_is_writable(window):
-        QtWidgets.QMessageBox.information(
-            window,
-            "Insert Existing Spreadsheet",
-            "Please open or create a page first.",
-        )
+        ui_messages.no_page(window, "Insert Existing Spreadsheet")
         return
 
     file_path, _ = QtWidgets.QFileDialog.getOpenFileName(
@@ -1116,7 +1124,7 @@ def insert_existing_spreadsheet(window):
         return
 
     default_title = os.path.splitext(os.path.basename(file_path))[0] or "Spreadsheet"
-    title, ok = QtWidgets.QInputDialog.getText(
+    title, ok = ui_messages.get_text(
         window,
         "Insert Existing Spreadsheet",
         "Spreadsheet name:",
@@ -1138,10 +1146,12 @@ def insert_existing_spreadsheet(window):
 
         show_toast(window, f"Spreadsheet imported: {os.path.basename(abs_path)}", 2500)
     except Exception as e:
-        QtWidgets.QMessageBox.warning(
+        ui_messages.error(
             window,
             "Insert Existing Spreadsheet",
-            f"Failed to import spreadsheet: {e}",
+            "Couldn't add the spreadsheet to the page.",
+            "The file may be open in another program. Close it and try again.",
+            details=str(e),
         )
 
 
@@ -1174,11 +1184,7 @@ def manage_page_spreadsheets(window):
     """Open a page-scoped manager for spreadsheet files linked to the current page."""
     section_id, page_id = _current_page_context(window)
     if page_id is None:
-        QtWidgets.QMessageBox.information(
-            window,
-            "Manage Page Spreadsheets",
-            "Please open or create a page first.",
-        )
+        ui_messages.no_page(window, "Manage Page Spreadsheets")
         return
 
     db_path = getattr(window, "_db_path", None) or get_last_db() or "notes.db"
@@ -1190,10 +1196,8 @@ def manage_page_spreadsheets(window):
 
         spreadsheets = get_spreadsheets_for_page(db_path, int(page_id))
         if not spreadsheets:
-            QtWidgets.QMessageBox.information(
-                window,
-                "Manage Page Spreadsheets",
-                "No spreadsheets are registered for this page yet.",
+            ui_messages.info(
+                window, "Manage Page Spreadsheets", "This page has no spreadsheets yet."
             )
             return
 
@@ -1247,10 +1251,11 @@ def manage_page_spreadsheets(window):
                 return
             abs_path = resolve_spreadsheet_path(db_path, meta["rel_path"])
             if not os.path.isfile(abs_path):
-                QtWidgets.QMessageBox.warning(
+                ui_messages.warning(
                     dialog,
                     "Manage Page Spreadsheets",
-                    f"File not found:\n{abs_path}",
+                    "The spreadsheet file can't be found.",
+                    str(abs_path),
                 )
                 return
             QtGui.QDesktopServices.openUrl(QUrl.fromLocalFile(abs_path))
@@ -1289,10 +1294,11 @@ def manage_page_spreadsheets(window):
         _update_buttons()
         dialog.exec()
     except Exception as e:
-        QtWidgets.QMessageBox.warning(
+        ui_messages.error(
             window,
             "Manage Page Spreadsheets",
-            f"Failed to load page spreadsheets: {e}",
+            "Couldn't load this page's spreadsheets.",
+            details=str(e),
         )
 
 
@@ -1326,13 +1332,14 @@ def backup_database_now(window):
                 return
             dest = chosen
             try:
-                remember = QtWidgets.QMessageBox.question(
+                remember = ui_messages.confirm(
                     window,
                     "Remember Backup Folder",
-                    f"Use this folder for future backups?\n{dest}",
-                    QtWidgets.QMessageBox.Yes | QtWidgets.QMessageBox.No,
+                    "Use this folder for future backups?",
+                    str(dest),
+                    action="Use This Folder",
                 )
-                if remember == QtWidgets.QMessageBox.Yes:
+                if remember:
                     set_exit_backup_dir(dest)
             except Exception:
                 pass
@@ -1351,15 +1358,16 @@ def backup_database_now(window):
                 pass
 
         if bundle:
-            QtWidgets.QMessageBox.information(
-                window, "Backup Complete", f"Backup created:\n{bundle}"
-            )
+            ui_messages.info(window, "Backup", "Backup created.", str(bundle))
         else:
-            QtWidgets.QMessageBox.warning(
-                window, "Backup Failed", "Backup did not create a bundle."
+            ui_messages.error(
+                window,
+                "Backup",
+                "The backup wasn't created.",
+                "Check that the backup folder exists and that you can save files there.",
             )
     except Exception as e:
-        QtWidgets.QMessageBox.warning(window, "Backup Failed", f"Error: {e}")
+        ui_messages.error(window, "Backup", "The backup wasn't created.", details=str(e))
 
 
 def save_database_as(window):
@@ -1400,13 +1408,15 @@ def save_database_as(window):
 
         # Confirm overwrite if target exists
         if os.path.exists(new_path):
-            resp = QtWidgets.QMessageBox.question(
+            resp = ui_messages.confirm(
                 window,
-                "Overwrite File?",
-                f"{new_path}\nAlready exists. Overwrite?",
-                QtWidgets.QMessageBox.Yes | QtWidgets.QMessageBox.No,
+                "Save As",
+                f"{os.path.basename(new_path)} already exists.",
+                "Replace it with a copy of this database?",
+                action="Replace",
+                destructive=True,
             )
-            if resp != QtWidgets.QMessageBox.Yes:
+            if not resp:
                 return
         # Copy DB file
         shutil.copy2(cur_db, new_path)
@@ -1421,7 +1431,9 @@ def save_database_as(window):
                 shutil.rmtree(dst_media, ignore_errors=True)
             shutil.copytree(src_media, dst_media)
     except Exception as e:
-        QtWidgets.QMessageBox.warning(window, "Save As", f"Failed to copy database or media: {e}")
+        ui_messages.error(
+            window, "Save As", "Couldn't save a copy of the database.", details=str(e)
+        )
         return
     # Switch to the new database
     try:
@@ -1467,7 +1479,7 @@ def print_current_selection(window):
             document.print_(printer)
 
     except Exception as e:
-        QtWidgets.QMessageBox.critical(window, "Print Error", f"Failed to print: {str(e)}")
+        ui_messages.error(window, "Print", "Couldn't print.", details=str(e))
 
 
 def print_preview_current_selection(window):
@@ -1498,7 +1510,7 @@ def print_preview_current_selection(window):
         preview.exec_()
 
     except Exception as e:
-        QtWidgets.QMessageBox.critical(window, "Print Error", f"Failed to print: {str(e)}")
+        ui_messages.error(window, "Print", "Couldn't print.", details=str(e))
 
 
 def _get_print_html_content(window):
@@ -1507,16 +1519,12 @@ def _get_print_html_content(window):
         # Determine what's selected in the left tree
         tree_widget = window.findChild(QtWidgets.QTreeWidget, "notebookName")
         if tree_widget is None:
-            QtWidgets.QMessageBox.information(
-                window, "Print", "Please select a page, section, or binder to print."
-            )
+            ui_messages.info(window, "Print", "Select a page, section or binder to print.")
             return None
 
         current_item = tree_widget.currentItem()
         if current_item is None:
-            QtWidgets.QMessageBox.information(
-                window, "Print", "Please select a page, section, or binder to print."
-            )
+            ui_messages.info(window, "Print", "Select a page, section or binder to print.")
             return None
 
         # Get item type and ID
@@ -1554,8 +1562,8 @@ def _get_print_html_content(window):
         return html_content
 
     except Exception as e:
-        QtWidgets.QMessageBox.critical(
-            window, "Print Error", f"Failed to build print content: {str(e)}"
+        ui_messages.error(
+            window, "Print", "Couldn't prepare the pages for printing.", details=str(e)
         )
         return None
 
@@ -1768,17 +1776,17 @@ def main():
         ensure_database_initialized(db_path)
         if not migrate_database_if_needed(db_path, parent_window=window):
             # User cancelled upgrade - offer to create new or open different database
-            msg_box = QtWidgets.QMessageBox(window)
-            msg_box.setWindowTitle("Database Not Upgraded")
-            msg_box.setIcon(QtWidgets.QMessageBox.Question)
-            msg_box.setText("The database was not upgraded. What would you like to do?")
-            create_btn = msg_box.addButton("Create New Database", QtWidgets.QMessageBox.AcceptRole)
-            open_btn = msg_box.addButton(
-                "Open Different Database", QtWidgets.QMessageBox.ActionRole
+            msg_box = ui_messages.make_box(
+                window,
+                "question",
+                "Database Not Upgraded",
+                "The database wasn't upgraded.",
+                "Create a new database, or open a different one.",
             )
-            msg_box.addButton("Exit", QtWidgets.QMessageBox.RejectRole)
-            msg_box.exec_()
-            clicked = msg_box.clickedButton()
+            create_btn = ui_messages.add_button(msg_box, "Create New Database", "primary")
+            open_btn = ui_messages.add_button(msg_box, "Open Different Database")
+            ui_messages.add_button(msg_box, "Exit", cancel=True)
+            clicked = ui_messages.run(msg_box, create_btn)
             if clicked == create_btn:
                 create_new_database(window)
             elif clicked == open_btn:
@@ -1786,10 +1794,12 @@ def main():
             return
     except Exception as e:
         # If database initialization fails, show error and create new database dialog
-        QtWidgets.QMessageBox.critical(
+        ui_messages.error(
             window,
-            "Database Error",
-            f"Failed to initialize database '{db_path}':\n{str(e)}\n\nPlease create a new database or select an existing one.",
+            "Open Database",
+            f"Couldn't open {os.path.basename(db_path)}.",
+            "Create a new database, or open a different one.",
+            details=f"{db_path}\n{e}",
         )
         create_new_database(window)
         return
@@ -2028,13 +2038,16 @@ def main():
                                     pass
                             elif chosen == act_perm_delete:
                                 nb_name = item.text(0) or "(untitled)"
-                                confirm = QtWidgets.QMessageBox.warning(
+                                confirm = ui_messages.confirm(
                                     tree,
                                     "Delete Permanently",
-                                    f'Permanently delete binder "{nb_name}" and all its contents?\n\nThis cannot be undone.',
-                                    QtWidgets.QMessageBox.Yes | QtWidgets.QMessageBox.No,
+                                    f'Permanently delete the binder "{nb_name}"?',
+                                    "Its sections and pages are deleted too. This can't be undone.",
+                                    action="Delete Permanently",
+                                    destructive=True,
+                                    kind="warning",
                                 )
-                                if confirm == QtWidgets.QMessageBox.Yes:
+                                if confirm:
                                     try:
                                         from db_access import (
                                             permanently_delete_notebook,
@@ -2112,10 +2125,11 @@ def main():
                                     # Check if parent binder is deleted - can't restore into a deleted binder
                                     parent = item.parent()
                                     if parent is not None and bool(parent.data(0, 1003)):
-                                        QtWidgets.QMessageBox.warning(
+                                        ui_messages.warning(
                                             tree,
-                                            "Cannot Restore",
-                                            "Cannot restore this section because its parent binder is deleted.\n\nPlease restore the binder first.",
+                                            "Restore Section",
+                                            "Restore the binder first.",
+                                            "This section's binder is deleted, so the section can't be restored on its own.",
                                         )
                                         return
                                     from db_sections import restore_section
@@ -2134,13 +2148,16 @@ def main():
                                     pass
                             elif chosen == act_perm_delete:
                                 sec_name = item.text(0) or "(untitled)"
-                                confirm = QtWidgets.QMessageBox.warning(
+                                confirm = ui_messages.confirm(
                                     tree,
                                     "Delete Permanently",
-                                    f'Permanently delete section "{sec_name}" and all its pages?\n\nThis cannot be undone.',
-                                    QtWidgets.QMessageBox.Yes | QtWidgets.QMessageBox.No,
+                                    f'Permanently delete the section "{sec_name}"?',
+                                    "Its pages are deleted too. This can't be undone.",
+                                    action="Delete Permanently",
+                                    destructive=True,
+                                    kind="warning",
                                 )
-                                if confirm == QtWidgets.QMessageBox.Yes:
+                                if confirm:
                                     try:
                                         from db_sections import (
                                             permanently_delete_section,
@@ -2192,7 +2209,7 @@ def main():
                         db_path = getattr(window, "_db_path", None) or get_last_db() or "notes.db"
                         if chosen == act_rename_section and section_id is not None:
                             current_text = item.text(0) or ""
-                            new_title, ok = QtWidgets.QInputDialog.getText(
+                            new_title, ok = ui_messages.get_text(
                                 tree, "Rename Section", "New title:", text=current_text
                             )
                             if ok and new_title.strip():
@@ -2218,13 +2235,14 @@ def main():
                             return
                         if chosen == act_delete_section and section_id is not None:
                             sec_name = item.text(0) or "(untitled)"
-                            confirm = QtWidgets.QMessageBox.question(
+                            if not ui_messages.confirm(
                                 tree,
                                 "Delete Section",
-                                f'Are you sure you want to delete the section "{sec_name}" and all its pages?',
-                                QtWidgets.QMessageBox.Yes | QtWidgets.QMessageBox.No,
-                            )
-                            if confirm != QtWidgets.QMessageBox.Yes:
+                                f'Delete the section "{sec_name}"?',
+                                "Its pages are deleted with it. To get it back, turn on File → Show Deleted Items and choose Restore.",
+                                action="Delete",
+                                destructive=True,
+                            ):
                                 return
                             try:
                                 save_current_page(window)
@@ -2266,10 +2284,11 @@ def main():
                                     if section_item is not None and bool(
                                         section_item.data(0, 1003)
                                     ):
-                                        QtWidgets.QMessageBox.warning(
+                                        ui_messages.warning(
                                             tree,
-                                            "Cannot Restore",
-                                            "Cannot restore this page because its parent section is deleted.\n\nPlease restore the section first.",
+                                            "Restore Page",
+                                            "Restore the section first.",
+                                            "This page's section is deleted, so the page can't be restored on its own.",
                                         )
                                         return
                                     # Check if binder (grandparent) is deleted
@@ -2277,10 +2296,11 @@ def main():
                                         section_item.parent() if section_item is not None else None
                                     )
                                     if binder_item is not None and bool(binder_item.data(0, 1003)):
-                                        QtWidgets.QMessageBox.warning(
+                                        ui_messages.warning(
                                             tree,
-                                            "Cannot Restore",
-                                            "Cannot restore this page because its binder is deleted.\n\nPlease restore the binder first.",
+                                            "Restore Page",
+                                            "Restore the binder first.",
+                                            "This page's binder is deleted, so the page can't be restored on its own.",
                                         )
                                         return
                                     from db_pages import restore_page
@@ -2317,13 +2337,16 @@ def main():
                                     pass
                             elif chosen == act_perm_delete:
                                 page_name = item.text(0) or "(untitled)"
-                                confirm = QtWidgets.QMessageBox.warning(
+                                confirm = ui_messages.confirm(
                                     tree,
                                     "Delete Permanently",
-                                    f'Permanently delete page "{page_name}" and all its subpages?\n\nThis cannot be undone.',
-                                    QtWidgets.QMessageBox.Yes | QtWidgets.QMessageBox.No,
+                                    f'Permanently delete the page "{page_name}"?',
+                                    "Its subpages are deleted too. This can't be undone.",
+                                    action="Delete Permanently",
+                                    destructive=True,
+                                    kind="warning",
                                 )
-                                if confirm == QtWidgets.QMessageBox.Yes:
+                                if confirm:
                                     try:
                                         from db_pages import permanently_delete_page
 
@@ -2391,7 +2414,7 @@ def main():
                             and section_id is not None
                         ):
                             # Prompt for title and create a child page under this page
-                            new_title, ok = QtWidgets.QInputDialog.getText(
+                            new_title, ok = ui_messages.get_text(
                                 tree, "New Subpage", "Subpage title:", text="Untitled Page"
                             )
                             if not ok:
@@ -2498,7 +2521,7 @@ def main():
                                 current_title = str(row[2]) if row else ""
                             except Exception:
                                 current_title = ""
-                            new_title, ok = QtWidgets.QInputDialog.getText(
+                            new_title, ok = ui_messages.get_text(
                                 tree, "Rename Page", "New title:", text=current_title
                             )
                             if not ok or not new_title.strip():
@@ -2584,13 +2607,14 @@ def main():
                             return
                         if chosen == act_delete_page and page_id is not None:
                             # Confirm and delete
-                            confirm = QtWidgets.QMessageBox.question(
+                            if not ui_messages.confirm(
                                 tree,
                                 "Delete Page",
-                                "Are you sure you want to delete this page?",
-                                QtWidgets.QMessageBox.Yes | QtWidgets.QMessageBox.No,
-                            )
-                            if confirm != QtWidgets.QMessageBox.Yes:
+                                "Delete this page?",
+                                "To get it back, turn on File → Show Deleted Items and choose Restore.",
+                                action="Delete",
+                                destructive=True,
+                            ):
                                 return
                             try:
                                 save_current_page(window)
@@ -2700,7 +2724,7 @@ def main():
                     db_path = getattr(window, "_db_path", None) or get_last_db() or "notes.db"
                     if chosen == act_rename_section and section_id is not None:
                         current_text = item.text(0) or ""
-                        new_title, ok = QtWidgets.QInputDialog.getText(
+                        new_title, ok = ui_messages.get_text(
                             tree, "Rename Section", "New title:", text=current_text
                         )
                         if ok and new_title.strip():
@@ -2736,13 +2760,14 @@ def main():
                         return
                     if chosen == act_delete_section and section_id is not None:
                         sec_name = item.text(0) or "(untitled)"
-                        confirm = QtWidgets.QMessageBox.question(
+                        if not ui_messages.confirm(
                             tree,
                             "Delete Section",
-                            f'Are you sure you want to delete the section "{sec_name}" and all its pages?',
-                            QtWidgets.QMessageBox.Yes | QtWidgets.QMessageBox.No,
-                        )
-                        if confirm != QtWidgets.QMessageBox.Yes:
+                            f'Delete the section "{sec_name}"?',
+                            "Its pages are deleted with it. To get it back, turn on File → Show Deleted Items and choose Restore.",
+                            action="Delete",
+                            destructive=True,
+                        ):
                             return
                         # Save any dirty page before delete
                         try:
@@ -2780,14 +2805,7 @@ def main():
                 tree.setAcceptDrops(True)
                 tree.setDragEnabled(True)
                 tree.setDropIndicatorShown(True)
-                # Make drop indicator more pronounced (thicker blue line + subtle fill)
-                try:
-                    existing = tree.styleSheet() or ""
-                    indicator_style = "QTreeView::drop-indicator { border: 2px solid #0078D7; background: rgba(0,120,215,0.25); }"
-                    if indicator_style not in existing:
-                        tree.setStyleSheet(existing + "\n" + indicator_style)
-                except Exception:
-                    pass
+                # The drop indicator's look comes from the theme (QTreeView::drop-indicator)
                 # Ensure event filter constrains DnD to top-level and persists order
                 if not hasattr(window, "_left_tree_dnd_filter"):
                     from left_tree import LeftTreeDnDFilter
@@ -2912,13 +2930,14 @@ def main():
                     current_name = item.text(0) or "(untitled)"
                 if sid is None:
                     return
-                confirm = QtWidgets.QMessageBox.question(
+                if not ui_messages.confirm(
                     window,
                     "Delete Section",
-                    f'Are you sure you want to delete the section "{current_name}" and all its pages?',
-                    QtWidgets.QMessageBox.Yes | QtWidgets.QMessageBox.No,
-                )
-                if confirm != QtWidgets.QMessageBox.Yes:
+                    f'Delete the section "{current_name}"?',
+                    "Its pages are deleted with it. To get it back, turn on File → Show Deleted Items and choose Restore.",
+                    action="Delete",
+                    destructive=True,
+                ):
                     return
                 try:
                     save_current_page(window)
@@ -2954,7 +2973,7 @@ def main():
                         current_text = tab_widget.tabText(idx) or ""
                 if sid is None:
                     return
-                new_title, ok = QtWidgets.QInputDialog.getText(
+                new_title, ok = ui_messages.get_text(
                     window, "Rename Section", "New title:", text=current_text
                 )
                 if not ok or not new_title.strip():
@@ -2990,8 +3009,11 @@ def main():
             try:
                 from maintenance_order import apply_changes, collect_changes, summarize
             except Exception as e:
-                QtWidgets.QMessageBox.warning(
-                    window, "Normalize", f"Maintenance module missing: {e}"
+                ui_messages.error(
+                    window,
+                    "Normalize Page Order",
+                    "The page order tools aren't available.",
+                    details=str(e),
                 )
                 return
             # Flush current edits first
@@ -3003,31 +3025,29 @@ def main():
             try:
                 changes = collect_changes(db_path)
             except Exception as e:
-                QtWidgets.QMessageBox.warning(
-                    window, "Normalize", f"Failed to collect changes: {e}"
+                ui_messages.error(
+                    window, "Normalize Page Order", "Couldn't check the page order.", details=str(e)
                 )
                 return
             total = sum(len(changes[k]) for k in changes)
             summary = summarize(changes)
             if total == 0:
-                QtWidgets.QMessageBox.information(
-                    window, "Normalize Page Order", f"Already normalized.\n\n{summary}"
+                ui_messages.info(
+                    window, "Normalize Page Order", "The page order is already normalized.", summary
                 )
                 return
             # Offer backup + apply
-            msg_box = QtWidgets.QMessageBox(window)
-            msg_box.setWindowTitle("Normalize Page Order")
-            msg_box.setIcon(QtWidgets.QMessageBox.Question)
-            msg_box.setText(
-                "Proposed resequencing:\n\n"
-                + summary
-                + "\n\nCreate backup and apply normalization?"
+            msg_box = ui_messages.make_box(
+                window,
+                "question",
+                "Normalize Page Order",
+                "Apply this new page order?",
+                summary + "\n\nBacking up first is recommended.",
             )
-            backup_apply = msg_box.addButton("Backup && Apply", QtWidgets.QMessageBox.AcceptRole)
-            msg_box.addButton("Apply Only", QtWidgets.QMessageBox.DestructiveRole)
-            cancel_btn = msg_box.addButton(QtWidgets.QMessageBox.Cancel)
-            msg_box.exec_()
-            chosen = msg_box.clickedButton()
+            backup_apply = ui_messages.add_button(msg_box, "Back Up && Apply", "primary")
+            ui_messages.add_button(msg_box, "Apply Only")
+            cancel_btn = ui_messages.add_button(msg_box, "Cancel", cancel=True)
+            chosen = ui_messages.run(msg_box, backup_apply)
             if chosen == cancel_btn:
                 return
             # Optional backup
@@ -3043,14 +3063,23 @@ def main():
                     backup_path = os.path.join(base_dir, backup_name)
                     shutil.copy2(db_path, backup_path)
                 except Exception as e:
-                    QtWidgets.QMessageBox.warning(
-                        window, "Normalize", f"Backup failed (continuing): {e}"
+                    ui_messages.warning(
+                        window,
+                        "Normalize Page Order",
+                        "Couldn't make a backup first.",
+                        "The page order will still be updated.",
+                        details=str(e),
                     )
             # Apply changes
             try:
                 apply_changes(db_path, changes)
             except Exception as e:
-                QtWidgets.QMessageBox.critical(window, "Normalize", f"Failed to apply updates: {e}")
+                ui_messages.error(
+                    window,
+                    "Normalize Page Order",
+                    "Couldn't update the page order.",
+                    details=str(e),
+                )
                 return
             # Refresh current notebook tree & editor context
             try:
@@ -3060,10 +3089,11 @@ def main():
                     refresh_for_notebook(window, int(nb_id))
             except Exception:
                 pass
-            QtWidgets.QMessageBox.information(
+            ui_messages.info(
                 window,
                 "Normalize Page Order",
-                "Normalization complete.\n\n" + summarize(collect_changes(db_path)),
+                "Page order normalized.",
+                summarize(collect_changes(db_path)),
             )
 
         normalize_action.triggered.connect(_normalize_order_indexes)
@@ -3113,17 +3143,16 @@ def main():
                 # Determine current page from active section
                 section_id, page_id = _current_page_context(window)
                 if page_id is None:
-                    QtWidgets.QMessageBox.information(
-                        window, "Delete Page", "Please select a page to delete."
-                    )
+                    ui_messages.info(window, "Delete Page", "Select a page first.")
                     return
-                confirm = QtWidgets.QMessageBox.question(
+                if not ui_messages.confirm(
                     window,
                     "Delete Page",
-                    "Are you sure you want to delete this page?",
-                    QtWidgets.QMessageBox.Yes | QtWidgets.QMessageBox.No,
-                )
-                if confirm != QtWidgets.QMessageBox.Yes:
+                    "Delete this page?",
+                    "To get it back, turn on File → Show Deleted Items and choose Restore.",
+                    action="Delete",
+                    destructive=True,
+                ):
                     return
                 db_path = getattr(window, "_db_path", None) or get_last_db() or "notes.db"
                 db_delete_page(int(page_id), db_path)
@@ -3194,9 +3223,7 @@ def main():
             try:
                 section_id, page_id = _current_page_context(window)
                 if page_id is None:
-                    QtWidgets.QMessageBox.information(
-                        window, "Rename Page", "Please select a page to rename."
-                    )
+                    ui_messages.info(window, "Rename Page", "Select a page first.")
                     return
                 # Prefill current title
                 try:
@@ -3209,7 +3236,7 @@ def main():
                     current_title = str(row[2]) if row else ""
                 except Exception:
                     current_title = ""
-                new_title, ok = QtWidgets.QInputDialog.getText(
+                new_title, ok = ui_messages.get_text(
                     window, "Rename Page", "New title:", text=current_title
                 )
                 if not ok or not new_title.strip():
@@ -3333,9 +3360,7 @@ def main():
             try:
                 te = window.findChild(QtWidgets.QTextEdit, "pageEdit")
                 if te is None or not te.isEnabled():
-                    QtWidgets.QMessageBox.information(
-                        window, "Insert Planning Register", "Please open or create a page first."
-                    )
+                    ui_messages.no_page(window, "Insert Planning Register")
                     return
                 from ui_planning_register import insert_planning_register
 
@@ -3446,25 +3471,25 @@ def main():
                     db_path = getattr(window, "_db_path", None) or get_last_db() or "notes.db"
                     counts = get_deleted_counts(db_path)
                     if counts["total"] == 0:
-                        QtWidgets.QMessageBox.information(
-                            window, "Empty Deleted Items", "No deleted items to remove."
+                        ui_messages.info(
+                            window, "Empty Deleted Items", "There are no deleted items."
                         )
                         return
                     # Confirm before permanent deletion
                     msg = (
-                        f"This will permanently delete:\n\n"
-                        f"  • {counts['notebooks']} binder(s)\n"
-                        f"  • {counts['sections']} section(s)\n"
-                        f"  • {counts['pages']} page(s)\n\n"
-                        f"This action cannot be undone. Continue?"
+                        f"{counts['notebooks']} binder(s), {counts['sections']} section(s) and "
+                        f"{counts['pages']} page(s) will be deleted. This can't be undone."
                     )
-                    confirm = QtWidgets.QMessageBox.warning(
+                    confirm = ui_messages.confirm(
                         window,
-                        "Empty All Deleted Items",
+                        "Empty Deleted Items",
+                        "Permanently delete all deleted items?",
                         msg,
-                        QtWidgets.QMessageBox.Yes | QtWidgets.QMessageBox.No,
+                        action="Delete Permanently",
+                        destructive=True,
+                        kind="warning",
                     )
-                    if confirm != QtWidgets.QMessageBox.Yes:
+                    if not confirm:
                         return
                     empty_all_deleted(db_path)
                     # Refresh tree
@@ -3472,14 +3497,15 @@ def main():
                     nb_id = getattr(window, "_current_notebook_id", None)
                     if nb_id is not None:
                         ensure_left_tree_sections(window, int(nb_id))
-                    QtWidgets.QMessageBox.information(
-                        window,
-                        "Empty Deleted Items",
-                        "All deleted items have been permanently removed.",
+                    ui_messages.info(
+                        window, "Empty Deleted Items", "All deleted items were permanently removed."
                     )
                 except Exception as e:
-                    QtWidgets.QMessageBox.warning(
-                        window, "Error", f"Failed to empty deleted items: {e}"
+                    ui_messages.error(
+                        window,
+                        "Empty Deleted Items",
+                        "Couldn't remove the deleted items.",
+                        details=str(e),
                     )
 
             empty_deleted_action.triggered.connect(_empty_all_deleted)
@@ -4339,10 +4365,12 @@ def main():
                                             os.remove(test_file)
                                             test_ok = True
                                         except Exception as e:
-                                            QtWidgets.QMessageBox.warning(
+                                            ui_messages.warning(
                                                 window,
                                                 "Settings",
-                                                f"Selected folder is not writable:\n{e}",
+                                                "NoteBook can't save files in that folder.",
+                                                "Choose a different folder.",
+                                                details=str(e),
                                             )
                                             return
                                         if not test_ok:
@@ -4354,13 +4382,14 @@ def main():
                                             edp.setText(dst)
                                             return
                                         # Confirm
-                                        resp = QtWidgets.QMessageBox.question(
+                                        resp = ui_messages.confirm(
                                             window,
                                             "Move Settings",
-                                            f"Move settings file to:\n{dst}?",
-                                            QtWidgets.QMessageBox.Yes | QtWidgets.QMessageBox.No,
+                                            "Move the settings file?",
+                                            f"New location: {dst}",
+                                            action="Move",
                                         )
-                                        if resp != QtWidgets.QMessageBox.Yes:
+                                        if not resp:
                                             return
                                         # Copy (not move) first when possible; otherwise create a new file.
                                         import shutil
@@ -4372,10 +4401,11 @@ def main():
                                                 with open(dst, "w", encoding="utf-8") as nf:
                                                     nf.write("{}\n")
                                         except Exception as e:
-                                            QtWidgets.QMessageBox.warning(
+                                            ui_messages.error(
                                                 window,
                                                 "Settings",
-                                                f"Failed to migrate settings:\n{e}",
+                                                "Couldn't move the settings.",
+                                                details=str(e),
                                             )
                                             return
                                         # Tell settings_manager to start using the new location immediately and persist across restarts
@@ -4392,16 +4422,18 @@ def main():
                                         except Exception:
                                             pass
                                         edp.setText(dst)
-                                        QtWidgets.QMessageBox.information(
+                                        ui_messages.info(
                                             window,
                                             "Settings",
-                                            "Settings location updated. It will be used immediately and on next launch.",
+                                            "Settings location updated.",
+                                            "NoteBook uses the new location from now on.",
                                         )
                                     except Exception as e:
-                                        QtWidgets.QMessageBox.warning(
+                                        ui_messages.error(
                                             window,
                                             "Settings",
-                                            f"Failed to change settings location:\n{e}",
+                                            "Couldn't change the settings location.",
+                                            details=str(e),
                                         )
 
                                 btn_browse_settings.clicked.connect(_change_settings_location)
@@ -4633,13 +4665,11 @@ def main():
                         except Exception:
                             pass
                     except Exception as e:
-                        QtWidgets.QMessageBox.warning(
-                            window, "Settings", f"Failed to save settings: {e}"
+                        ui_messages.error(
+                            window, "Settings", "Couldn't save the settings.", details=str(e)
                         )
                 except Exception as e:
-                    QtWidgets.QMessageBox.warning(
-                        window, "Settings", f"Failed to open settings: {e}"
-                    )
+                    ui_messages.error(window, "Settings", "Couldn't open Settings.", details=str(e))
 
             act_settings.triggered.connect(_open_settings)
 
@@ -4686,11 +4716,19 @@ def main():
                             f"Default settings dir: {diag.get('default_settings_dir')}",
                             f"Databases root: {diag.get('databases_root') or '(not set)'}",
                         ]
-                        QtWidgets.QMessageBox.information(
-                            window, "Storage Diagnostics", "\n".join(lines)
+                        ui_messages.info(
+                            window,
+                            "Storage Diagnostics",
+                            "Where NoteBook keeps its files:",
+                            "\n".join(lines),
                         )
                     except Exception as e:
-                        QtWidgets.QMessageBox.warning(window, "Storage Diagnostics", f"Failed: {e}")
+                        ui_messages.error(
+                            window,
+                            "Storage Diagnostics",
+                            "Couldn't collect the storage details.",
+                            details=str(e),
+                        )
 
                 act_storage_diag.triggered.connect(_show_storage_diagnostics)
                 tools_menu.addAction(act_storage_diag)
@@ -4710,14 +4748,15 @@ def main():
 
                     dbp = getattr(window, "_db_path", None) or get_last_db() or "notes.db"
                     removed = garbage_collect_unused_media(dbp)
-                    QtWidgets.QMessageBox.information(
-                        window,
-                        "Clean Unused Media",
-                        f"Removed {removed} unreferenced media file(s).",
+                    ui_messages.info(
+                        window, "Clean Unused Media", f"Removed {removed} unused media file(s)."
                     )
                 except Exception as e:
-                    QtWidgets.QMessageBox.warning(
-                        window, "Clean Unused Media", f"Failed to clean media: {e}"
+                    ui_messages.error(
+                        window,
+                        "Clean Unused Media",
+                        "Couldn't clean up the media files.",
+                        details=str(e),
                     )
 
             act_clean_media.triggered.connect(_do_clean_media)
@@ -4759,18 +4798,21 @@ def main():
                     base = os.path.basename(src_db)
                     dst_db = os.path.join(root, base)
                     if os.path.abspath(src_db) == os.path.abspath(dst_db):
-                        QtWidgets.QMessageBox.information(
-                            window, "Migrate", "Current database is already in the Databases root."
+                        ui_messages.info(
+                            window,
+                            "Migrate Database",
+                            "This database is already in the Databases root.",
                         )
                         return
                     # Confirm
-                    resp = QtWidgets.QMessageBox.question(
+                    resp = ui_messages.confirm(
                         window,
                         "Migrate Database",
-                        f"Copy current database to:\n{dst_db}\n\nAnd copy its media folder next to it. Proceed?",
-                        QtWidgets.QMessageBox.Yes | QtWidgets.QMessageBox.No,
+                        "Copy this database into the Databases root?",
+                        f"It will be copied to {dst_db}, with its media folder next to it.",
+                        action="Copy",
                     )
-                    if resp != QtWidgets.QMessageBox.Yes:
+                    if not resp:
                         return
                     # Ensure root exists
                     os.makedirs(root, exist_ok=True)
@@ -4790,8 +4832,8 @@ def main():
                     clear_last_state()
                     restart_application()
                 except Exception as e:
-                    QtWidgets.QMessageBox.warning(
-                        window, "Migrate", f"Failed to migrate database: {e}"
+                    ui_messages.error(
+                        window, "Migrate Database", "Couldn't copy the database.", details=str(e)
                     )
 
             act_migrate.triggered.connect(_migrate_into_root)
@@ -4870,8 +4912,8 @@ def main():
                         pass
                 if not doc_path or not os.path.exists(doc_path):
                     shown_path = candidates[0] if candidates else relative_path
-                    QtWidgets.QMessageBox.warning(
-                        window, title, f"Help file not found:\n{shown_path}"
+                    ui_messages.warning(
+                        window, title, "The help file can't be found.", str(shown_path)
                     )
                     return
 
@@ -4886,8 +4928,11 @@ def main():
 
                 browser = dlg.findChild(QtWidgets.QTextBrowser, "textBrowser")
                 if browser is None:
-                    QtWidgets.QMessageBox.warning(
-                        window, title, "Help dialog UI is missing textBrowser."
+                    ui_messages.error(
+                        window,
+                        title,
+                        "Couldn't show the help.",
+                        details="Help dialog UI is missing textBrowser.",
                     )
                     return
                 if hasattr(browser, "setMarkdown"):
@@ -4902,7 +4947,7 @@ def main():
 
                 dlg.exec_()
             except Exception as e:
-                QtWidgets.QMessageBox.warning(window, title, f"Failed to open help file: {e}")
+                ui_messages.error(window, title, "Couldn't open the help file.", details=str(e))
 
         act_documentation = window.findChild(QtWidgets.QAction, "actionDocumentation")
         if act_documentation:
@@ -5012,15 +5057,13 @@ def main():
 </ul>
 <p>Built with PyQt6 and Python.</p>
 """
-                    dlg = QtWidgets.QMessageBox(window)
-                    dlg.setWindowTitle("About NoteBook")
+                    dlg = ui_messages.make_box(window, "about", "About NoteBook", msg)
                     dlg.setTextFormat(Qt.RichText)
-                    dlg.setText(msg)
-                    dlg.setIcon(QtWidgets.QMessageBox.Information)
-                    dlg.exec_()
+                    ok_btn = ui_messages.add_button(dlg, "OK", "primary", cancel=True)
+                    ui_messages.run(dlg, ok_btn)
                 except Exception as e:
-                    QtWidgets.QMessageBox.warning(
-                        window, "About", f"Failed to display about dialog: {e}"
+                    ui_messages.error(
+                        window, "About", "Couldn't show the About window.", details=str(e)
                     )
 
             act_about.triggered.connect(_show_about)

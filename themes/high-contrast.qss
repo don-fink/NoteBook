@@ -20,3 +20,28 @@ QMenu::item { padding: 5px 28px 5px 24px; border-radius: 4px; }
 QMenu::item:selected { background: #000000; color: #ffffff; }
 QMenu::item:disabled { color: #767676; }
 QMenu::separator { height: 1px; background: #000000; margin: 4px 8px; }
+
+/* Message windows (see ui_messages.py) */
+QMessageBox { messagebox-information-icon: url(icons/high-contrast/info.svg); }
+QMessageBox { messagebox-question-icon: url(icons/high-contrast/question.svg); }
+QMessageBox { messagebox-warning-icon: url(icons/high-contrast/warning.svg); }
+QMessageBox { messagebox-critical-icon: url(icons/high-contrast/error.svg); }
+QMessageBox#nbMessage { background: #ffffff; border-left: 8px solid #000000; }
+QMessageBox#nbMessage[kind="about"] QLabel#qt_msgbox_label { font-size: 9pt; font-weight: normal; }
+QMessageBox#nbMessage QLabel { background: transparent; color: #000000; }
+QMessageBox#nbMessage QLabel#qt_msgbox_label { font-size: 11pt; font-weight: 700; }
+QMessageBox#nbMessage QPushButton { min-width: 76px; padding: 5px 14px; border-radius: 4px; background: #ffffff; color: #000000; border: 2px solid #000000; }
+QMessageBox#nbMessage QPushButton[role="primary"] { background: #000000; color: #ffffff; }
+QMessageBox#nbMessage QPushButton[role="destructive"] { background: #ffffff; color: #000000; border: 3px solid #000000; font-weight: 700; }
+QMessageBox#nbMessage QPushButton:focus { outline: none; border: 3px solid #000000; }
+
+QInputDialog#nbPrompt { background: #ffffff; border-left: 8px solid #000000; qproperty-boxPadding: 18; qproperty-boxSpacing: 10; }
+QInputDialog#nbPrompt QLineEdit, QInputDialog#nbPrompt QSpinBox, QInputDialog#nbPrompt QDoubleSpinBox, QInputDialog#nbPrompt QComboBox { min-width: 280px; padding: 3px 4px; border: 2px solid #000000; border-radius: 3px; background: #ffffff; color: #000000; }
+QInputDialog#nbPrompt QLabel { background: transparent; font-weight: 700; color: #000000; }
+QInputDialog#nbPrompt QPushButton { min-width: 76px; padding: 5px 14px; border-radius: 4px; border: 2px solid #000000; }
+QInputDialog#nbPrompt QPushButton:default { background: #000000; color: #ffffff; }
+
+QLabel#nbToast { background-color: #000000; color: #ffffff; border: 2px solid #ffffff; border-radius: 8px; padding: 8px 12px; font-size: 11pt; font-weight: 700; }
+QTreeView::drop-indicator { border: 3px solid #000000; }
+QFrame#leftTreeDropIndicator { background: #000000; }
+QWidget#nbResizeHandles { qproperty-accentColor: #000000; }

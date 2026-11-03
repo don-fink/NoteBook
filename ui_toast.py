@@ -26,19 +26,26 @@ def show_toast(parent: QtWidgets.QWidget, text: str, duration_ms: int = 2500):
         QtCore.Qt.ToolTip | QtCore.Qt.FramelessWindowHint | QtCore.Qt.WindowStaysOnTopHint
     )
 
-    # Styling: dark rounded background with white text
-    # Keep font relatively small to avoid intrusive look
-    label.setStyleSheet(
-        """
-        QLabel {
-            background-color: rgba(33, 33, 33, 220);
-            color: #ffffff;
-            border-radius: 8px;
-            padding: 8px 12px;
-            font-size: 11pt;
-        }
-        """
-    )
+    # Themes style it as QLabel#nbToast; without that, a dark rounded label with white text
+    label.setObjectName("nbToast")
+    try:
+        from theme_manager import theme_styles
+
+        themed = theme_styles("nbToast")
+    except Exception:
+        themed = False
+    if not themed:
+        label.setStyleSheet(
+            """
+            QLabel {
+                background-color: rgba(33, 33, 33, 220);
+                color: #ffffff;
+                border-radius: 8px;
+                padding: 8px 12px;
+                font-size: 11pt;
+            }
+            """
+        )
 
     # Size to content
     label.adjustSize()

@@ -32,3 +32,42 @@ QTabBar::tab { padding: 6px 12px; margin-right: 2px; }
 QTabBar::tab:selected { background: #ffffff; }
 QTabBar::tab:!selected { background: #e6e6e6; }
 QTabBar::tab:hover:!selected { background: #ececec; }
+
+/* Message windows (see ui_messages.py): a colored bar down the left edge for each kind */
+QMessageBox { messagebox-information-icon: url(icons/default/info.svg); }
+QMessageBox { messagebox-question-icon: url(icons/default/question.svg); }
+QMessageBox { messagebox-warning-icon: url(icons/default/warning.svg); }
+QMessageBox { messagebox-critical-icon: url(icons/default/error.svg); }
+QMessageBox#nbMessage { background: #ffffff; border-left: 6px solid #2f6fb5; }
+QMessageBox#nbMessage[kind="info"] { border-left-color: #3f8f6b; }
+QMessageBox#nbMessage[kind="question"] { border-left-color: #2f6fb5; }
+QMessageBox#nbMessage[kind="warning"] { border-left-color: #d9962b; }
+QMessageBox#nbMessage[kind="error"] { border-left-color: #c8473d; }
+QMessageBox#nbMessage[kind="about"] { border-left-color: #2f6fb5; }
+QMessageBox#nbMessage[kind="about"] QLabel#qt_msgbox_label { font-size: 9pt; font-weight: normal; }
+QMessageBox#nbMessage QLabel { background: transparent; }
+QMessageBox#nbMessage QLabel#qt_msgbox_label { font-size: 11pt; font-weight: 600; color: #1d2733; }
+QMessageBox#nbMessage QLabel#qt_msgbox_informativelabel { color: #4a5563; }
+QMessageBox#nbMessage QTextEdit { background: #f6f7f9; color: #333333; border: 1px solid #d4d8de; }
+QMessageBox#nbMessage QPushButton { min-width: 76px; padding: 5px 14px; border-radius: 4px; background: #f4f5f7; border: 1px solid #c3c9d1; }
+QMessageBox#nbMessage QPushButton:hover { background: #e9ecf0; }
+QMessageBox#nbMessage QPushButton[role="primary"] { background: #2f6fb5; color: #ffffff; border: 1px solid #285f9c; }
+QMessageBox#nbMessage QPushButton[role="primary"]:hover { background: #3a7cc4; }
+QMessageBox#nbMessage QPushButton[role="destructive"] { background: #ffffff; color: #b23b32; border: 1px solid #c8473d; }
+QMessageBox#nbMessage QPushButton[role="destructive"]:hover { background: #fbeceb; }
+QMessageBox#nbMessage QPushButton:focus { outline: none; border: 2px solid #7aa7d9; }
+
+/* Prompts for a name or number */
+QInputDialog#nbPrompt { background: #ffffff; border-left: 6px solid #2f6fb5; qproperty-boxPadding: 18; qproperty-boxSpacing: 10; }
+QInputDialog#nbPrompt QLabel { background: transparent; font-weight: 600; color: #1d2733; }
+QInputDialog#nbPrompt QLineEdit, QInputDialog#nbPrompt QSpinBox, QInputDialog#nbPrompt QDoubleSpinBox, QInputDialog#nbPrompt QComboBox { min-width: 280px; padding: 3px 4px; border: 1px solid #b9c2cd; border-radius: 3px; background: #ffffff; }
+QInputDialog#nbPrompt QPushButton { min-width: 76px; padding: 5px 14px; border-radius: 4px; }
+QInputDialog#nbPrompt QPushButton:default { background: #2f6fb5; color: #ffffff; border: 1px solid #285f9c; }
+
+/* Small notices near the bottom of the window */
+QLabel#nbToast { background-color: rgba(29, 39, 51, 225); color: #ffffff; border-radius: 8px; padding: 8px 12px; font-size: 11pt; }
+
+/* Dragging binders in the tree, and image resize handles */
+QTreeView::drop-indicator { border: 2px solid #2f6fb5; background: rgba(47, 111, 181, 0.25); }
+QFrame#leftTreeDropIndicator { background: #2f6fb5; }
+QWidget#nbResizeHandles { qproperty-accentColor: #2f6fb5; }

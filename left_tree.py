@@ -279,7 +279,15 @@ class LeftTreeDnDFilter(QObject):
                 self._indicator_line = QtWidgets.QFrame(tree.viewport())
                 self._indicator_line.setObjectName("leftTreeDropIndicator")
                 self._indicator_line.setFrameShape(QtWidgets.QFrame.NoFrame)
-                self._indicator_line.setStyleSheet("background: rgba(0,120,215,0.9);")
+                # Themes style it as #leftTreeDropIndicator
+                try:
+                    from theme_manager import theme_styles
+
+                    themed = theme_styles("leftTreeDropIndicator")
+                except Exception:
+                    themed = False
+                if not themed:
+                    self._indicator_line.setStyleSheet("background: rgba(0,120,215,0.9);")
                 self._indicator_line.hide()
         except Exception:
             pass

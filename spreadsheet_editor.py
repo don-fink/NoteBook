@@ -10,6 +10,7 @@ import importlib
 import os
 import re
 
+import ui_messages
 from qt_compat import QtCore, QtGui, QtWidgets
 
 _ITEM_STYLE_ROLE = int(QtCore.Qt.ItemDataRole.UserRole) + 101
@@ -575,7 +576,7 @@ class SpreadsheetEditorDialog(QtWidgets.QDialog):
         if not self._sheet_docs:
             return
         current = self._sheet_docs[self._current_sheet_index]
-        new_name, ok = QtWidgets.QInputDialog.getText(
+        new_name, ok = ui_messages.get_text(
             self,
             "Rename Sheet",
             "Sheet name:",
@@ -757,19 +758,20 @@ class SpreadsheetEditorDialog(QtWidgets.QDialog):
             active_index=self._current_sheet_index,
         )
         self._dirty = False
-        QtWidgets.QMessageBox.information(self, "Spreadsheet Saved", "Changes saved.")
+        ui_messages.info(self, "Spreadsheet Saved", "Changes saved.")
 
     def accept(self):
         if self._dirty:
-            answer = QtWidgets.QMessageBox.question(
+            answer = ui_messages.choose(
                 self,
                 "Unsaved Changes",
-                "Save changes before closing?",
-                QtWidgets.QMessageBox.Yes | QtWidgets.QMessageBox.No | QtWidgets.QMessageBox.Cancel,
+                "Save changes to this spreadsheet before closing?",
+                ["Save", ("Don't Save", "destructive")],
+                default="Save",
             )
-            if answer == QtWidgets.QMessageBox.Cancel:
+            if answer is None:
                 return
-            if answer == QtWidgets.QMessageBox.Yes:
+            if answer == "Save":
                 self.save()
         super().accept()
 

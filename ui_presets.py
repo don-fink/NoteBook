@@ -7,6 +7,7 @@ stored in the database (see db_presets.py).
 
 import os
 
+import ui_messages
 from db_presets import (
     KIND_REGISTER,
     KIND_TABLE,
@@ -41,7 +42,7 @@ def _db_path(widget):
 def _require_db(widget, title: str):
     db_path = _db_path(widget)
     if not db_path:
-        QtWidgets.QMessageBox.information(widget, title, "Please open a database first.")
+        ui_messages.info(widget, title, "Open a database first.")
     return db_path
 
 
@@ -160,25 +161,25 @@ class _PresetListDialog(QtWidgets.QDialog):
 
 def _none_saved_message(parent, title: str, kind: str):
     label, noun = _LABELS[kind]
-    QtWidgets.QMessageBox.information(
+    ui_messages.info(
         parent,
         title,
-        f"No {noun} presets saved yet.\n\n"
-        f"To save one, place the caret in a {noun} and choose "
-        f"Insert → Save {label} as Preset…, or right-click it.",
+        f"There are no {noun} presets yet.",
+        f"To save one, place the caret in a {noun} and choose Insert → Save {label} as Preset…, or right-click it.",
     )
 
 
 def _ask_replace(parent, title: str, kind: str, name: str) -> bool:
     _label, noun = _LABELS[kind]
-    reply = QtWidgets.QMessageBox.question(
+    reply = ui_messages.confirm(
         parent,
         title,
-        f"A {noun} preset named '{name}' already exists.\n\nReplace it?",
-        QtWidgets.QMessageBox.Yes | QtWidgets.QMessageBox.No,
-        QtWidgets.QMessageBox.No,
+        f"A {noun} preset named '{name}' already exists.",
+        "Replace it?",
+        action="Replace",
+        destructive=True,
     )
-    return reply == QtWidgets.QMessageBox.Yes
+    return reply
 
 
 # --- Commands ---
@@ -225,11 +226,11 @@ def _save(text_edit, kind: str, tbl):
         return
     html = _table_html(text_edit, tbl)
     if not html:
-        QtWidgets.QMessageBox.information(text_edit, title, f"Couldn't read the {noun}.")
+        ui_messages.error(text_edit, title, f"Couldn't read the {noun}.")
         return
     name = _DEFAULT_NAMES[kind]
     while True:
-        name, ok = QtWidgets.QInputDialog.getText(text_edit, title, "Preset name:", text=name)
+        name, ok = ui_messages.get_text(text_edit, title, "Preset name:", text=name)
         name = (name or "").strip()
         if not ok or not name:
             return
@@ -253,9 +254,7 @@ def save_table_preset(text_edit):
         return
     tbl = text_edit.textCursor().currentTable()
     if tbl is None:
-        QtWidgets.QMessageBox.information(
-            text_edit, "Save Table as Preset", "Place the caret inside a table to save it."
-        )
+        ui_messages.info(text_edit, "Save Table as Preset", "Place the caret inside a table first.")
         return
     if not is_in_planning_register(text_edit, tbl):
         tbl = _outermost_table(text_edit.document(), tbl)
@@ -269,10 +268,10 @@ def save_register_preset(text_edit):
     tbl = text_edit.textCursor().currentTable()
     root = register_root(text_edit, tbl) if tbl is not None else None
     if root is None:
-        QtWidgets.QMessageBox.information(
+        ui_messages.info(
             text_edit,
             "Save Planning Register as Preset",
-            "Place the caret inside a Planning Register to save it.",
+            "Place the caret inside a Planning Register first.",
         )
         return
     _save(text_edit, KIND_REGISTER, root)
@@ -308,7 +307,7 @@ def manage_presets(parent, kind: str):
             return
         new = old
         while True:
-            new, ok = QtWidgets.QInputDialog.getText(dlg, "Rename Preset", "New name:", text=new)
+            new, ok = ui_messages.get_text(dlg, "Rename Preset", "New name:", text=new)
             new = (new or "").strip()
             if not ok or not new or new == old:
                 return
@@ -323,14 +322,14 @@ def manage_presets(parent, kind: str):
         name = dlg.selected_name()
         if not name:
             return
-        reply = QtWidgets.QMessageBox.question(
+        if not ui_messages.confirm(
             dlg,
             "Delete Preset",
             f"Delete the {noun} preset '{name}'?",
-            QtWidgets.QMessageBox.Yes | QtWidgets.QMessageBox.No,
-            QtWidgets.QMessageBox.No,
-        )
-        if reply != QtWidgets.QMessageBox.Yes:
+            "This can't be undone.",
+            action="Delete",
+            destructive=True,
+        ):
             return
         delete_preset(db_path, kind, name)
         _refresh()
@@ -400,22 +399,22 @@ def _ask_clash(parent, kind: str, name: str, remaining: int):
 
     Returns ("replace" | "rename" | "skip" | "cancel", apply_to_remaining)."""
     _label, noun = _LABELS[kind]
-    box = QtWidgets.QMessageBox(parent)
-    box.setWindowTitle("Preset Already Exists")
-    box.setIcon(QtWidgets.QMessageBox.Question)
-    box.setText(f"This database already has a {noun} preset named '{name}'.")
-    box.setInformativeText("Replace it with the imported one, or import this one under a new name?")
-    replace_btn = box.addButton("Replace", QtWidgets.QMessageBox.ButtonRole.AcceptRole)
-    rename_btn = box.addButton("Rename…", QtWidgets.QMessageBox.ButtonRole.ActionRole)
-    skip_btn = box.addButton("Skip", QtWidgets.QMessageBox.ButtonRole.ActionRole)
-    box.addButton(QtWidgets.QMessageBox.StandardButton.Cancel)
-    box.setDefaultButton(rename_btn)
+    box = ui_messages.make_box(
+        parent,
+        "question",
+        "Preset Already Exists",
+        f"This database already has a {noun} preset named '{name}'.",
+        "Replace it with the imported one, or import this one under a new name?",
+    )
+    replace_btn = ui_messages.add_button(box, "Replace", "destructive")
+    rename_btn = ui_messages.add_button(box, "Rename…", "primary")
+    skip_btn = ui_messages.add_button(box, "Skip")
+    ui_messages.add_button(box, "Cancel", cancel=True)
     check = None
     if remaining > 0:
         check = QtWidgets.QCheckBox(f"Do this for the next {remaining} name conflicts", box)
         box.setCheckBox(check)
-    box.exec_()
-    clicked = box.clickedButton()
+    clicked = ui_messages.run(box, rename_btn)
     choice = {replace_btn: "replace", rename_btn: "rename", skip_btn: "skip"}.get(clicked, "cancel")
     return choice, bool(check is not None and check.isChecked())
 
@@ -425,7 +424,7 @@ def _ask_new_name(parent, kind: str, suggested: str, taken: set):
     _label, noun = _LABELS[kind]
     name = suggested
     while True:
-        name, ok = QtWidgets.QInputDialog.getText(
+        name, ok = ui_messages.get_text(
             parent, "Rename Imported Preset", f"Import the {noun} preset as:", text=name
         )
         name = (name or "").strip()
@@ -433,8 +432,11 @@ def _ask_new_name(parent, kind: str, suggested: str, taken: set):
             return None
         if name not in taken:
             return name
-        QtWidgets.QMessageBox.information(
-            parent, "Rename Imported Preset", f"The name '{name}' is already used."
+        ui_messages.info(
+            parent,
+            "Rename Imported Preset",
+            f"The name '{name}' is already used.",
+            "Choose a different name.",
         )
 
 
@@ -458,19 +460,23 @@ def import_presets(window):
     if not source:
         return
     if os.path.normcase(os.path.abspath(source)) == os.path.normcase(os.path.abspath(db_path)):
-        QtWidgets.QMessageBox.information(
-            window, title, "That's the database you have open. Choose a different one."
+        ui_messages.info(
+            window, title, "That's the database you have open.", "Choose a different one."
         )
         return
     try:
         presets = read_presets(source)
     except Exception as e:
-        QtWidgets.QMessageBox.warning(window, title, f"Couldn't read presets from that file:\n{e}")
+        ui_messages.error(
+            window,
+            title,
+            "Couldn't read presets from that file.",
+            "Choose a NoteBook database.",
+            details=str(e),
+        )
         return
     if not presets:
-        QtWidgets.QMessageBox.information(
-            window, title, f"{os.path.basename(source)} has no saved presets."
-        )
+        ui_messages.info(window, title, f"{os.path.basename(source)} has no saved presets.")
         return
     dlg = _ImportPresetsDialog(window, source, presets)
     if dlg.exec_() != QtWidgets.QDialog.Accepted:
@@ -524,6 +530,4 @@ def import_presets(window):
         parts.append(f"{skipped} skipped")
     total = len(plan)
     summary = f"Imported {total} preset{'s' if total != 1 else ''}"
-    QtWidgets.QMessageBox.information(
-        window, title, summary + (f" ({', '.join(parts)})." if parts else ".")
-    )
+    ui_messages.info(window, title, summary + (f" ({', '.join(parts)})." if parts else "."))

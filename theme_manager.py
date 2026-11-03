@@ -8,6 +8,9 @@ A theme's name comes from its file name: "high-contrast.qss" is "High Contrast".
 settings folder replaces a shipped theme with the same name.
 
 A border-radius on QMenu gives menus rounded corners; Qt draws them on a transparent window.
+
+A url(...) in a theme that isn't an absolute path is relative to the theme file's folder, so a
+theme can bring its own icons (see themes/icons).
 """
 
 import os
@@ -52,6 +55,26 @@ def list_themes() -> dict:
     return {n: found[n] for n in names}
 
 
+_URL_RE = re.compile(r"""url\(\s*(['"]?)([^'")]+)\1\s*\)""")
+
+
+def _resolve_urls(qss: str, base_dir: str) -> str:
+    """Make relative url(...) paths absolute, relative to the theme file's folder."""
+
+    def _fix(m):
+        path = m.group(2).strip()
+        if (
+            os.path.isabs(path)
+            or re.match(r"^[a-zA-Z][a-zA-Z0-9+.-]*:", path)
+            or path.startswith(":")
+        ):
+            return m.group(0)
+        full = os.path.normpath(os.path.join(base_dir, path)).replace("\\", "/")
+        return f'url("{full}")'
+
+    return _URL_RE.sub(_fix, qss)
+
+
 def apply_theme(name: str = None) -> str:
     """Apply a theme to the whole program. Returns the name of the theme applied.
 
@@ -66,8 +89,19 @@ def apply_theme(name: str = None) -> str:
     if name:
         try:
             with open(themes[name], "r", encoding="utf-8-sig") as f:
-                qss = f.read()
+                qss = _resolve_urls(f.read(), os.path.dirname(themes[name]))
         except Exception:
             qss = ""
     app.setStyleSheet(qss)
     return name or ""
+
+
+def theme_styles(object_name: str) -> bool:
+    """True if the current theme has rules for the widget with this object name.
+
+    Widgets with a built-in fallback look use it only when the theme doesn't style them."""
+    app = QtWidgets.QApplication.instance()
+    try:
+        return bool(app) and f"#{object_name}" in (app.styleSheet() or "")
+    except Exception:
+        return False

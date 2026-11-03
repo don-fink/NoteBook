@@ -47,7 +47,7 @@ Go to **Tools → Settings → Themes** and choose a theme. NoteBook comes with 
 
 A theme is a Qt stylesheet (`.qss`) file. To add your own, put a `.qss` file in a `themes` folder next to your `settings.json` (the Themes tab shows the exact folder), then reopen Settings. The file name becomes the theme's name: `dark-slate.qss` appears as **Dark Slate**. A file named like a theme that comes with NoteBook, such as `default.qss`, replaces that theme. Copying one of the files from NoteBook's own `themes` folder is the easiest way to start.
 
-Menus take their look from the `QMenu` rules in the theme. A `border-radius` there gives them rounded corners.
+Menus take their look from the `QMenu` rules in the theme. A `border-radius` there gives them rounded corners. Message windows, prompts and notices are styled by the theme too; [Making a Theme](Themes.md) lists what a theme can change.
 
 ## Moving On
 

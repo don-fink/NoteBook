@@ -11,6 +11,7 @@ import re
 import sys
 from datetime import datetime
 
+import ui_messages
 from qt_compat import QtCore, QtGui, QtWidgets
 
 QBrush = QtGui.QBrush
@@ -222,9 +223,7 @@ def _require_editable_page(text_edit: QtWidgets.QTextEdit, title: str) -> bool:
     """
     if not text_edit.isReadOnly():
         return True
-    QtWidgets.QMessageBox.information(
-        text_edit, title, "Please open or create an editable page first."
-    )
+    ui_messages.no_page(text_edit, title)
     return False
 
 
@@ -238,8 +237,11 @@ def _open_html_source_dialog(text_edit: QtWidgets.QTextEdit):
     dlg.resize(800, 600)
     edit = dlg.findChild(QtWidgets.QPlainTextEdit, "plainTextEdit")
     if edit is None:
-        QtWidgets.QMessageBox.warning(
-            text_edit, "HTML Source", "Dialog UI is missing plainTextEdit."
+        ui_messages.error(
+            text_edit,
+            "HTML Source",
+            "Couldn't open the HTML source window.",
+            details="Dialog UI is missing plainTextEdit.",
         )
         return
     try:
@@ -263,7 +265,12 @@ def _open_html_source_dialog(text_edit: QtWidgets.QTextEdit):
 
     btns = dlg.findChild(QtWidgets.QDialogButtonBox, "buttonBox")
     if btns is None:
-        QtWidgets.QMessageBox.warning(text_edit, "HTML Source", "Dialog UI is missing buttonBox.")
+        ui_messages.error(
+            text_edit,
+            "HTML Source",
+            "Couldn't open the HTML source window.",
+            details="Dialog UI is missing buttonBox.",
+        )
         return
 
     def _apply():
@@ -1015,7 +1022,7 @@ def add_rich_text_toolbar(
         try:
             if not _require_editable_page(text_edit, "Insert Image"):
                 return
-            w, ok = QtWidgets.QInputDialog.getInt(
+            w, ok = ui_messages.get_int(
                 toolbar, "Insert Image", "Width (px):", int(DEFAULT_IMAGE_LONG_SIDE), 50, 8000, 10
             )
             if not ok:
@@ -1059,7 +1066,7 @@ def add_rich_text_toolbar(
         try:
             if not _require_editable_page(text_edit, "Insert Video"):
                 return
-            secs, ok = QtWidgets.QInputDialog.getDouble(
+            secs, ok = ui_messages.get_double(
                 toolbar, "Insert Video", "Capture time (seconds):", 1.0, 0.0, 36000.0, 1
             )
             if not ok:
@@ -1081,7 +1088,7 @@ def add_rich_text_toolbar(
 
     def _choose_video_custom_width():
         try:
-            w, ok = QtWidgets.QInputDialog.getInt(
+            w, ok = ui_messages.get_int(
                 toolbar, "Video width", "Width (px):", int(DEFAULT_IMAGE_LONG_SIDE), 50, 8000, 10
             )
             if ok:
@@ -1576,7 +1583,7 @@ def _prompt_resize_image(
             else (float(cur_w) / float(cur_h) if cur_h else 1.0)
         )
         w_default = int(cur_w or (iw or 400))
-        w_txt, ok = QtWidgets.QInputDialog.getText(
+        w_txt, ok = ui_messages.get_text(
             text_edit, "Resize Image", "Width (px):", text=str(w_default)
         )
         if not (ok and w_txt and w_txt.strip()):
@@ -2652,7 +2659,7 @@ class _ImageContextMenuHandler(QObject):
         iw, ih = self._intrinsic_size(name)
         aspect = (iw / ih) if (iw and ih and ih != 0) else (cur_w / cur_h if cur_h else 1.0)
         try:
-            w_txt, ok = QtWidgets.QInputDialog.getText(
+            w_txt, ok = ui_messages.get_text(
                 self._edit, "Resize Image", "Width (px):", text=str(int(cur_w or (iw or 400)))
             )
         except Exception:
@@ -2854,7 +2861,7 @@ class _ImageContextMenuHandler(QObject):
                     _do_regen(secs=None, synthetic=True)
                 elif chosen == act_vc:
                     try:
-                        secs, ok = QtWidgets.QInputDialog.getDouble(
+                        secs, ok = ui_messages.get_double(
                             self._edit, "Thumbnail time", "Seconds:", 1.0, 0.0, 36000.0, 1
                         )
                         if ok:
@@ -3010,8 +3017,20 @@ class _ImageResizeOverlay(QtWidgets.QWidget):
         self._edit = edit
         self._rect = None  # QRect in viewport coords
         self._dragging = False
+        self._accent = QColor(0, 120, 215)
+        # Themes set the color with QWidget#nbResizeHandles { qproperty-accentColor: ...; }
+        self.setObjectName("nbResizeHandles")
         self.setAttribute(Qt.WidgetAttribute.WA_NoSystemBackground, True)
         self.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents, True)
+
+    def _get_accent(self):
+        return self._accent
+
+    def _set_accent(self, color):
+        self._accent = QColor(color)
+        self.update()
+
+    accentColor = QtCore.pyqtProperty(QColor, _get_accent, _set_accent)
 
     def show_for_rect(self, rect: QRect, dragging: bool = False):
         self._rect = QRect(rect)
@@ -3030,7 +3049,7 @@ class _ImageResizeOverlay(QtWidgets.QWidget):
             return
         p = QPainter(self)
         try:
-            accent = QColor(0, 120, 215)
+            accent = QColor(self._accent)
             r = QRect(self._rect.left(), self._rect.top(), self._rect.width(), self._rect.height())
             pen = QPen(accent)
             pen.setWidth(1)
@@ -4678,19 +4697,17 @@ def _table_set_current_column_width(text_edit: QtWidgets.QTextEdit, table):
     if not constraints or len(constraints) != cols:
         constraints = [100.0 / float(cols) for _ in range(cols)]
     # Ask user for percentage
-    dlg = QtWidgets.QInputDialog(text_edit)
-    dlg.setWindowTitle("Set Column Width")
-    dlg.setLabelText(f"Width for column {col_idx+1} (% of table width):")
-    try:
-        dlg.setInputMode(QtWidgets.QInputDialog.DoubleInput)
-    except Exception:
-        dlg.setInputMode(QtWidgets.QInputDialog.InputMode.DoubleInput)
-    dlg.setDoubleRange(1.0, 100.0)
-    dlg.setDoubleDecimals(1)
-    dlg.setDoubleValue(float(constraints[col_idx]))
-    if dlg.exec_() != QtWidgets.QDialog.Accepted:
+    new_pct, ok = ui_messages.get_double(
+        text_edit,
+        "Set Column Width",
+        f"Width for column {col_idx+1} (% of table width):",
+        float(constraints[col_idx]),
+        1.0,
+        100.0,
+        1,
+    )
+    if not ok:
         return
-    new_pct = dlg.doubleValue()
     constraints = _table_rebalance_column_percentages(constraints, col_idx, new_pct)
     current_width_px = _table_current_width_px(text_edit, table)
     _table_apply_viewport_widths(

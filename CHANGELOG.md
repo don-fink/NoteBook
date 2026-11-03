@@ -1,9 +1,12 @@
 
 ## Unreleased
 ### Added
+- Message windows have a new look that comes from the theme: a colored bar down the left edge for each kind of message (information, question, warning, error), matching icons, and a highlighted main button. Prompts, notices, the tree's drag line and the image resize handles follow the theme too. `docs/Themes.md` lists what a theme can style.
 - Resize images and video thumbnails by dragging a corner handle, which appears when the mouse is over the image. The image always keeps its shape, can't be dragged wider than the page or its table cell, and changes size on release as one undo step. Alt text, title and video links are kept.
 
 ### Changed
+- Messages are worded the same way throughout: a short headline, then a line explaining or saying what to do next. Technical error details are under **Show Details…** instead of in the message.
+- Confirmations name the action on their buttons (**Delete**, **Replace**, **Move**) instead of Yes and No. For deleting or overwriting, Enter chooses Cancel.
 - Fit to editor width leaves room for the scrollbar, so a fitted image no longer ends up slightly wider than the page.
 
 
