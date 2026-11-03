@@ -4,6 +4,7 @@ Entry point for the NoteBook application. Handles main window setup, menu action
 """
 
 import os
+import re
 import sys
 import warnings
 
@@ -1455,12 +1456,41 @@ def restart_application():
     QtWidgets.QApplication.quit()
 
 
+def _print_document(window, html_content: str):
+    """A text document of the HTML, with images found in the database's media folder."""
+    document = QtGui.QTextDocument()
+    media_root = getattr(window, "_media_root", None)
+    if media_root:
+        if not media_root.endswith(os.sep) and not media_root.endswith("/"):
+            media_root = media_root + os.sep
+        document.setBaseUrl(QUrl.fromLocalFile(media_root))
+    document.setHtml(html_content)
+    # Printing works on a copy of the document that can't find images through the base URL,
+    # so load them into the document itself
+    for src in set(re.findall(r'<img[^>]+src="([^"]+)"', html_content)):
+        try:
+            url = QUrl(src)
+            path = url.toLocalFile() if url.isLocalFile() else src
+            if not os.path.isabs(path) and media_root:
+                path = os.path.join(media_root, path)
+            image = QtGui.QImage(path)
+            if not image.isNull():
+                document.addResource(QtGui.QTextDocument.ResourceType.ImageResource, url, image)
+        except Exception:
+            pass
+    return document
+
+
+def _print_to(document, printer):
+    # PyQt6 names it print(); PyQt5 named it print_()
+    (getattr(document, "print", None) or document.print_)(printer)
+
+
 def print_current_selection(window):
     """Print the currently selected item (page, section, or binder)."""
     try:
         QPrinter = QtPrintSupport.QPrinter
         QPrintDialog = QtPrintSupport.QPrintDialog
-        QTextDocument = QtGui.QTextDocument
 
         # Get HTML content for selected item
         html_content = _get_print_html_content(window)
@@ -1468,15 +1498,12 @@ def print_current_selection(window):
             return
 
         # Create printer and dialog
-        printer = QPrinter(QPrinter.HighResolution)
+        printer = QPrinter(QPrinter.PrinterMode.HighResolution)
         dialog = QPrintDialog(printer, window)
         dialog.setWindowTitle("Print")
 
         if dialog.exec_() == QtWidgets.QDialog.Accepted:
-            # Create document and print
-            document = QTextDocument()
-            document.setHtml(html_content)
-            document.print_(printer)
+            _print_to(_print_document(window, html_content), printer)
 
     except Exception as e:
         ui_messages.error(window, "Print", "Couldn't print.", details=str(e))
@@ -1487,24 +1514,21 @@ def print_preview_current_selection(window):
     try:
         QPrinter = QtPrintSupport.QPrinter
         QPrintPreviewDialog = QtPrintSupport.QPrintPreviewDialog
-        QTextDocument = QtGui.QTextDocument
 
         # Get HTML content for selected item
         html_content = _get_print_html_content(window)
         if not html_content:
             return
 
-        # Create document
-        document = QTextDocument()
-        document.setHtml(html_content)
+        document = _print_document(window, html_content)
 
         # Create printer and preview dialog
-        printer = QPrinter(QPrinter.HighResolution)
+        printer = QPrinter(QPrinter.PrinterMode.HighResolution)
         preview = QPrintPreviewDialog(printer, window)
         preview.setWindowTitle("Print Preview")
 
         # Connect the paintRequested signal to render the document
-        preview.paintRequested.connect(lambda p: document.print_(p))
+        preview.paintRequested.connect(lambda p: _print_to(document, p))
 
         # Show preview dialog (which includes print button)
         preview.exec_()

@@ -10,6 +10,9 @@
 - Fit to editor width leaves room for the scrollbar, so a fitted image no longer ends up slightly wider than the page.
 
 
+### Fixed
+- Print and Print Preview failed with "type object 'QPrinter' has no attribute 'HighResolution'", left over from the move to PyQt6. Images on printed pages also printed as blank placeholders; they now print.
+
 ## 1.7.0 - 2026-11-02
 ### Added
 - Table and Planning Register presets can be inserted again: Insert → Insert Table from Preset… and Insert Planning Register from Preset…, also under Insert on the right-click menu. Presets come back exactly as saved, text and amounts included.
