@@ -503,23 +503,10 @@ def _is_alive(obj) -> bool:
         return False
 
 
-# Feature flag: allow disabling image resize overlay via environment for diagnostics
 def _is_image_resize_enabled() -> bool:
-    """Feature flag for experimental image-resize overlay.
-
-    Default: OFF (opt-in). Enable by setting NOTEBOOK_ENABLE_IMAGE_RESIZE=1.
-    You can still force-disable with NOTEBOOK_DISABLE_IMAGE_RESIZE=1.
-    """
-    try:
-        # Hard disable has priority
-        v_disable = os.environ.get("NOTEBOOK_DISABLE_IMAGE_RESIZE", "0").strip().lower()
-        if v_disable in ("1", "true", "yes"):
-            return False
-        # Opt-in enable
-        v_enable = os.environ.get("NOTEBOOK_ENABLE_IMAGE_RESIZE", "0").strip().lower()
-        return v_enable in ("1", "true", "yes")
-    except Exception:
-        return False
+    """Corner handles for resizing images are on unless NOTEBOOK_DISABLE_IMAGE_RESIZE=1 is set."""
+    v = os.environ.get("NOTEBOOK_DISABLE_IMAGE_RESIZE", "0").strip().lower()
+    return v not in ("1", "true", "yes")
 
 
 def _ensure_layout(widget: QtWidgets.QWidget) -> QtWidgets.QVBoxLayout:
@@ -1283,7 +1270,7 @@ def add_rich_text_toolbar(
             text_edit.viewport().setAcceptDrops(False)
     except Exception:
         pass
-    # Enable mouse-based image resizing with aspect ratio preserved (can disable via env)
+    # Corner handles to resize images by dragging, keeping their shape
     if _is_image_resize_enabled():
         _install_image_resize_handler(text_edit)
     # Use a custom context menu handler so we can reliably detect images
@@ -1556,14 +1543,7 @@ def _fit_image_to_width_at(
     try:
         if not (iw and ih):
             return
-        vp = text_edit.viewport()
-        avail = max(16.0, float(vp.width() - 24)) if vp is not None else float(iw)
-        cur = QTextCursor(text_edit.document())
-        cur.setPosition(int(cursor_pos))
-        if cur.currentTable() is not None:
-            avail = max(
-                16.0, min(avail, float(_table_available_insert_width_px(text_edit, cur)) - 8)
-            )
+        avail = _image_max_width(text_edit, cursor_pos)
         scale = avail / float(iw)
         _apply_image_size_at(text_edit, cursor_pos, name, avail, max(1.0, ih * scale))
     except Exception:
@@ -2369,330 +2349,267 @@ def _insert_video_from_path(
         return
 
 
+_HANDLE_PX = 9  # Size of a corner handle
+_HANDLE_GRAB_PX = 7  # How far from a corner's centre a press still grabs it
+_MIN_IMAGE_PX = 16
+_CORNERS = ("tl", "tr", "bl", "br")
+
+
+def _image_max_width(text_edit: QtWidgets.QTextEdit, pos: int) -> float:
+    """The widest an image at pos can be: the page width, or its table cell's width."""
+    vp = text_edit.viewport()
+    avail = max(float(_MIN_IMAGE_PX), float(vp.width() - 24)) if vp is not None else 4000.0
+    try:
+        # A bigger image may bring in the scrollbar, which takes width from the page
+        if not text_edit.verticalScrollBar().isVisible():
+            avail -= text_edit.style().pixelMetric(
+                QtWidgets.QStyle.PixelMetric.PM_ScrollBarExtent, None, text_edit
+            )
+    except Exception:
+        pass
+    try:
+        cur = QTextCursor(text_edit.document())
+        cur.setPosition(int(pos))
+        if cur.currentTable() is not None:
+            avail = max(
+                float(_MIN_IMAGE_PX),
+                min(avail, float(_table_available_insert_width_px(text_edit, cur)) - 8),
+            )
+    except Exception:
+        pass
+    return avail
+
+
+def _image_display_size(text_edit: QtWidgets.QTextEdit, imgf):
+    """The size an image is drawn at: its set width/height, else its file's own size."""
+    w, h = float(imgf.width() or 0), float(imgf.height() or 0)
+    if w and h:
+        return w, h
+    iw, ih = _qimage_dims(text_edit, imgf.name())
+    if not (iw and ih):
+        return w, h
+    if w:
+        return w, w * ih / float(iw)
+    if h:
+        return h * iw / float(ih), h
+    return float(iw), float(ih)
+
+
+def _image_rect_at(text_edit: QtWidgets.QTextEdit, pos: int, imgf):
+    """The image's rectangle in viewport coordinates, or None if it can't be placed."""
+    w, h = _image_display_size(text_edit, imgf)
+    if not (w and h):
+        return None
+    doc = text_edit.document()
+    c = QTextCursor(doc)
+    c.setPosition(pos)
+    line_rect = text_edit.cursorRect(c)
+    # An image sits on the line's baseline
+    top = line_rect.bottom() - h
+    try:
+        block = doc.findBlock(pos)
+        line = block.layout().lineForTextPosition(pos - block.position())
+        if line.isValid():
+            top = line_rect.top() + line.ascent() - h
+    except Exception:
+        pass
+    return QRect(line_rect.left(), round(top), round(w), round(h))
+
+
+def _corner_points(rect: QRect) -> dict:
+    return {
+        "tl": rect.topLeft(),
+        "tr": QPoint(rect.right() + 1, rect.top()),
+        "bl": QPoint(rect.left(), rect.bottom() + 1),
+        "br": QPoint(rect.right() + 1, rect.bottom() + 1),
+    }
+
+
 class _ImageResizeHandler(QObject):
+    """Corner handles appear on the image under the mouse; dragging one resizes the image.
+
+    The aspect ratio is always kept. An outline shows the new size while dragging, and the image
+    changes size on release, as one undo step. Video thumbnails are images, so they work too."""
+
     def __init__(self, edit: QtWidgets.QTextEdit):
         super().__init__(edit)
         self._edit = edit
-        self._resizing = False
-        self._start_pos = None
-        self._cursor_pos = None
-        self._img_src = None
-        self._orig_w = None
-        self._orig_h = None
-        self._overlay = None  # type: QtWidgets.QWidget
-        # Clean up safely if the editor is destroyed while handlers/overlay are active
+        self._overlay = None  # type: _ImageResizeOverlay
+        self._hover = None  # (pos, rect) of the image showing handles
+        self._drag = None  # dict while a corner is being dragged
         try:
             self._edit.destroyed.connect(self._on_edit_destroyed)
         except Exception:
             pass
 
-    def set_overlay(self, overlay_widget: QtWidgets.QWidget):
+    def set_overlay(self, overlay_widget):
         self._overlay = overlay_widget
 
     def _on_edit_destroyed(self, *args, **kwargs):
-        # Avoid operating on deleted widgets
+        self._overlay = None
+        self._edit = None
+
+    def _set_cursor(self, shape=None):
         try:
-            self._overlay = None
-            self._edit = None
+            vp = self._edit.viewport()
+            if shape is None:
+                vp.unsetCursor()
+            else:
+                vp.setCursor(shape)
         except Exception:
             pass
 
-    def _image_at(self, pos):
-        try:
-            # Helper to find an image at or just before a cursor, returning a cursor on the image
-            def _img_info_for_cursor(cur: QTextCursor):
-                doc = cur.document()
-                for p in (cur.position(), cur.position() - 1):
-                    imgf = _image_format_at(doc, p)
-                    if imgf is not None:
-                        c = QTextCursor(doc)
-                        c.setPosition(p)
-                        return imgf, c
-                return None
+    def hide_handles(self):
+        self._hover = None
+        if self._drag is None and _is_alive(self._overlay):
+            self._overlay.hide_handles()
 
-            base_cursor = self._edit.cursorForPosition(pos)
-            # Build candidates safely: base, base-1, base+1
-            candidates = []
-            try:
-                c0 = QTextCursor(base_cursor)
-                candidates.append(c0)
-                c1 = QTextCursor(base_cursor)
-                c1.movePosition(QTextCursor.Left)
-                candidates.append(c1)
-                c2 = QTextCursor(base_cursor)
-                c2.movePosition(QTextCursor.Right)
-                candidates.append(c2)
-            except Exception:
-                candidates = [QTextCursor(base_cursor)]
-
-            for candidate in candidates:
-                info = _img_info_for_cursor(candidate)
-                if info is None:
-                    continue
-                imgf, c = info
-                try:
-                    name = (
-                        imgf.name()
-                        if hasattr(imgf, "name")
-                        else imgf.property(QTextFormat.ImageName)
-                    )
-                except Exception:
-                    name = ""
-
-                # Prefer on-screen rect via adjacent cursor rectangles for accuracy
-                # cursorRect can crash on invalid positions; guard it
-                try:
-                    r1 = self._edit.cursorRect(c)
-                except Exception:
-                    continue
-                c_after = QTextCursor(c)
-                c_after.movePosition(QTextCursor.Right)
-                try:
-                    r2 = self._edit.cursorRect(c_after)
-                except Exception:
-                    continue
-                x_left = min(r1.left(), r2.left())
-                x_right = max(r1.left(), r2.left())
-                width_from_layout = max(0, x_right - x_left)
-                # Estimate height from line rects
-                y_top = min(r1.top(), r2.top())
-                h_from_layout = max(r1.height(), r2.height())
-
-                # Fallback to image format/intrinsic dims if layout width is zero
-                w = imgf.width() if hasattr(imgf, "width") and imgf.width() else 0
-                h = imgf.height() if hasattr(imgf, "height") and imgf.height() else 0
-                if not w or not h:
-                    # Try intrinsic by loading image from media root
-                    abs_path = name
-                    try:
-                        base = getattr(self._edit.window(), "_media_root", None)
-                        if base and not os.path.isabs(name):
-                            abs_path = os.path.join(base, name)
-                        img = QImage(abs_path)
-                        if not img.isNull():
-                            w = img.width()
-                            h = img.height()
-                    except Exception:
-                        pass
-                try:
-                    iw = int(max(1, float(width_from_layout or w)))
-                    ih = int(max(1, float(h_from_layout if width_from_layout else h)))
-                except Exception:
-                    iw = int(width_from_layout or (w or 1))
-                    ih = int(h_from_layout if width_from_layout else (h or 1))
-
-                # If layout didn't give a width, compute left edge from the right caret position
-                if width_from_layout == 0 and iw > 0:
-                    x_left = int(r2.left() - iw)
-                    y_top = int(r1.center().y() - (ih / 2))
-
-                screen_rect = QRect(int(x_left), int(y_top), int(iw), int(ih))
-                return {
-                    "cursor": c,
-                    "format": imgf,
-                    "name": name,
-                    "rect": screen_rect,
-                    "w": iw,
-                    "h": ih,
-                }
-        except Exception:
-            return None
+    def _image_near(self, vp_pos: QPoint):
+        """(pos, imgf, rect) of the image at vp_pos, counting the handles just outside it."""
+        doc = self._edit.document()
+        candidates = []
+        if self._hover is not None:
+            candidates.append(self._hover[0])
+        # A corner sits on the image's edge, where the point itself can map to the next line,
+        # so also look a little inside each direction
+        g = _HANDLE_GRAB_PX
+        for ox, oy in ((0, 0), (-g, -g), (g, -g), (-g, g), (g, g)):
+            hit = self._edit.cursorForPosition(vp_pos + QPoint(ox, oy)).position()
+            candidates += [hit, hit - 1]
+        for pos in candidates:
+            imgf = _image_format_at(doc, pos)
+            if imgf is None:
+                continue
+            rect = _image_rect_at(self._edit, pos, imgf)
+            grab = _HANDLE_GRAB_PX
+            if rect is not None and rect.adjusted(-grab, -grab, grab, grab).contains(vp_pos):
+                return pos, imgf, rect
         return None
+
+    @staticmethod
+    def _corner_at(rect: QRect, vp_pos: QPoint):
+        for name, pt in _corner_points(rect).items():
+            if (
+                abs(vp_pos.x() - pt.x()) <= _HANDLE_GRAB_PX
+                and abs(vp_pos.y() - pt.y()) <= _HANDLE_GRAB_PX
+            ):
+                return name
+        return None
+
+    @staticmethod
+    def _corner_cursor(corner: str):
+        return (
+            Qt.CursorShape.SizeFDiagCursor
+            if corner in ("tl", "br")
+            else Qt.CursorShape.SizeBDiagCursor
+        )
+
+    def _drag_rect(self, vp_pos: QPoint):
+        """The new rectangle for the current drag, anchored at the opposite corner."""
+        d = self._drag
+        w0, h0 = d["w"], d["h"]
+        sx = 1 if d["corner"] in ("tr", "br") else -1
+        sy = 1 if d["corner"] in ("bl", "br") else -1
+        dx = (vp_pos.x() - d["start"].x()) * sx
+        dy = (vp_pos.y() - d["start"].y()) * sy
+        # Follow the mouse along the image's diagonal, so the shape never changes
+        scale = 1.0 + (dx * w0 + dy * h0) / float(w0 * w0 + h0 * h0)
+        min_scale = _MIN_IMAGE_PX / float(min(w0, h0))
+        scale = max(min_scale, min(scale, d["max_w"] / float(w0)))
+        w, h = max(1, round(w0 * scale)), max(1, round(h0 * scale))
+        r = d["rect"]
+        left = r.left() if sx > 0 else r.right() + 1 - w
+        top = r.top() if sy > 0 else r.bottom() + 1 - h
+        return QRect(left, top, w, h)
+
+    def _show_hover(self, pos, rect):
+        self._hover = (pos, rect)
+        if _is_alive(self._overlay):
+            self._overlay.show_for_rect(rect)
 
     def eventFilter(self, obj, event):
         try:
             if not _is_alive(self._edit):
                 return False
-            vp = self._edit.viewport() if _is_alive(self._edit) else None
-            if not _is_alive(vp):
-                return False
-            # Avoid acting while widgets are not yet visible/realized (early startup churn)
-            try:
-                if not (self._edit.isVisible() and vp.isVisible()):
-                    return False
-            except Exception:
-                return False
-            if obj not in (vp, self._edit):
-                return super().eventFilter(obj, event)
-            if event is None:
+            vp = self._edit.viewport()
+            if obj is not vp:
                 return False
             et = event.type()
-            # Only process expected GUI events; otherwise, ignore
+            if et in (QEvent.Type.Leave, QEvent.Type.Wheel):
+                if self._drag is None:
+                    self.hide_handles()
+                return False
             if et not in (
-                QEvent.MouseButtonPress,
-                QEvent.MouseMove,
-                QEvent.MouseButtonRelease,
-                QEvent.Leave,
-                QEvent.Wheel,
+                QEvent.Type.MouseButtonPress,
+                QEvent.Type.MouseMove,
+                QEvent.Type.MouseButtonRelease,
             ):
                 return False
-            # Map position to viewport coordinates for consistent hit-testing (mouse events only)
-            pos_vp = None
-            if et in (QEvent.MouseButtonPress, QEvent.MouseMove, QEvent.MouseButtonRelease):
-                try:
-                    pos_vp = event.pos()
-                    if obj is not vp and _is_alive(vp) and hasattr(obj, "mapTo"):
-                        pos_vp = obj.mapTo(vp, pos_vp)
-                except Exception:
-                    pos_vp = None
-            if et == QEvent.MouseButtonPress and event.button() == Qt.LeftButton:
-                if pos_vp is None:
-                    return False
-                info = self._image_at(pos_vp)
-                if info is not None:
-                    rect = info["rect"]
-                    # Near right edge within 18px, allow a tiny vertical tolerance
-                    edge_x = rect.x() + rect.width()
-                    near_right = abs(pos_vp.x() - edge_x) <= 18 and QRect(
-                        rect.x(), rect.y() - 4, rect.width(), rect.height() + 8
-                    ).contains(pos_vp, True)
-                    if near_right:
-                        self._resizing = True
-                        self._start_pos = QPoint(pos_vp)
-                        self._cursor_pos = info["cursor"].position()
-                        self._img_src = info["name"]
-                        self._orig_w = max(1, int(info["w"]))
-                        self._orig_h = max(1, int(info["h"]))
-                        try:
-                            if _is_alive(self._edit) and _is_alive(self._edit.viewport()):
-                                self._edit.viewport().setCursor(Qt.SizeHorCursor)
-                        except Exception:
-                            pass
-                        try:
-                            if _is_alive(self._overlay):
-                                self._overlay.show_for_rect(rect)
-                        except Exception:
-                            pass
-                        return True
-            elif et == QEvent.MouseMove:
-                if pos_vp is None:
-                    return False
-                if self._resizing and self._start_pos is not None and self._cursor_pos is not None:
-                    dx = pos_vp.x() - self._start_pos.x()
-                    new_w = max(16, self._orig_w + dx)
-                    new_h = int(new_w * (self._orig_h / float(self._orig_w)))
-                    # Apply new size to the image char format
-                    doc = self._edit.document() if _is_alive(self._edit) else None
-                    if doc is None or not _is_alive(doc):
-                        return False
-                    c = QTextCursor(doc)
-                    c.setPosition(self._cursor_pos)
-                    c.movePosition(QTextCursor.Right, QTextCursor.KeepAnchor, 1)
-                    imgf = QTextImageFormat()
-                    # Preserve src; for relative paths, name stays the rel path
-                    if self._img_src:
-                        imgf.setName(self._img_src)
-                    imgf.setWidth(float(new_w))
-                    imgf.setHeight(float(new_h))
-                    c.setCharFormat(imgf)
-                    try:
-                        if _is_alive(self._edit) and _is_alive(self._edit.viewport()):
-                            self._edit.viewport().setCursor(Qt.SizeHorCursor)
-                    except Exception:
-                        pass
-                    # Update overlay to follow the image rect as it changes
-                    try:
-                        if _is_alive(self._overlay):
-                            # Recompute rect from adjacent cursor rectangles for accuracy
-                            cur = QTextCursor(doc)
-                            cur.setPosition(self._cursor_pos)
-                            r1 = self._edit.cursorRect(cur)
-                            cur2 = QTextCursor(cur)
-                            cur2.movePosition(QTextCursor.Right)
-                            r2 = self._edit.cursorRect(cur2)
-                            x_left = min(r1.left(), r2.left())
-                            y_top = min(r1.top(), r2.top())
-                            self._overlay.show_for_rect(
-                                QRect(int(x_left), int(y_top), int(new_w), int(new_h))
-                            )
-                    except Exception:
-                        pass
-                    return True
-                else:
-                    # Hover feedback: show outline whenever over image; show resize cursor near right edge
-                    info = self._image_at(pos_vp)
-                    try:
-                        if info is not None:
-                            rect = info["rect"]
-                            # Loosen hover region slightly to reduce flicker
-                            hover_rect = rect.adjusted(-4, -4, 4, 4)
-                            inside = hover_rect.contains(pos_vp, True)
-                            near_right = (
-                                abs(pos_vp.x() - (rect.x() + rect.width())) <= 18 and inside
-                            )
-                            if _is_alive(self._overlay) and inside:
-                                self._overlay.show_for_rect(rect)
-                            if near_right:
-                                try:
-                                    if _is_alive(self._edit) and _is_alive(self._edit.viewport()):
-                                        self._edit.viewport().setCursor(Qt.SizeHorCursor)
-                                except Exception:
-                                    pass
-                            else:
-                                try:
-                                    if _is_alive(self._edit) and _is_alive(self._edit.viewport()):
-                                        self._edit.viewport().unsetCursor()
-                                except Exception:
-                                    pass
-                            return True
-                        else:
-                            try:
-                                if _is_alive(self._edit) and _is_alive(self._edit.viewport()):
-                                    self._edit.viewport().unsetCursor()
-                            except Exception:
-                                pass
-                            if _is_alive(self._overlay):
-                                self._overlay.hide_handles()
-                    except Exception:
-                        pass
-            elif et == QEvent.MouseButtonRelease and event.button() == Qt.LeftButton:
-                if pos_vp is None:
-                    # Even without pos, we can finalize a resize
-                    pass
-                if self._resizing:
-                    self._resizing = False
-                    self._start_pos = None
-                    self._cursor_pos = None
-                    self._img_src = None
-                    self._orig_w = None
-                    self._orig_h = None
-                    try:
-                        if _is_alive(self._edit) and _is_alive(self._edit.viewport()):
-                            self._edit.viewport().unsetCursor()
-                    except Exception:
-                        pass
-                    try:
-                        if _is_alive(self._overlay):
-                            self._overlay.hide_handles()
-                    except Exception:
-                        pass
-                    return True
-            elif et == QEvent.Leave:
-                try:
-                    if _is_alive(self._edit) and _is_alive(self._edit.viewport()):
-                        self._edit.viewport().unsetCursor()
-                except Exception:
-                    pass
-                try:
+            pos_vp = event.pos()
+            if self._drag is not None:
+                if et == QEvent.Type.MouseMove:
+                    rect = self._drag_rect(pos_vp)
+                    self._drag["new"] = rect
                     if _is_alive(self._overlay):
-                        self._overlay.hide_handles()
-                except Exception:
-                    pass
-            elif et in (QEvent.Wheel,):
-                # On scroll, hide overlay and reset cursor to avoid stale visuals while content moves
-                try:
-                    if _is_alive(self._edit) and _is_alive(self._edit.viewport()):
-                        self._edit.viewport().unsetCursor()
-                except Exception:
-                    pass
-                try:
-                    if _is_alive(self._overlay):
-                        self._overlay.hide_handles()
-                except Exception:
-                    pass
-        except RuntimeError:
+                        self._overlay.show_for_rect(rect, dragging=True)
+                    return True
+                if (
+                    et == QEvent.Type.MouseButtonRelease
+                    and event.button() == Qt.MouseButton.LeftButton
+                ):
+                    d, self._drag = self._drag, None
+                    new = d.get("new")
+                    if new is not None and (new.width() != round(d["w"])):
+                        _apply_image_size_at(
+                            self._edit, d["pos"], "", float(new.width()), float(new.height())
+                        )
+                    self._set_cursor()
+                    self.hide_handles()
+                    return True
+                return True  # Other buttons do nothing mid-drag
+            if self._edit.isReadOnly():
+                return False
+            if et == QEvent.Type.MouseMove:
+                found = self._image_near(pos_vp)
+                if found is None:
+                    if self._hover is not None:
+                        self.hide_handles()
+                        self._set_cursor()
+                    return False
+                pos, _imgf, rect = found
+                self._show_hover(pos, rect)
+                corner = self._corner_at(rect, pos_vp)
+                if corner:
+                    self._set_cursor(self._corner_cursor(corner))
+                    return True  # Keep the link handler from resetting the cursor
+                return False
+            if et == QEvent.Type.MouseButtonPress and event.button() == Qt.MouseButton.LeftButton:
+                found = self._image_near(pos_vp)
+                if found is None:
+                    return False
+                pos, imgf, rect = found
+                corner = self._corner_at(rect, pos_vp)
+                if not corner:
+                    return False
+                self._drag = {
+                    "pos": pos,
+                    "corner": corner,
+                    "start": QPoint(pos_vp),
+                    "rect": QRect(rect),
+                    "w": float(rect.width()),
+                    "h": float(rect.height()),
+                    "max_w": max(float(rect.width()), _image_max_width(self._edit, pos)),
+                    "new": None,
+                }
+                self._set_cursor(self._corner_cursor(corner))
+                if _is_alive(self._overlay):
+                    self._overlay.show_for_rect(rect, dragging=True)
+                return True
+        except Exception:
+            # An error escaping an event filter would abort the program; drop the drag instead
+            self._drag = None
             return False
-        return super().eventFilter(obj, event)
+        return False
 
 
 class _ImageContextMenuHandler(QObject):
@@ -3036,10 +2953,15 @@ def _install_image_resize_handler(text_edit: QtWidgets.QTextEdit):
                 except Exception:
                     pass
                 vp.installEventFilter(handler)
-                # Also enable tracking and filter on the editor
+                # Handles drawn at an old position would be wrong after scrolling or editing
                 try:
-                    text_edit.setMouseTracking(True)
-                    text_edit.installEventFilter(handler)
+                    text_edit.verticalScrollBar().valueChanged.connect(
+                        lambda *_a: handler.hide_handles()
+                    )
+                    text_edit.horizontalScrollBar().valueChanged.connect(
+                        lambda *_a: handler.hide_handles()
+                    )
+                    text_edit.document().contentsChanged.connect(handler.hide_handles)
                 except Exception:
                     pass
                 # Drop overlay reference when viewport or editor is destroyed
@@ -3079,63 +3001,66 @@ class _ResizeViewportWatcher(QObject):
 
 
 class _ImageResizeOverlay(QtWidgets.QWidget):
-    """A transparent overlay that draws visual resize handles around the hovered image."""
+    """Draws the outline and corner handles for the image under the mouse.
+
+    While dragging it draws the new size instead, with a width × height readout."""
 
     def __init__(self, edit: QtWidgets.QTextEdit):
         super().__init__(edit)
         self._edit = edit
         self._rect = None  # QRect in viewport coords
-        self.setAttribute(Qt.WA_NoSystemBackground, True)
-        self.setAttribute(Qt.WA_TransparentForMouseEvents, True)
+        self._dragging = False
+        self.setAttribute(Qt.WidgetAttribute.WA_NoSystemBackground, True)
+        self.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents, True)
 
-    def show_for_rect(self, rect: QRect):
-        try:
-            self._rect = QRect(rect)
-            if not self.isVisible():
-                self.show()
-            self.update()
-        except Exception:
-            pass
+    def show_for_rect(self, rect: QRect, dragging: bool = False):
+        self._rect = QRect(rect)
+        self._dragging = dragging
+        if not self.isVisible():
+            self.show()
+        self.update()
 
     def hide_handles(self):
         self._rect = None
-        try:
-            self.hide()
-        except Exception:
-            pass
+        self._dragging = False
+        self.hide()
 
     def paintEvent(self, ev):
         if self._rect is None:
             return
+        p = QPainter(self)
         try:
-            p = QPainter(self)
-            p.setRenderHint(QPainter.Antialiasing, True)
-            # Outline (thicker, dashed for visibility) + light translucent fill
             accent = QColor(0, 120, 215)
-            pen = QPen(accent)  # Windows accent blue
-            pen.setWidth(2)
-            pen.setStyle(Qt.DashLine)
+            r = QRect(self._rect.left(), self._rect.top(), self._rect.width(), self._rect.height())
+            pen = QPen(accent)
+            pen.setWidth(1)
+            if self._dragging:
+                pen.setStyle(Qt.PenStyle.DashLine)
+                fill = QColor(accent)
+                fill.setAlpha(30)
+                p.fillRect(r, fill)
             p.setPen(pen)
-            # Semi-transparent fill to make the bounds obvious
-            fill = QColor(accent)
-            fill.setAlpha(40)
-            p.fillRect(self._rect.adjusted(0, 0, -1, -1), fill)
-            p.drawRect(self._rect.adjusted(0, 0, -1, -1))
-            # Draw a single handle at right-middle (larger for hi-DPI)
-            handle_size = 16
-            rx = self._rect.right()
-            cy = self._rect.center().y()
-            handle_rect = QRect(
-                rx - handle_size // 2, cy - handle_size // 2, handle_size, handle_size
-            )
-            # Handle with outline for contrast
-            p.fillRect(handle_rect, accent)
-            p.setPen(QPen(QColor(255, 255, 255), 1))
-            p.drawRect(handle_rect.adjusted(0, 0, -1, -1))
-            # Optional corner handles for future (not interactive yet)
-            p.end()
+            p.drawRect(r.adjusted(0, 0, -1, -1))
+            half = _HANDLE_PX // 2
+            p.setPen(QPen(accent, 1))
+            for pt in _corner_points(r).values():
+                handle = QRect(pt.x() - half, pt.y() - half, _HANDLE_PX, _HANDLE_PX)
+                p.fillRect(handle, QColor(255, 255, 255))
+                p.drawRect(handle.adjusted(0, 0, -1, -1))
+            if self._dragging:
+                label = f"{r.width()} × {r.height()}"
+                fm = p.fontMetrics()
+                box = fm.boundingRect(label).adjusted(-5, -3, 5, 3)
+                box.moveTopLeft(QPoint(r.left(), r.bottom() + 6))
+                if box.bottom() > self.height():
+                    box.moveBottomLeft(QPoint(r.left(), r.top() - 6))
+                p.fillRect(box, accent)
+                p.setPen(QColor(255, 255, 255))
+                p.drawText(box, Qt.AlignmentFlag.AlignCenter, label)
         except Exception:
             pass
+        finally:
+            p.end()
 
 
 # ----------------------------- Tables -----------------------------

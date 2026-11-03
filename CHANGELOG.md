@@ -1,4 +1,12 @@
 
+## Unreleased
+### Added
+- Resize images and video thumbnails by dragging a corner handle, which appears when the mouse is over the image. The image always keeps its shape, can't be dragged wider than the page or its table cell, and changes size on release as one undo step. Alt text, title and video links are kept.
+
+### Changed
+- Fit to editor width leaves room for the scrollbar, so a fitted image no longer ends up slightly wider than the page.
+
+
 ## 1.7.0 - 2026-11-02
 ### Added
 - Table and Planning Register presets can be inserted again: Insert → Insert Table from Preset… and Insert Planning Register from Preset…, also under Insert on the right-click menu. Presets come back exactly as saved, text and amounts included.

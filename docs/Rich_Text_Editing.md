@@ -57,8 +57,10 @@ Set your default paste mode under **Edit → Default Paste Mode**. Regardless of
 To insert an image into a page:
 
 1. Use **Notebook → Insert Attachment** and select an image file.
-2. To change its size, right-click the image and choose **Image Properties…**, **Fit to editor width**, or **Reset to original size**.
-3. With the caret next to an image, you can also press **F2** or **Ctrl+Shift+I** to open Image Properties.
+2. To change its size, move the mouse over the image and drag one of the small square handles at its corners. An outline shows the new size, with its width and height in pixels, and the image changes when you let go. The image always keeps its shape, and it can't be dragged wider than the page, or than its table cell. **Ctrl+Z** puts it back.
+3. You can also right-click the image and choose **Image Properties…**, **Fit to editor width**, or **Reset to original size**. With the caret next to an image, **F2** or **Ctrl+Shift+I** opens Image Properties.
+
+Videos on a page appear as a picture from the video, and their corner handles work the same way. Dragging a handle doesn't open the video; clicking the picture still does.
 
 Images are stored inside the database (or in a companion `.media` folder alongside it), so they move with your database file automatically.
 
