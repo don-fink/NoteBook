@@ -126,3 +126,15 @@ QWidget#richTextToolbar QToolButton { padding: 1px 3px; border: none; background
 QWidget#richTextToolbar QToolButton:checked { background: #2f4f73; border: 1px solid #5b9bd5; border-radius: 3px; }
 QWidget#richTextToolbar QToolButton:hover { background: #2f3742; border-radius: 3px; }
 QWidget#richTextToolbar QToolButton::menu-indicator { image: none; }
+
+/* Search box in the menu bar (see ui_search.py) */
+QWidget#nbSearchBar { background: transparent; qproperty-highlightColor: #ffd54f; }
+QLineEdit#nbSearchBox { background: #2a2f36; color: #e6e9ed; border: 1px solid #4a525d; border-radius: 11px; padding: 2px 8px; }
+QLineEdit#nbSearchBox:focus { border: 1px solid #5b9bd5; }
+QLineEdit#nbSearchBox[noResults="true"] { border: 1px solid #e0675c; }
+QLabel#nbSearchCount { color: #aeb6c1; background: transparent; }
+QWidget#nbSearchBar QToolButton { background: transparent; border: none; padding: 1px 3px; color: #d7dce2; }
+QWidget#nbSearchBar QToolButton:hover { background: #2f3742; border-radius: 3px; }
+QWidget#nbSearchBar QToolButton::menu-indicator { image: none; }
+QLabel#nbSearchScopeLabel { color: #aeb6c1; background: transparent; }
+QToolButton#nbSearchEverywhere { color: #7fb3e6; text-decoration: underline; }

@@ -154,10 +154,12 @@ class SpellCheckHighlighter:
 
     def _clear_spell_selections(self):
         """Clear spell check underlines without affecting other extra selections."""
-        # Get current selections and filter out spell check ones
-        # For now, we just clear all - in a more complex app we'd tag them
+        # Search highlights (ui_search.py) share the extra selections, so keep them
         try:
-            self._text_edit.setExtraSelections([])
+            self._text_edit._spell_selections = []
+            self._text_edit.setExtraSelections(
+                list(getattr(self._text_edit, "_search_selections", []))
+            )
         except Exception:
             pass
 
@@ -196,7 +198,10 @@ class SpellCheckHighlighter:
                     selection.format = self._error_format
                     selections.append(selection)
 
-            self._text_edit.setExtraSelections(selections)
+            self._text_edit._spell_selections = selections
+            self._text_edit.setExtraSelections(
+                selections + list(getattr(self._text_edit, "_search_selections", []))
+            )
         except Exception:
             pass
 

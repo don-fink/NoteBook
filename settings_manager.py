@@ -763,6 +763,19 @@ def set_show_deleted(enabled: bool):
     save_settings(s)
 
 
+# --- Search ---
+def get_search_whole_database() -> bool:
+    """True if searches cover the whole database instead of the selected binder."""
+    s = load_settings()
+    return bool(s.get("search_whole_database", False))
+
+
+def set_search_whole_database(enabled: bool):
+    s = load_settings()
+    s["search_whole_database"] = bool(enabled)
+    save_settings(s)
+
+
 # --- Spell Check settings ---
 
 

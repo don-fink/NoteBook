@@ -10,6 +10,15 @@
 | Save Database As | Ctrl+Shift+S |
 | Print | Ctrl+P |
 
+## Search
+
+| Action | Shortcut |
+|--------|----------|
+| Go to the search box | Ctrl+F |
+| Next result | Enter (in the search box) or F3 |
+| Previous result | Shift+Enter (in the search box) or Shift+F3 |
+| Clear the search | Esc (in the search box) |
+
 ## Text Formatting
 
 | Action | Shortcut |

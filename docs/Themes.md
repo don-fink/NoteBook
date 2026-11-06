@@ -24,6 +24,7 @@ Besides ordinary Qt widgets (`QMenu`, `QPushButton`, `QTreeView` and so on), Not
 | Notices | `QLabel#nbToast` | The short notices near the bottom of the window. |
 | Tree drag line | `QFrame#leftTreeDropIndicator` and `QTreeView::drop-indicator` | Shown while dragging binders and pages. |
 | Image resize handles | `QWidget#nbResizeHandles { qproperty-accentColor: #2f6fb5; }` | The outline and corner handles on images. |
+| Search box | `QWidget#nbSearchBar`, `QLineEdit#nbSearchBox`, `QLabel#nbSearchCount`, `QLabel#nbSearchScopeLabel`, `QToolButton#nbSearchEverywhere` | `QLineEdit#nbSearchBox[noResults="true"]` styles the box when nothing is found. Set the highlight on the page with `QWidget#nbSearchBar { qproperty-highlightColor: #ffd54f; }`. |
 | Formatting toolbar | `QWidget#richTextToolbar` and `QWidget#richTextToolbar QToolButton` | The bar above the page. Its icons are drawn in the buttons' `color`. |
 
 If a theme doesn't style the notices, the tree drag line or the formatting toolbar, NoteBook uses its own built-in look for them.

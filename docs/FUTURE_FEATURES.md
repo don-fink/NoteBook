@@ -97,8 +97,14 @@ Planned. Dark theme is the priority addition.
 - Optional "Show matches only" filter that hides non-matching pages in the tree.
 - For large databases: an FTS5 index over title + plain text, kept up to date on page save.
 
+### Decisions (2026-11-06)
+- Whole database: a scope choice on the search box (current selection / Whole database); the tree is unchanged.
+- Matching: typo-tolerant by default with an Exact switch; exact matches are listed before near matches.
+- Keys: Enter / Shift+Enter in the box and F3 / Shift+F3 anywhere step through results.
+- "Show matches only" filter: later, after the first version.
+
 ### Status
-Discussion only. No code written yet.
+First version built 2026-11-06 (`search_engine.py`, `ui_search.py`). Still to come: the "Show matches only" filter, and an FTS5 index if large databases get slow.
 
 ---
 

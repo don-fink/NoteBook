@@ -344,6 +344,9 @@ def _leave_current_page(window):
 
         save_current_page(window)
         save_current_title(window)
+        search = getattr(window, "_search", None)
+        if search is not None:
+            search.clear()  # Results belong to the old database
         timer = getattr(window, "_title_save_timer", None)
         if timer is not None:
             timer.stop()
@@ -1883,6 +1886,13 @@ def main():
     populate_notebook_names(window, db_path)
     setup_two_pane(window)
     restore_last_position(window)
+    # Search box in the menu bar's top-right corner (Edit → Find…)
+    try:
+        from ui_search import install_search
+
+        install_search(window)
+    except Exception:
+        pass
     # Apply saved list scheme (ordered/unordered) to rich text
     try:
         from settings_manager import get_list_schemes_settings
