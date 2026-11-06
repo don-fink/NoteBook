@@ -62,6 +62,46 @@ Planned. Dark theme is the priority addition.
 
 ---
 
+## Proposed: Search (discussion stage, 2026-11-06)
+
+### The user's spec
+- A search symbol in the upper right of the window, possibly near the Edit menu.
+- Every search starts from where the cursor is in the left panel:
+  - a binder is selected → search only inside that binder;
+  - the whole database is selected → search the entire database.
+- When pages match or nearly match what's typed in the search box, show that page
+  and highlight it in the left panel, so the user can step through the results one at a time.
+- Open to suggestions.
+
+### Facts from the code (for whoever builds it)
+- Left panel is the `QTreeWidget` `notebookName`: Binder (top level) → Section → Page → subpages.
+  Item data: 1000 = id, 1001 = kind ("section"/"page"), 1002 = section id, 1003 = deleted flag.
+- There is no "whole database" node in the tree today; binders are the top-level items.
+- Pages live in `pages` (`title`, `content_html`, `section_id`, `parent_page_id`, `deleted_at`).
+  No tags column. Spreadsheets are separate files listed in `spreadsheets`.
+- No full-text index yet. The bundled SQLite (3.50) supports FTS5.
+- Existing helpers to reuse: `two_pane_core.select_left_tree_page` (expands binder, section
+  and parent pages, then selects), `ensure_left_tree_sections`, `load_page`.
+- Menus: File, Insert, Edit (Undo/Redo/paste modes), Help. Ctrl+F is not used yet.
+
+### Suggestions to discuss
+- Search box in the menu bar's top-right corner (`QMenuBar.setCornerWidget`), Ctrl+F to focus it,
+  plus Edit → Find… entry.
+- Scope from the left-panel selection (binder / section / page and its subpages), shown in the
+  box's placeholder ("Search in Recipes"); a way to pick "Whole database" since the tree has no root node.
+- Search page titles and body text (HTML stripped); tables' text comes along with the body.
+  Skip deleted pages unless Show Deleted Items is on.
+- "Nearly match": typo-tolerant by default, with an Exact toggle (and maybe Match case / Whole word).
+- Results: "N of M" counter, Enter / Shift+Enter (or F3 / Shift+F3) for next / previous; each hit
+  expands the tree, selects the page, opens it and highlights the words in the page; Esc clears.
+- Optional "Show matches only" filter that hides non-matching pages in the tree.
+- For large databases: an FTS5 index over title + plain text, kept up to date on page save.
+
+### Status
+Discussion only. No code written yet.
+
+---
+
 ## Future: Full Versioning System
 
 ### Overview
