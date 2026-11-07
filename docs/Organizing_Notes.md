@@ -34,11 +34,12 @@ Pages are where your actual notes live. Each page is a rich-text document.
 
 ## Reordering Items
 
-You can change the order of Binders, Sections, and Pages without dragging:
+You can change the order of Binders, Sections, and Pages in the left panel:
 
-- Select the item in the tree
-- Press **Ctrl+Up** to move it up one position
-- Press **Ctrl+Down** to move it down one position
+- **Drag** an item to its new place. A line shows where it will land.
+- Or select the item and press **Ctrl+Up** or **Ctrl+Down** to move it one place up or down.
+
+A Section stays in its Binder and a Page stays at its own level, so these only change the order. Moving a Section to another Binder, or a Page to another Section, isn't possible yet.
 
 ## Collapsing and Expanding
 

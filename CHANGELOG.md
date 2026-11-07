@@ -1,4 +1,10 @@
 
+## Unreleased
+### Fixed
+- Reordering by dragging in the left panel works again for binders, sections and pages. It had stopped working after the move to PyQt6. Sections stay in their binder and pages stay among their siblings, as before.
+- Ctrl+Up / Ctrl+Down now move a selected section or page up or down. Before, they only moved binders, and with a section selected they moved its whole binder.
+
+
 ## 1.9.1 - 2026-11-07
 ### Changed
 - Windows show NoteBook's scroll icon in their title bar instead of a generic icon. When NoteBook runs from source, the taskbar shows it too.

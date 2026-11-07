@@ -158,6 +158,27 @@ def _install_api_aliases() -> None:
         except Exception:
             pass
 
+    # QAbstractItemView selection and drag-drop modes moved under nested enums in PyQt6.
+    _iv = QtWidgets.QAbstractItemView
+    for _enum, _names in (
+        (
+            "SelectionMode",
+            (
+                "NoSelection",
+                "SingleSelection",
+                "MultiSelection",
+                "ExtendedSelection",
+                "ContiguousSelection",
+            ),
+        ),
+        ("DragDropMode", ("NoDragDrop", "DragOnly", "DropOnly", "DragDrop", "InternalMove")),
+    ):
+        for _n in _names:
+            try:
+                _set_if_missing(_iv, _n, getattr(getattr(_iv, _enum), _n))
+            except Exception:
+                pass
+
     # Provide exec_ aliases expected by PyQt5-era code.
     for cls in (
         QtWidgets.QApplication,

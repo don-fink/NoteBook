@@ -3593,7 +3593,7 @@ def main():
     if action_exit:
         action_exit.triggered.connect(window.close)
 
-    # Keyboard: Ctrl+Up / Ctrl+Down to reorder binders (top-level notebooks)
+    # Keyboard: Ctrl+Up / Ctrl+Down in the left tree moves the selected binder, section or page
     try:
 
         def _move_binder(delta: int):
@@ -3602,10 +3602,13 @@ def main():
                 if tree is None or tree.topLevelItemCount() == 0:
                     return
                 cur = tree.currentItem()
-                # If a section is selected, operate on its parent binder
-                if cur is not None and cur.parent() is not None:
-                    cur = cur.parent()
-                if cur is None or cur.parent() is not None:
+                if cur is None:
+                    return
+                # A selected section or page moves among its own siblings
+                if cur.parent() is not None:
+                    dnd = getattr(window, "_left_tree_dnd_filter", None)
+                    if dnd is not None:
+                        dnd.move_item_by_key(tree, cur, delta)
                     return
                 idx = tree.indexOfTopLevelItem(cur)
                 if idx < 0:

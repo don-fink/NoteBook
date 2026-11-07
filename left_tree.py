@@ -50,19 +50,34 @@ class LeftTreeDnDFilter(QObject):
             return None
         return item if item.parent() is None else item.parent()
 
+    @staticmethod
+    def _event_pos(event):
+        """The mouse position of a drag or drop event (Qt 6 has position(), Qt 5 had pos())."""
+        if hasattr(event, "position"):
+            return event.position().toPoint()
+        if hasattr(event, "pos"):
+            return event.pos()
+        return None
+
     def eventFilter(self, obj, event):
         try:
+            if event.type() not in (
+                QEvent.DragEnter,
+                QEvent.DragMove,
+                QEvent.Drop,
+                QEvent.DragLeave,
+            ):
+                return False
             # Resolve tree and viewport position consistently
+            pos_vp = self._event_pos(event) if event.type() != QEvent.DragLeave else None
             if isinstance(obj, QtWidgets.QTreeWidget):
                 tree = obj
-                pos_vp = event.pos() if hasattr(event, "pos") else None
                 if pos_vp is not None:
                     pos_vp = tree.viewport().mapFrom(tree, pos_vp)
             elif isinstance(obj, QtWidgets.QWidget) and isinstance(
                 obj.parent(), QtWidgets.QTreeWidget
             ):
                 tree = obj.parent()
-                pos_vp = event.pos() if hasattr(event, "pos") else None
             else:
                 return False
 
@@ -181,44 +196,10 @@ class LeftTreeDnDFilter(QObject):
                     if insert_idx == len(siblings) and drag_id is not None:
                         new_order_ids.append(drag_id)
 
-                    # Persist new order
-                    def _persist_rebuild():
-                        try:
-                            from db_pages import set_pages_order
-
-                            db_path = getattr(self._window, "_db_path", "notes.db")
-
-                            # Determine section & parent_page_id
-                            def _section_item_of(item):
-                                cur = item
-                                while cur is not None and cur.data(0, 1001) != "section":
-                                    cur = cur.parent()
-                                return cur
-
-                            sec_item = _section_item_of(parent_item)
-                            sec_id = int(sec_item.data(0, 1000)) if sec_item is not None else None
-                            parent_pid = (
-                                None
-                                if parent_item.data(0, 1001) == "section"
-                                else int(parent_item.data(0, 1000))
-                            )
-                            if new_order_ids and sec_id is not None:
-                                set_pages_order(
-                                    int(sec_id), new_order_ids, db_path, parent_page_id=parent_pid
-                                )
-                            # Rebuild subtree from DB
-                            self._refresh_page_subtree(parent_item, keep_expanded=True)
-                            # Reselect moved page
-                            if drag_id is not None:
-                                found = self._find_descendant_by_id_kind(
-                                    parent_item, "page", drag_id
-                                )
-                                if found is not None:
-                                    tree.setCurrentItem(found)
-                        except Exception:
-                            pass
-
-                    QTimer.singleShot(0, _persist_rebuild)
+                    QTimer.singleShot(
+                        0,
+                        lambda: self._persist_page_order(tree, parent_item, new_order_ids, drag_id),
+                    )
                     event.accept()
                     return True
 
@@ -317,6 +298,67 @@ class LeftTreeDnDFilter(QObject):
                 self._indicator_line.hide()
         except Exception:
             pass
+
+    def _persist_page_order(self, tree, parent_item, new_order_ids, moved_id):
+        """Save the order of the pages under parent_item, rebuild them, and reselect moved_id."""
+        try:
+            from db_pages import set_pages_order
+
+            db_path = getattr(self._window, "_db_path", "notes.db")
+            sec_item = parent_item
+            while sec_item is not None and sec_item.data(0, 1001) != "section":
+                sec_item = sec_item.parent()
+            sec_id = int(sec_item.data(0, 1000)) if sec_item is not None else None
+            parent_pid = (
+                None if parent_item.data(0, 1001) == "section" else int(parent_item.data(0, 1000))
+            )
+            if new_order_ids and sec_id is not None:
+                set_pages_order(int(sec_id), new_order_ids, db_path, parent_page_id=parent_pid)
+            self._refresh_page_subtree(parent_item, keep_expanded=True)
+            if moved_id is not None:
+                found = self._find_descendant_by_id_kind(parent_item, "page", moved_id)
+                if found is not None:
+                    tree.setCurrentItem(found)
+        except Exception:
+            pass
+
+    def move_item_by_key(self, tree: QtWidgets.QTreeWidget, item, delta: int) -> bool:
+        """Ctrl+Up / Ctrl+Down for a section or page: swap it with the sibling above or below.
+
+        Returns True when the item was a section or page (moved or already at the end),
+        False for anything else so the caller can handle binders.
+        """
+        kind = item.data(0, 1001) if item is not None else None
+        parent = item.parent() if item is not None else None
+        if kind not in ("section", "page") or parent is None:
+            return False
+        siblings = [
+            parent.child(j)
+            for j in range(parent.childCount())
+            if parent.child(j).data(0, 1001) == kind
+        ]
+        if item not in siblings:
+            return True
+        idx = siblings.index(item)
+        new_idx = idx + (1 if delta > 0 else -1)
+        if new_idx < 0 or new_idx >= len(siblings):
+            return True
+        siblings[idx], siblings[new_idx] = siblings[new_idx], siblings[idx]
+        if kind == "page":
+            ids = [int(s.data(0, 1000)) for s in siblings]
+            self._persist_page_order(tree, parent, ids, int(item.data(0, 1000)))
+        else:
+            # Put the section in its new place in the tree, then save the binder's section order
+            keep_expanded = bool(item.isExpanded())
+            target = siblings[idx]  # the section the moved one swaps places with
+            parent.removeChild(item)
+            parent.insertChild(parent.indexOfChild(target) + (1 if delta > 0 else 0), item)
+            self._persist_section_order(tree, parent, item, keep_expanded=keep_expanded)
+        try:
+            tree.setFocus(Qt.OtherFocusReason)
+        except Exception:
+            pass
+        return True
 
     def _refresh_page_subtree(
         self, parent_item: QtWidgets.QTreeWidgetItem, keep_expanded: bool = True
