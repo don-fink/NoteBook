@@ -108,6 +108,35 @@ First version built 2026-11-06 (`search_engine.py`, `ui_search.py`). Still to co
 
 ---
 
+## Proposed: Move or Copy Sections (and maybe Pages) to Another Binder (2026-11-07)
+
+### The user's idea
+- Move a section, or a copy of it, into a different binder. Sections first; pages possibly later.
+- A "Move or Copy" kind of command rather than (or as well as) drag-and-drop.
+
+### Facts from the code (for whoever builds it)
+- Today the left panel only reorders: dragging and Ctrl+Up/Down keep a section in its binder and a
+  page among its siblings (`LeftTreeDnDFilter` and `move_item_by_key` in `left_tree.py`).
+- `sections.notebook_id` holds a section's binder; moving one means changing it and giving it an
+  `order_index` at the end of the new binder (`db_sections.set_sections_order`). Its pages follow,
+  since they hang off `section_id`.
+- For pages, `db_pages.set_pages_parent_and_order` can already move pages to another section or
+  parent page, but nothing calls it yet. Subpages would need to come along.
+- A copy needs new rows for the section, every page and subpage (keeping parent links), and the
+  page media: images and attachments live under the database's `.media` folder and are tracked by
+  `media_store`, so copied pages must not share media that a later delete would remove.
+- Deleted (`deleted_at`) sections and pages: decide whether they move/copy along or stay behind.
+
+### Suggestions to discuss
+- Right-click a section → **Move or Copy…**: a window listing the binders, a "Make a copy" checkbox,
+  and where to put it (end of the binder, or before a chosen section).
+- Optionally allow dragging a section onto another binder to move it, with Ctrl held to copy.
+
+### Status
+Proposed; not started.
+
+---
+
 ## Future: Full Versioning System
 
 ### Overview
