@@ -29,7 +29,7 @@ a = Analysis(
     ['main.py'],
     pathex=[],
     binaries=enchant_binaries,
-    datas=[('ui_forms', 'ui_forms'), ('themes', 'themes'), ('docs', 'docs'), ('schema.sql', '.'), ('add_to_start_menu.cmd', '.'), ('clear_icon_cache.cmd', '.'), ('README.md', '.')] + enchant_datas,
+    datas=[('ui_forms', 'ui_forms'), ('themes', 'themes'), ('docs', 'docs'), ('schema.sql', '.'), ('add_to_start_menu.cmd', '.'), ('clear_icon_cache.cmd', '.'), ('README.md', '.'), ('scripts/Notebook_icon.ico', 'scripts')] + enchant_datas,
     hiddenimports=['qt_compat', 'sqlite3', 'settings_manager', 'db_access', 'db_pages', 'db_sections', 'db_presets', 'db_version', 'media_store', 'ui_loader', 'ui_logic', 'ui_richtext', 'ui_sections', 'ui_planning_register', 'ui_presets', 'theme_manager', 'ui_messages', 'ui_search', 'search_engine', 'left_tree', 'page_editor', 'two_pane_core', 'spell_check', 'enchant', 'spreadsheet_store', 'spreadsheet_editor', 'openpyxl'],
     hookspath=[],
     hooksconfig={},

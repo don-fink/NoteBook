@@ -419,6 +419,33 @@ def open_database(window):
         pass
 
 
+def _set_taskbar_identity():
+    """When run from source, show NoteBook's own icon in the taskbar instead of Python's.
+
+    Windows groups a process under its executable (python.exe) unless it names itself. The
+    built NoteBook.exe already has its own identity, so it's left alone there."""
+    if sys.platform != "win32" or getattr(sys, "frozen", False):
+        return
+    try:
+        import ctypes
+
+        ctypes.windll.shell32.SetCurrentProcessExplicitAppUserModelID("NoteBook.Source")
+    except Exception:
+        pass
+
+
+def _set_app_icon(app):
+    """Use NoteBook's icon for every window's title bar (and the taskbar)."""
+    try:
+        path = os.path.join(
+            os.path.dirname(os.path.abspath(__file__)), "scripts", "Notebook_icon.ico"
+        )
+        if os.path.isfile(path):
+            app.setWindowIcon(QtGui.QIcon(path))
+    except Exception:
+        pass
+
+
 def _enable_faulthandler(log_path: str):
     """Enable Python faulthandler to dump tracebacks on fatal errors (e.g., segfaults).
 
@@ -1756,7 +1783,9 @@ def main():
             pass
     except Exception:
         pass
+    _set_taskbar_identity()
     app = QtWidgets.QApplication(sys.argv)
+    _set_app_icon(app)
 
     # Install a global exception hook so unexpected errors surface in a dialog instead of closing silently
     try:

@@ -1,4 +1,9 @@
 
+## Unreleased
+### Changed
+- Windows show NoteBook's scroll icon in their title bar instead of a generic icon. When NoteBook runs from source, the taskbar shows it too.
+
+
 ## 1.9.0 - 2026-11-06
 ### Added
 - Search: a search box at the top right of the window (Ctrl+F, or Edit → Find…). It searches the binder selected in the left panel (or the binder of the selected section or page), shown next to the box, or the whole database (a remembered choice); a Search everywhere link widens a binder search to the whole database in one click. Small typos are forgiven unless Exact matches only is on. Each result opens, is selected in the left panel and has its matching words highlighted; Enter / F3 and Shift+Enter / Shift+F3 step through the results.
