@@ -1,5 +1,5 @@
 
-## Unreleased
+## 1.9.1 - 2026-11-07
 ### Changed
 - Windows show NoteBook's scroll icon in their title bar instead of a generic icon. When NoteBook runs from source, the taskbar shows it too.
 
