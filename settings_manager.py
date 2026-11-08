@@ -275,9 +275,7 @@ _LAST_LOAD_FAILED = False  # True while settings can't be read; saving is skippe
 def _log_settings_event(message: str):
     """Append a timestamped line to settings_events.log next to settings.json."""
     try:
-        log_path = os.path.join(
-            os.path.dirname(_resolve_settings_path()), _EVENTS_LOG_BASENAME
-        )
+        log_path = os.path.join(os.path.dirname(_resolve_settings_path()), _EVENTS_LOG_BASENAME)
         try:
             if os.path.getsize(log_path) > _EVENTS_LOG_MAX_BYTES:
                 with open(log_path, "r", encoding="utf-8", errors="replace") as f:
