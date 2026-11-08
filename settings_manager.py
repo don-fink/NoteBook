@@ -8,6 +8,7 @@ import os
 import re
 import shutil
 import sys
+import time
 
 # --- Settings file location strategy ---
 # We now store settings in a per-user configuration directory instead of the
@@ -248,24 +249,148 @@ def get_storage_diagnostics() -> dict:
     }
 
 
-def load_settings():
-    path = _resolve_settings_path()
+# --- Reading and writing settings.json safely ---
+# Every setting is changed by reading the whole file, changing one key and writing
+# it all back. So a read that fails must never be treated as "no settings": the
+# next save would write a nearly empty file and everything else would be lost.
+#   - Writes go to settings.json.tmp, which is then swapped in, so settings.json is
+#     always a complete old or new version, never half-written.
+#   - Each save also writes settings.json.bak, which is read if settings.json is
+#     missing or damaged.
+#   - A locked file is retried briefly. If neither file can be read, saving is
+#     skipped until a read works again, leaving the file on disk alone.
+#   - Any retry, fallback or skipped save is noted in settings_events.log.
+
+_BACKUP_SUFFIX = ".bak"
+_TEMP_SUFFIX = ".tmp"
+_EVENTS_LOG_BASENAME = "settings_events.log"
+_EVENTS_LOG_MAX_BYTES = 200 * 1024
+_READ_ATTEMPTS = 5
+_REPLACE_ATTEMPTS = 5
+_RETRY_DELAY_SECONDS = 0.05
+
+_LAST_LOAD_FAILED = False  # True while settings can't be read; saving is skipped then
+
+
+def _log_settings_event(message: str):
+    """Append a timestamped line to settings_events.log next to settings.json."""
     try:
-        if os.path.exists(path):
-            with open(path, "r", encoding="utf-8-sig") as f:
-                return json.load(f)
+        log_path = os.path.join(
+            os.path.dirname(_resolve_settings_path()), _EVENTS_LOG_BASENAME
+        )
+        try:
+            if os.path.getsize(log_path) > _EVENTS_LOG_MAX_BYTES:
+                with open(log_path, "r", encoding="utf-8", errors="replace") as f:
+                    lines = f.readlines()
+                with open(log_path, "w", encoding="utf-8") as f:
+                    f.writelines(lines[len(lines) // 2 :])
+        except OSError:
+            pass
+        stamp = time.strftime("%Y-%m-%d %H:%M:%S")
+        with open(log_path, "a", encoding="utf-8") as f:
+            f.write(f"{stamp}  {message}\n")
     except Exception:
         pass
+
+
+def _read_settings_file(path: str) -> dict:
+    """Read one settings file; raise if it can't be read or isn't a JSON object."""
+    with open(path, "r", encoding="utf-8-sig") as f:
+        data = json.load(f)
+    if not isinstance(data, dict):
+        raise ValueError("settings file does not hold a JSON object")
+    return data
+
+
+def _read_with_retries(path: str):
+    """Return (data, error, attempts). data is None if every attempt failed."""
+    last_error = None
+    for attempt in range(1, _READ_ATTEMPTS + 1):
+        try:
+            return _read_settings_file(path), None, attempt
+        except Exception as e:
+            last_error = e
+            if attempt < _READ_ATTEMPTS:
+                time.sleep(_RETRY_DELAY_SECONDS * attempt)
+    return None, last_error, _READ_ATTEMPTS
+
+
+def load_settings():
+    global _LAST_LOAD_FAILED
+    path = _resolve_settings_path()
+    backup_path = path + _BACKUP_SUFFIX
+    main_exists = os.path.exists(path)
+
+    if main_exists:
+        data, error, attempts = _read_with_retries(path)
+        if data is not None:
+            if attempts > 1:
+                _log_settings_event(f"Read settings.json after {attempts} tries.")
+            _LAST_LOAD_FAILED = False
+            return data
+        problem = f"settings.json could not be read ({error})"
+    elif os.path.exists(backup_path):
+        problem = "settings.json is missing"
+    else:
+        # Nothing saved yet (new install): start fresh.
+        _LAST_LOAD_FAILED = False
+        return {}
+
+    if os.path.exists(backup_path):
+        data, backup_error, _attempts = _read_with_retries(backup_path)
+        if data is not None:
+            _log_settings_event(f"{problem}; used settings.json.bak instead.")
+            _LAST_LOAD_FAILED = False
+            return data
+        problem += f"; settings.json.bak could not be read either ({backup_error})"
+
+    if not _LAST_LOAD_FAILED:
+        _log_settings_event(f"{problem}. Saving is paused so the file isn't overwritten.")
+    _LAST_LOAD_FAILED = True
     return {}
 
 
+def _replace_with_retries(src: str, dst: str):
+    for attempt in range(1, _REPLACE_ATTEMPTS + 1):
+        try:
+            os.replace(src, dst)
+            return
+        except OSError:
+            if attempt == _REPLACE_ATTEMPTS:
+                raise
+            time.sleep(_RETRY_DELAY_SECONDS * attempt)
+
+
 def save_settings(settings):
+    if _LAST_LOAD_FAILED:
+        _log_settings_event("Skipped a save because the settings couldn't be read.")
+        return
     path = _resolve_settings_path()
+    text = json.dumps(settings, indent=2)
+    if not _write_file_safely(path, text):
+        return
+    # Keep the backup copy identical to what was just saved
+    _write_file_safely(path + _BACKUP_SUFFIX, text)
+
+
+def _write_file_safely(path: str, text: str) -> bool:
+    """Write text to path via a temp file swapped into place. Return True on success."""
+    tmp_path = path + _TEMP_SUFFIX
     try:
-        with open(path, "w", encoding="utf-8") as f:
-            json.dump(settings, f, indent=2)
-    except Exception:
-        pass
+        with open(tmp_path, "w", encoding="utf-8") as f:
+            f.write(text)
+            f.flush()
+            os.fsync(f.fileno())
+        _replace_with_retries(tmp_path, path)
+        return True
+    except Exception as e:
+        _log_settings_event(f"Could not save {os.path.basename(path)} ({e}).")
+        try:
+            if os.path.exists(tmp_path):
+                os.remove(tmp_path)
+        except Exception:
+            pass
+        return False
 
 
 def set_settings_file_path(full_path: str):

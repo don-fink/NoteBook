@@ -8,6 +8,7 @@ Output format:
 - Contents:
   - <db_filename> (the SQLite database file)
   - media/ ... (if media folder exists, full folder tree under 'media/')
+  - settings/settings.json (a copy of the settings file at the time of the backup)
 """
 
 from __future__ import annotations
@@ -168,6 +169,16 @@ def make_exit_backup(
                     media_dir = None
                 if media_dir and os.path.isdir(media_dir):
                     _zip_add_dir(zf, media_dir, "media")
+
+            # A copy of settings.json, so good settings can be found in older bundles
+            try:
+                from settings_manager import get_settings_file_path
+
+                settings_path = get_settings_file_path()
+                if os.path.isfile(settings_path):
+                    _zip_add_file(zf, settings_path, "settings/settings.json")
+            except Exception:
+                pass
         # Atomic-ish move into place (on Windows, this replaces if exists)
         try:
             os.replace(tmp_path, bundle_path)

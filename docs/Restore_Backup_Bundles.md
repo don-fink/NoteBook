@@ -6,6 +6,7 @@ Each backup bundle normally contains:
 
 - The SQLite database file at the root of the archive, such as `notes.db`
 - A `media/` folder if that database has stored images or attachments
+- A `settings/` folder holding a copy of `settings.json` as it was when the backup was made (backups made by versions after 1.9.1)
 
 ## Important: Backup Rotation Is Per Database Name
 
@@ -71,6 +72,22 @@ When you are not sure which backup is good:
 5. Keep the restored file under its own name until you are sure it is the version you want.
 
 This avoids accidentally mixing a recovery copy into the backup rotation of your original working database.
+
+## Restoring Your Settings
+
+NoteBook keeps its settings (the last database, backup options, window layout and so on) in a file called `settings.json`. NoteBook also keeps a spare copy beside it, `settings.json.bak`, and uses it automatically if `settings.json` is ever damaged.
+
+If your settings are lost anyway, you can bring back an older copy from a backup bundle:
+
+1. Close NoteBook.
+2. In NoteBook's settings folder, find the current `settings.json`. **Tools > Storage Diagnostics** shows where it is. On Windows it's usually `C:\Users\<your name>\AppData\Local\NoteBook`.
+3. Rename the current `settings.json` to something like `settings_old.json`, so you can go back to it.
+4. Open a `.bundle` from before the problem started, as described above, and copy `settings/settings.json` out of it into that settings folder.
+5. Start NoteBook and check that it opens your database and that your backup options are back.
+
+Settings belong to one computer. They include that computer's folder locations and window positions, so restore a computer's settings from that computer's own backups.
+
+Deleting `settings.json` alone does not reset NoteBook's settings, because NoteBook will read `settings.json.bak` instead. To start completely fresh, close NoteBook and remove both files.
 
 ## Notes
 
